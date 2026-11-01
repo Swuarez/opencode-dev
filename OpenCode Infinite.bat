@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 title OpenCode-Infinite
 REM ============================================================
-REM  OpenCode launcher  (v2.45)
+REM  OpenCode launcher  (v2.46)
 REM  Multi-egress (WARP / TOR / free HTTP) + dependency bootstrap
 REM  + auto-resume.
 REM  v2.22 - v2.29: every fixed bug carries an inline "REM v2.2x:"
@@ -835,7 +835,7 @@ set "LOG_ARGS=%*"
 if defined LOG_ARGS set "LOG_ARGS=%LOG_ARGS:"='%"
 set "LOG_OSV="
 for /f "tokens=*" %%v in ('ver') do if not defined LOG_OSV set "LOG_OSV=%%v"
-call :log "start v2.45 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
+call :log "start v2.46 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
 REM v2.30: one official copy. Setup copies this file to STATE_DIR\app and the opencode
 REM command runs that copy. A duplicate (a second download, "(1)") hands over to it, or
 REM replaces it when it is the newer one.
@@ -5132,6 +5132,31 @@ REM      The current script ends right after starting it: no batch
 REM      line is ever read from a file that is being swapped.
 REM The check is fully silent when the network is down or the repo is
 REM unreachable: the launcher never blocks its start on GitHub.
+REM v2.46: the same release carries OpenCode Infinite.exe (the C++ app). When it
+REM sits next to this launcher it is checked against the release tag and its
+REM SHA256SUMS line. It is replaced only on Y, and only with a file whose SHA-256
+REM matches. Network failure is silent, like the launcher check.
+:exe_update
+set "EXE_T=%~dp0OpenCode Infinite.exe"
+if not exist "%EXE_T%" goto :eof
+set "EXE_TMP=%STATE_DIR%\upd_remote.exe"
+if exist "%EXE_TMP%" del /f /q "%EXE_TMP%" >nul 2>&1
+"%PSX%" -NoProfile -Command "$ProgressPreference='SilentlyContinue'; try{ [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $t=$env:SU_TAG; $sf=$env:EXE_TMP+'.sums'; Invoke-WebRequest -UseBasicParsing -Uri ('https://gitlab.com/jekooo/opencode-infinite/-/raw/'+$t+'/SHA256SUMS') -OutFile $sf -TimeoutSec 15; $h=$null; foreach($l in [IO.File]::ReadAllLines($sf)){ if($l -match '^([0-9a-fA-F]{64}) [ *]OpenCode Infinite[.]exe$'){ $h=$Matches[1] } }; Remove-Item -LiteralPath $sf -Force; if(-not $h){ exit 3 }; if((Get-FileHash -LiteralPath $env:EXE_T -Algorithm SHA256).Hash -ieq $h){ exit 4 }; Invoke-WebRequest -UseBasicParsing -Uri ('https://gitlab.com/jekooo/opencode-infinite/-/releases/'+$t+'/downloads/OpenCode-Infinite.exe') -OutFile $env:EXE_TMP -TimeoutSec 120; if((Get-FileHash -LiteralPath $env:EXE_TMP -Algorithm SHA256).Hash -ine $h){ Remove-Item -LiteralPath $env:EXE_TMP -Force; exit 2 }; exit 0 }catch{ exit 1 }" >nul 2>&1
+set "EXE_RC=%errorlevel%"
+if "%EXE_RC%"=="4" goto :eof
+if "%EXE_RC%"=="0" goto :exe_ask
+if "%EXE_RC%"=="2" call echo   [upd] OpenCode Infinite.exe failed its SHA-256 check - not replaced.
+del /f /q "%EXE_TMP%" >nul 2>&1
+goto :eof
+:exe_ask
+call :yn_upd "   Replace OpenCode Infinite.exe with %SU_TAG%? [Y/N]: "
+if errorlevel 2 goto :exe_no
+copy /y "%EXE_TMP%" "%EXE_T%" >nul 2>&1
+if errorlevel 1 call echo   [upd] OpenCode Infinite.exe is in use. Close it and start the launcher again.
+:exe_no
+del /f /q "%EXE_TMP%" >nul 2>&1
+goto :eof
+
 :self_update
 call :trace upd_start
 set "SU_TMP=%STATE_DIR%\upd_remote.bat"
@@ -5156,6 +5181,7 @@ for /f "usebackq delims=" %%s in ("%SU_TAG_OUT%") do set "SU_TAG=%%s"
 del /f /q "%SU_TAG_OUT%" >nul 2>&1
 if not defined SU_TAG goto :su_delete
 call :trace upd_tag %SU_TAG%
+call :exe_update
 :su_size
 set "SU_OK="
 if exist "%SU_TMP%" for %%s in ("%SU_TMP%") do if %%~zs GEQ 20000 set "SU_OK=1"
@@ -7011,7 +7037,7 @@ function New-Report {
   $total = 6
   & $A 'OpenCode Infinite - support report'
   & $A ('Generated   ' + (Get-Date).ToString('o'))
-  & $A 'Launcher    v2.45'
+  & $A 'Launcher    v2.46'
   & $A ('File        ' + $Self)
   try { $fi = Get-Item -LiteralPath $Self; & $A ('Size/date   ' + $fi.Length + ' bytes, ' + $fi.LastWriteTime.ToString('s')); & $A ('SHA-256     ' + (Get-FileHash -LiteralPath $Self -Algorithm SHA256).Hash) } catch { }
   & $A 'Personal data (user name, PC name, e-mails, tokens, passwords, and by default public IPs) is removed from this file. Read it before sharing.'
@@ -7206,7 +7232,7 @@ function Menu-Main {
     @{ L = ($script:I.back + ' Back'); C = 10; H = 'Return to the home screen.' },
     @{ L = ($script:I.err + ' Exit'); C = 6; H = 'Close the launcher.' })
   $head = Header-Lines
-  $r = Show-Menu 'OpenCode' $items ('v2.45   ' + $Repo) $head 0
+  $r = Show-Menu 'OpenCode' $items ('v2.46   ' + $Repo) $head 0
   if ($r -eq -1) { exit 10 }
   exit $items[$r].C
 }
@@ -7377,7 +7403,7 @@ function Home-Loop {
       $head += ''
     }
     if ($script:Notice) { $head += (P (Style $script:Notice[0]) ($script:I.warn + ' ' + (T $script:Notice[1]))); $head += ''; $script:Notice = $null }
-    $r = Show-Menu 'Main menu' $items ('v2.45   ' + $Self) $head $pos $true
+    $r = Show-Menu 'Main menu' $items ('v2.46   ' + $Self) $head $pos $true
     if ($r -eq -1) { continue }
     $pos = $r
     Log ('home -> ' + $acts[$r])

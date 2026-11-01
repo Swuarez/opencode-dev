@@ -18,7 +18,7 @@ The sections marked **Windows only** below are not on Linux.
 
 ## Status (v2.45, 2026-11-01)
 
-**Windows (`OpenCode Infinite.bat`):** v2.45 is the latest version. It fixes the watcher closing the window with "3 was unexpected at this time." after a fatal error when the chat was resumed (the rotation now starts with a defined quota counter), and logs the fatal line that triggered the rotation. v2.44 fixed the repeated "Review" lines on the rainbow theme in short windows. v2.43 keeps the tokens across restarts, retries a crashed OpenCode on the same IP (stops after 3 crashes in 10 minutes), and searches for the Desktop app again on request. Updates now come only from GitLab releases, checked with SHA-256 (section 11). Checked on a real Windows 11 PC:
+**Windows (`OpenCode Infinite.bat`):** v2.46 is the latest version. The same release ships `OpenCode Infinite.exe` (the C++ app) and `opencode-infinite.sh`; the launcher offers to replace an `.exe` that sits next to it (section 11). v2.45 fixes the watcher closing the window with "3 was unexpected at this time." after a fatal error when the chat was resumed (the rotation now starts with a defined quota counter), and logs the fatal line that triggered the rotation. v2.44 fixed the repeated "Review" lines on the rainbow theme in short windows. v2.43 keeps the tokens across restarts, retries a crashed OpenCode on the same IP (stops after 3 crashes in 10 minutes), and searches for the Desktop app again on request. Updates now come only from GitLab releases, checked with SHA-256 (section 11). Checked on a real Windows 11 PC:
 
 - **WARP:** `warp-cli` exit codes are read correctly. The real `warp-cli` returns 0 for `status` and `settings`. A failing command returns its code and writes the daemon's message to `wcli.log`. If a WARP step fails (protocol, mode, port or connect), the launcher stops there and reports it. It does **not** fall back to WireGuard.
 - **VPN Gate:** connects with OpenVPN to real servers. OpenCode's IPv4 traffic leaves through the tunnel, the rest of the PC stays direct, and the routes are removed on stop. The OpenVPN log is read while the tunnel runs, and when OpenCode's IPs leave the routes the status shows DOWN and the launcher reconnects.
@@ -363,6 +363,7 @@ directly: `bash opencode-infinite.sh --run`.
 **Windows.** With `UPDATE_CHECK=1`, every start checks three things:
 
 - **A newer launcher** in the latest [release](https://gitlab.com/jekooo/opencode-infinite/-/releases). The launcher reads the release tag, downloads the file and `SHA256SUMS` at that tag, and keeps the file only when its SHA-256 matches and its header carries the tag's version. It never takes a file from `main` that has no release. It asks `[Y/N]`. On `Y`, it keeps a backup of the current file, replaces it and restarts. A failed checksum is shown and nothing changes.
+- **The same release's `OpenCode Infinite.exe`** (the C++ app). When an `OpenCode Infinite.exe` sits next to the launcher, it is checked against its line in the same `SHA256SUMS` and downloaded only when the SHA-256 matches. It asks `[Y/N]` before replacing it. The Linux script takes its own line from the same file.
 - **A newer OpenCode** from opencode.ai (official release data, SHA-256 checked). It asks `[Y/N]`, closes every OpenCode process, then installs. It uses the same channel as the running command: npm or the standalone build.
 - **A newer OpenCode Desktop** (Desktop mode only). Same flow, with the silent installer.
 
@@ -370,14 +371,14 @@ No network, or an unreadable version, changes nothing.
 
 **Linux.** On start the launcher checks the latest release for a newer copy of itself, with the same SHA-256 check (it backs up the old file and asks first) and for a newer OpenCode through npm (it asks first). **Check for updates** in Settings > Support runs the same check now.
 
-`Update launcher.bat` uses the same source and the same check.
+`Update launcher.bat` uses the same source and the same check. It is kept in the repository and is not attached to the releases; it still fetches the launcher from the latest release.
 
 **Publishing a version** (maintainers):
 
 1. Raise the version in the launcher header (`REM  OpenCode launcher  (vX.Y)`) and, for Linux, `VERSION=` in the script.
-2. Write the checksums and commit them with the files: `sha256sum "OpenCode Infinite.bat" "Update launcher.bat" opencode-infinite.sh > SHA256SUMS`
+2. Write the checksums and commit them with the files: `sha256sum "OpenCode Infinite.bat" opencode-infinite.sh > SHA256SUMS`. The `.exe` is built from `C++/` and is not committed; add its line for `OpenCode Infinite.exe` by hand (`sha256sum` of the built file), from a copy kept next to the other files.
 3. Push a tag with the same version: `git tag vX.Y && git push origin main vX.Y`
-4. Create the release for that tag in GitLab (**Deploy > Releases > New release**) and attach `OpenCode Infinite.bat` and `SHA256SUMS`.
+4. Create the release for that tag in GitLab (**Deploy > Releases > New release**) and attach `OpenCode Infinite.bat`, `opencode-infinite.sh`, `SHA256SUMS` and the built `.exe` as `OpenCode-Infinite.exe` (the launcher downloads it from that path). `Update launcher.bat` is not attached.
 
 The launcher only reads the latest release's tag and checks the file against `SHA256SUMS` at that tag, so a commit on `main` without a release reaches nobody. `.gitattributes` keeps the `.bat` files with CRLF in the repository, so the downloaded bytes are the ones that were hashed.
 
