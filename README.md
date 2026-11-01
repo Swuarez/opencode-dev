@@ -375,8 +375,9 @@ No network, or an unreadable version, changes nothing.
 1. Raise the version in the launcher header (`REM  OpenCode launcher  (vX.Y)`) and, for Linux, `VERSION=` in the script.
 2. Write the checksums and commit them with the files: `sha256sum "OpenCode Infinite.bat" "Update launcher.bat" opencode-infinite.sh > SHA256SUMS`
 3. Push a tag with the same version: `git tag vX.Y && git push origin main vX.Y`
+4. Create the release for that tag in GitLab (**Deploy > Releases > New release**) and attach `OpenCode Infinite.bat` and `SHA256SUMS`.
 
-The CI job in `.gitlab-ci.yml` then checks `SHA256SUMS` and the header version, and creates the release. If either check fails, no release is made and users keep the previous one. `.gitattributes` keeps the `.bat` files with CRLF in the repository, so the downloaded bytes are the ones that were hashed.
+The launcher only reads the latest release's tag and checks the file against `SHA256SUMS` at that tag, so a commit on `main` without a release reaches nobody. `.gitattributes` keeps the `.bat` files with CRLF in the repository, so the downloaded bytes are the ones that were hashed.
 
 ---
 
