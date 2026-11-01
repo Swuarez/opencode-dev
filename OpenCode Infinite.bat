@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 title OpenCode-Infinite
 REM ============================================================
-REM  OpenCode launcher  (v2.44)
+REM  OpenCode launcher  (v2.45)
 REM  Multi-egress (WARP / TOR / free HTTP) + dependency bootstrap
 REM  + auto-resume.
 REM  v2.22 - v2.29: every fixed bug carries an inline "REM v2.2x:"
@@ -835,7 +835,7 @@ set "LOG_ARGS=%*"
 if defined LOG_ARGS set "LOG_ARGS=%LOG_ARGS:"='%"
 set "LOG_OSV="
 for /f "tokens=*" %%v in ('ver') do if not defined LOG_OSV set "LOG_OSV=%%v"
-call :log "start v2.44 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
+call :log "start v2.45 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
 REM v2.30: one official copy. Setup copies this file to STATE_DIR\app and the opencode
 REM command runs that copy. A duplicate (a second download, "(1)") hands over to it, or
 REM replaces it when it is the newer one.
@@ -2012,6 +2012,11 @@ REM Only the message for the current WHY value is shown.
 :quota_rotate
 call :log "rotating: reason=%WHY% egress=%EGRESS% opencode-exit=%EC%" rotate
 call :chat_snapshot
+REM v2.45: QUOTA_STREAK is set only by a fresh start and by a clean close. A resume (continue)
+REM or a watcher hit reached the next line with it empty, and then "if %QUOTA_STREAK% GTR ..."
+REM is a syntax error that closes the window ("3 was unexpected at this time.").
+if not defined QUOTA_STREAK set "QUOTA_STREAK=0"
+if not defined LIMIT_ROT_MAX set "LIMIT_ROT_MAX=3"
 if "%WHY%"=="quota" set /a QUOTA_STREAK+=1
 if "%WHY%"=="quota" if %QUOTA_STREAK% GTR %LIMIT_ROT_MAX% goto :limit_action
 if "%WHY%"=="exit" call echo %T_319%
@@ -2836,6 +2841,8 @@ REM Paths and settings passed to the watcher through the environment.
 set "OC_WPIDF=%STATE_DIR%\watch.pid"
 set "OC_TPIDF=%STATE_DIR%\tui.pid"
 set "OC_HITF=%STATE_DIR%\watch_hit.txt"
+REM v2.45: the watcher writes the fatal line to launcher.log, so the cause of a rotation is kept.
+set "OC_LAUNCHLOG=%STATE_DIR%\launcher.log"
 set "OC_LOGF=%LOGFILE%"
 set "OC_OFF=%SIZE_BEFORE%"
 set "OC_FATPAT=%OC_PAT%"
@@ -2853,7 +2860,7 @@ REM  3) loop every 2 s: read new log bytes, look for a fatal pattern,
 REM     re-read after 4 s, ignore it if INFO or DEBUG lines followed,
 REM     otherwise write the hit marker and kill the TUI process tree.
 REM v2.40: the watcher saves PID|StartTime so :watch_stop never kills a process that reused its PID.
-start "" /b "%PSX%" -NoProfile -Command "([string]$PID + '|' + (Get-Process -Id $PID).StartTime.Ticks) | Set-Content -LiteralPath $env:OC_WPIDF; $tpid=0; $off=0; $tick=0; $pfail=0; if($env:OC_OFF){$off=[int64]$env:OC_OFF}; $dl=(Get-Date).AddSeconds(60); while($tpid -eq 0){ if((Get-Date) -gt $dl){exit 0}; if(Test-Path -LiteralPath $env:OC_TPIDF){ $c=(Get-Content -LiteralPath $env:OC_TPIDF -ErrorAction SilentlyContinue | Select-Object -First 1); if($c){$tpid=[int]$c} }; if($tpid -eq 0){Start-Sleep -Seconds 1} }; while($true){ Start-Sleep -Seconds 2; $p=Get-Process -Id $tpid -ErrorAction SilentlyContinue; if(-not $p){exit 0}; $tick++; if($tick -ge 30){ $tick=0; if($env:OC_WATCHP){ try{ $hp=($env:OC_WATCHP -replace '^[A-Za-z0-9]+://',''); $ix=$hp.LastIndexOf([char]58); $ph=$hp.Substring(0,$ix); $pp=[int]$hp.Substring($ix+1); $c=New-Object Net.Sockets.TcpClient; $ar=$c.BeginConnect($ph,$pp,$null,$null); if($ar.AsyncWaitHandle.WaitOne(2500)){ $c.EndConnect($ar); $c.Close(); $pfail=0 } else { $pfail++ } }catch{ try{$c.Close()}catch{}; $pfail++ }; if($pfail -ge 3){ try{ Set-Content -LiteralPath $env:OC_PWARNF -Value ('egress proxy stopped answering: ' + $env:OC_WATCHP) }catch{}; $pfail=0 } } }; $t=''; try{ $fs=[IO.File]::Open($env:OC_LOGF,'Open','Read','ReadWrite'); if($fs.Length -lt $off){$off=0}; if($fs.Length -gt $off){ [void]$fs.Seek($off,'Begin'); $sr=New-Object IO.StreamReader($fs); $t=$sr.ReadToEnd(); $off=$fs.Length; $sr.Close() } else { $fs.Close() } }catch{ continue }; if(-not ($t -match $env:OC_FATPAT)){ continue }; Start-Sleep -Seconds 4; $t2=''; try{ $fs2=[IO.File]::Open($env:OC_LOGF,'Open','Read','ReadWrite'); if($fs2.Length -gt $off){ [void]$fs2.Seek($off,'Begin'); $sr2=New-Object IO.StreamReader($fs2); $t2=$sr2.ReadToEnd(); $off=$fs2.Length; $sr2.Close() } else { $fs2.Close() } }catch{}; $lines=($t+$t2) -split [char]10; $idx=-1; for($i=0;$i -lt $lines.Count;$i++){ if($lines[$i] -match $env:OC_FATPAT){$idx=$i} }; $rec=$false; if($idx -ge 0){ for($j=$idx+1;$j -lt $lines.Count;$j++){ if($lines[$j] -match 'level=(INFO|DEBUG)'){$rec=$true} } }; if($rec){ continue }; $p2=Get-Process -Id $tpid -ErrorAction SilentlyContinue; if($p2){ try{Set-Content -LiteralPath $env:OC_HITF -Value 'HIT'}catch{}; Start-Process taskkill.exe -ArgumentList @('/T','/F','/PID',$tpid) -WindowStyle Hidden -Wait; exit 1 } }"     
+start "" /b "%PSX%" -NoProfile -Command "([string]$PID + '|' + (Get-Process -Id $PID).StartTime.Ticks) | Set-Content -LiteralPath $env:OC_WPIDF; $tpid=0; $off=0; $tick=0; $pfail=0; if($env:OC_OFF){$off=[int64]$env:OC_OFF}; $dl=(Get-Date).AddSeconds(60); while($tpid -eq 0){ if((Get-Date) -gt $dl){exit 0}; if(Test-Path -LiteralPath $env:OC_TPIDF){ $c=(Get-Content -LiteralPath $env:OC_TPIDF -ErrorAction SilentlyContinue | Select-Object -First 1); if($c){$tpid=[int]$c} }; if($tpid -eq 0){Start-Sleep -Seconds 1} }; while($true){ Start-Sleep -Seconds 2; $p=Get-Process -Id $tpid -ErrorAction SilentlyContinue; if(-not $p){exit 0}; $tick++; if($tick -ge 30){ $tick=0; if($env:OC_WATCHP){ try{ $hp=($env:OC_WATCHP -replace '^[A-Za-z0-9]+://',''); $ix=$hp.LastIndexOf([char]58); $ph=$hp.Substring(0,$ix); $pp=[int]$hp.Substring($ix+1); $c=New-Object Net.Sockets.TcpClient; $ar=$c.BeginConnect($ph,$pp,$null,$null); if($ar.AsyncWaitHandle.WaitOne(2500)){ $c.EndConnect($ar); $c.Close(); $pfail=0 } else { $pfail++ } }catch{ try{$c.Close()}catch{}; $pfail++ }; if($pfail -ge 3){ try{ Set-Content -LiteralPath $env:OC_PWARNF -Value ('egress proxy stopped answering: ' + $env:OC_WATCHP) }catch{}; $pfail=0 } } }; $t=''; try{ $fs=[IO.File]::Open($env:OC_LOGF,'Open','Read','ReadWrite'); if($fs.Length -lt $off){$off=0}; if($fs.Length -gt $off){ [void]$fs.Seek($off,'Begin'); $sr=New-Object IO.StreamReader($fs); $t=$sr.ReadToEnd(); $off=$fs.Length; $sr.Close() } else { $fs.Close() } }catch{ continue }; if(-not ($t -match $env:OC_FATPAT)){ continue }; Start-Sleep -Seconds 4; $t2=''; try{ $fs2=[IO.File]::Open($env:OC_LOGF,'Open','Read','ReadWrite'); if($fs2.Length -gt $off){ [void]$fs2.Seek($off,'Begin'); $sr2=New-Object IO.StreamReader($fs2); $t2=$sr2.ReadToEnd(); $off=$fs2.Length; $sr2.Close() } else { $fs2.Close() } }catch{}; $lines=($t+$t2) -split [char]10; $idx=-1; for($i=0;$i -lt $lines.Count;$i++){ if($lines[$i] -match $env:OC_FATPAT){$idx=$i} }; $rec=$false; if($idx -ge 0){ for($j=$idx+1;$j -lt $lines.Count;$j++){ if($lines[$j] -match 'level=(INFO|DEBUG)'){$rec=$true} } }; if($rec){ continue }; $p2=Get-Process -Id $tpid -ErrorAction SilentlyContinue; if($p2){ try{ $fl=[string]$lines[[Math]::Max($idx,0)]; $fl=($fl -replace '\s+',' ').Trim(); if($fl.Length -gt 300){$fl=$fl.Substring(0,300)}; Add-Content -LiteralPath $env:OC_LAUNCHLOG -Encoding OEM -Value ('[' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '] [watch] fatal line: ' + $fl) }catch{}; try{Set-Content -LiteralPath $env:OC_HITF -Value 'HIT'}catch{}; Start-Process taskkill.exe -ArgumentList @('/T','/F','/PID',$tpid) -WindowStyle Hidden -Wait; exit 1 } }"     
 goto :eof
 
 REM Stop the watcher and remove the PID files once the TUI has closed.
@@ -7004,7 +7011,7 @@ function New-Report {
   $total = 6
   & $A 'OpenCode Infinite - support report'
   & $A ('Generated   ' + (Get-Date).ToString('o'))
-  & $A 'Launcher    v2.44'
+  & $A 'Launcher    v2.45'
   & $A ('File        ' + $Self)
   try { $fi = Get-Item -LiteralPath $Self; & $A ('Size/date   ' + $fi.Length + ' bytes, ' + $fi.LastWriteTime.ToString('s')); & $A ('SHA-256     ' + (Get-FileHash -LiteralPath $Self -Algorithm SHA256).Hash) } catch { }
   & $A 'Personal data (user name, PC name, e-mails, tokens, passwords, and by default public IPs) is removed from this file. Read it before sharing.'
@@ -7199,7 +7206,7 @@ function Menu-Main {
     @{ L = ($script:I.back + ' Back'); C = 10; H = 'Return to the home screen.' },
     @{ L = ($script:I.err + ' Exit'); C = 6; H = 'Close the launcher.' })
   $head = Header-Lines
-  $r = Show-Menu 'OpenCode' $items ('v2.44   ' + $Repo) $head 0
+  $r = Show-Menu 'OpenCode' $items ('v2.45   ' + $Repo) $head 0
   if ($r -eq -1) { exit 10 }
   exit $items[$r].C
 }
@@ -7370,7 +7377,7 @@ function Home-Loop {
       $head += ''
     }
     if ($script:Notice) { $head += (P (Style $script:Notice[0]) ($script:I.warn + ' ' + (T $script:Notice[1]))); $head += ''; $script:Notice = $null }
-    $r = Show-Menu 'Main menu' $items ('v2.44   ' + $Self) $head $pos $true
+    $r = Show-Menu 'Main menu' $items ('v2.45   ' + $Self) $head $pos $true
     if ($r -eq -1) { continue }
     $pos = $r
     Log ('home -> ' + $acts[$r])
