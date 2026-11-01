@@ -1,0 +1,6 @@
+# .bat/.cmd keep CRLF in the repo, so a raw download is byte-identical to the
+# file SHA256SUMS was made from, and cmd never reads an LF-only batch file.
+*.bat -text
+*.cmd -text
+*.sh text eol=lf
+SHA256SUMS text eol=lf

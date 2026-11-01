@@ -2,7 +2,7 @@
 # OpenCode Infinite for Linux: the Windows launcher's flow in bash.
 # Egress WARP / TOR / PROXY / NONE, target IP hunt, probe, resume when a limit stops the chat.
 # Needs: bash 4.3+, curl, node + opencode. Optional: warp-cli, tor, privoxy, jq (menus in other languages).
-VERSION="linux-0.3.0"
+VERSION="linux-0.3.1"
 REPO="https://gitlab.com/jekooo/opencode-infinite"
 REPO_RAW="https://gitlab.com/jekooo/opencode-infinite/-/raw/main"
 
@@ -882,14 +882,18 @@ chats_menu(){
 }
 
 # ---------------------------------------------------------------- updates
-update_launcher(){ # offers a newer launcher from the repo; this script is backed up first
-  local raw new
-  raw=$(curl -fsSL -m 10 "$REPO_RAW/opencode-infinite.sh" 2>/dev/null) || return 0
-  new=$(printf '%s\n' "$raw" | sed -n 's/^VERSION="\(.*\)"$/\1/p' | head -n1)
-  [ -n "$new" ] && [ "$new" != "$VERSION" ] || return 0
-  [ "$(printf '%s\n%s\n' "$VERSION" "$new" | sort -V | tail -n1)" = "$new" ] || return 0
-  confirm "Update the launcher from $VERSION to $new? This script is backed up first." || return 0
-  printf '%s\n' "$raw" > "$SELF.new" && bash -n "$SELF.new" || { rm -f "$SELF.new"; say err 'the new copy failed the syntax check. Nothing changed.'; pause; return 0; }
+update_launcher(){ # newest GitLab release only; the file must match SHA256SUMS at that tag. This script is backed up first
+  local tag sum new
+  tag=$(curl -fsSL -m 10 "https://gitlab.com/api/v4/projects/88367491/releases?order_by=released_at&sort=desc&per_page=1" 2>/dev/null | grep -o '"tag_name":"v[0-9]*\.[0-9]*"' | head -n1 | cut -d'"' -f4)
+  [ -n "$tag" ] || return 0
+  sum=$(curl -fsSL -m 10 "$REPO/-/raw/$tag/SHA256SUMS" 2>/dev/null | sed -n 's/^\([0-9a-f]\{64\}\) [ *]opencode-infinite\.sh$/\1/p' | head -n1)
+  [ -n "$sum" ] || return 0
+  curl -fsSL -m 30 -o "$SELF.new" "$REPO/-/raw/$tag/opencode-infinite.sh" 2>/dev/null || { rm -f "$SELF.new"; return 0; }
+  [ "$(sha256sum "$SELF.new" | cut -d' ' -f1)" = "$sum" ] || { rm -f "$SELF.new"; say err 'the downloaded launcher failed its SHA-256 check. Nothing changed.'; pause; return 0; }
+  new=$(sed -n 's/^VERSION="\(.*\)"$/\1/p' "$SELF.new" | head -n1)
+  { [ -n "$new" ] && [ "$new" != "$VERSION" ] && [ "$(printf '%s\n%s\n' "$VERSION" "$new" | sort -V | tail -n1)" = "$new" ]; } || { rm -f "$SELF.new"; return 0; }
+  confirm "Update the launcher from $VERSION to $new? This script is backed up first." || { rm -f "$SELF.new"; return 0; }
+  bash -n "$SELF.new" || { rm -f "$SELF.new"; say err 'the new copy failed the syntax check. Nothing changed.'; pause; return 0; }
   cp "$SELF" "$SELF.bak" && mv "$SELF.new" "$SELF" && chmod +x "$SELF" || { say err 'could not replace the script.'; pause; return 0; }
   [ "$SETUP_DONE" = 1 ] && [ -x "$OC_REAL" ] && write_shims
   log "launcher updated $VERSION -> $new"

@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 title OpenCode-Infinite
 REM ============================================================
-REM  OpenCode launcher  (v2.40)
+REM  OpenCode launcher  (v2.41)
 REM  Multi-egress (WARP / TOR / free HTTP) + dependency bootstrap
 REM  + auto-resume.
 REM  v2.22 - v2.29: every fixed bug carries an inline "REM v2.2x:"
@@ -16,6 +16,8 @@ REM  v2.40: VPN Gate configs stripped of script/plugin directives and IPv6
 REM  blocked; WIREGUARD service restarted behind the proxy; auth.json backups in
 REM  LOCALAPPDATA, not the Desktop; bounded probe; SHA-256 check of Tor; window
 REM  kept open on double click; fixes marked "REM v2.40:" / "# v2.40".
+REM  v2.41: updates only from the latest GitLab release, checked against its
+REM  SHA256SUMS; the file must carry the version of its tag.
 REM  v2.38: Back in the folder menu; WIREGUARD and VPNGATE in the connection
 REM  method picker; Settings lists open a list of values. Language cache 2.38.
 REM  v2.37: egress WIREGUARD through wireproxy (a local proxy for OpenCode only, block
@@ -329,7 +331,6 @@ REM Official download address for the WARP installer (64-bit MSI).
 set "WARP_MSI_URL=https://downloads.cloudflareclient.com/v1/download/windows/ga"
 REM Self-update source. In this file a literal % is written %% , so the
 REM URL below ends in the real "...%20Infinite.bat" form the repo uses.
-set "UPDATE_URL=https://gitlab.com/jekooo/opencode-infinite/-/raw/main/OpenCode%%20Infinite.bat"
 REM Hosts that must never go through the proxy.
 REM v2.40: NO_PROXY and no_proxy are the same variable on Windows, so the launcher list has its own name (it used to overwrite the user's own value before OC_NP0 saved it).
 set "OC_NOPROXY_LIST=localhost,127.0.0.1,0.0.0.0,::1,[::1]"
@@ -722,6 +723,7 @@ set "T_343=country %%TARGET_COUNTRY%% and prefix %%TARGET_PREFIX%%"
 set "T_344=Pick: "
 set "T_345=--- fresh start ---------------------------------------------"
 set "T_347=%%C_WARN%%  [*] the Tor bundle failed the SHA-256 check against sha256sums-signed-build.txt; it was deleted and NOT unpacked.%%C_RST%%"
+set "T_348=%%C_WARN%%  [upd] the release download failed its SHA-256 check; it was deleted and nothing was replaced.%%C_RST%%"
 set "T_346=--- continue ------------------------------------------------"
 REM Batch messages are translated from lang\<code>.json; the UI writes lang\messages.txt (data only).
 set "OC_TUI=mki18n"
@@ -825,7 +827,7 @@ set "LOG_ARGS=%*"
 if defined LOG_ARGS set "LOG_ARGS=%LOG_ARGS:"='%"
 set "LOG_OSV="
 for /f "tokens=*" %%v in ('ver') do if not defined LOG_OSV set "LOG_OSV=%%v"
-call :log "start v2.40 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
+call :log "start v2.41 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
 REM v2.30: one official copy. Setup copies this file to STATE_DIR\app and the opencode
 REM command runs that copy. A duplicate (a second download, "(1)") hands over to it, or
 REM replaces it when it is the newer one.
@@ -5013,10 +5015,11 @@ set "OC_TKEEP=%~3"
 "%PSX%" -NoProfile -Command "$i=Get-Item -LiteralPath $env:OC_TLF -ErrorAction SilentlyContinue; if($i -and $i.Length -gt [long]$env:OC_TMAX){ try{ $l=@(Get-Content -LiteralPath $env:OC_TLF | Select-Object -Last ([int]$env:OC_TKEEP)); if($l.Count){ Set-Content -LiteralPath $env:OC_TLF -Value $l -Encoding Default } }catch{} }" >nul 2>&1
 goto :eof
 
-REM - self-update: newest launcher from the GitHub repo [upd] ---------
+REM - self-update: newest launcher from the latest GitLab release [upd] -
 REM Once per start, before anything interactive. Steps:
-REM   1) download the raw .bat (curl, else PowerShell), 30 s cap,
-REM      direct (never through the WARP proxy), HTTP errors fail;
+REM   1) read the latest release tag, then download the .bat and
+REM      SHA256SUMS at that tag (PowerShell, 15/30 s caps); the .bat must
+REM      match its SHA-256 line, and its header version must be the tag;
 REM   2) size gate (this script is ~400 KB; an error page is not) plus
 REM      a header-marker gate, so a truncated or wrong file never
 REM      replaces the launcher;
@@ -5037,41 +5040,22 @@ call :have_exe curl.exe
 REM v2.20: mirror the result into the canonical HAVE_CURL flag and use
 REM only that name below - the HAVE twin used to diverge from it.
 set "HAVE_CURL=%HAVE%"
-REM v2.12: resolve the newest commit SHA on main through the GitHub API
-REM first, then build a SHA-pinned raw URL. A raw/<SHA>/ URL can never
-REM serve a stale CDN copy, unlike raw/main which once did (the bug that
-REM kept v2.11 away from a launched update). API miss falls back to the
-REM plain main URL.
-set "SU_SHA="
-set "SU_SHA_OUT=%STATE_DIR%\su_sha.tmp"
-if exist "%SU_SHA_OUT%" del /f /q "%SU_SHA_OUT%" >nul 2>&1
-"%PSX%" -NoProfile -Command "try{ [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $r = Invoke-RestMethod -UseBasicParsing -Uri 'https://gitlab.com/api/v4/projects/jekooo%2Fopencode-infinite/repository/commits/main' -TimeoutSec 15; if ($r.id -match '^[0-9a-f]{40}$') { [IO.File]::WriteAllText($env:SU_SHA_OUT, $r.id) } }catch{}" >nul 2>&1
-if not exist "%SU_SHA_OUT%" goto :su_url_plain
-for /f "usebackq delims=" %%s in ("%SU_SHA_OUT%") do set "SU_SHA=%%s"
-del /f /q "%SU_SHA_OUT%" >nul 2>&1
-if not defined SU_SHA goto :su_url_plain
-call :trace upd_sha %SU_SHA%
-set "SU_URL=https://gitlab.com/jekooo/opencode-infinite/-/raw/%SU_SHA%/OpenCode%%20Infinite.bat"
-call :trace upd_url pinned
-goto :su_url_done
-:su_url_plain
-set "SU_URL=%UPDATE_URL%"
-:su_url_done
-if "%HAVE_CURL%"=="1" goto :su_curl
-"%PSX%" -NoProfile -Command "try{[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri $env:SU_URL -OutFile $env:SU_TMP -TimeoutSec 30}catch{exit 1}" >nul 2>&1
-if errorlevel 1 goto :su_eof
-goto :su_size
-:su_curl
-REM v2.20: download from SU_URL - the SHA-pinned URL when the API resolved
-REM it - never from UPDATE_URL (raw main); the v2.12 never-stale pin never
-REM reached this curl line before.
-curl.exe -L -f -s --max-time 30 --noproxy "*" -o "%SU_TMP%" "%SU_URL%" >nul 2>&1
-if not errorlevel 1 goto :su_size
-REM Direct egress failed (firewalls and corporate proxies block raw
-REM downloads): retry through the Windows proxy settings, which iwr
-REM reads on its own.
-"%PSX%" -NoProfile -Command "try{[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri $env:SU_URL -OutFile $env:SU_TMP -TimeoutSec 30}catch{exit 1}" >nul 2>&1
-if errorlevel 1 goto :su_eof
+REM v2.41: updates come only from the newest GitLab RELEASE, never from main.
+REM The release tag (vX.Y) names the version. The file and SHA256SUMS are read
+REM at that tag, and the file must match its SHA-256 line or it is deleted
+REM unused. rc 0 ok, 1 network, 2 checksum, 3 no release. Only rc 2 is shown.
+set "SU_TAG="
+set "SU_TAG_OUT=%STATE_DIR%\su_tag.tmp"
+if exist "%SU_TAG_OUT%" del /f /q "%SU_TAG_OUT%" >nul 2>&1
+"%PSX%" -NoProfile -Command "$ProgressPreference='SilentlyContinue'; try{ [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $r=@(Invoke-RestMethod -UseBasicParsing -Uri 'https://gitlab.com/api/v4/projects/88367491/releases?order_by=released_at&sort=desc&per_page=1' -TimeoutSec 15); if(-not $r.Count){ exit 3 }; $t=[string]$r[0].tag_name; if($t -notmatch '^v[0-9]+[.][0-9]+$'){ exit 3 }; $b='https://gitlab.com/jekooo/opencode-infinite/-/raw/'+$t+'/'; $sf=$env:SU_TMP+'.sums'; Invoke-WebRequest -UseBasicParsing -Uri ($b+'SHA256SUMS') -OutFile $sf -TimeoutSec 15; $h=$null; foreach($l in [IO.File]::ReadAllLines($sf)){ if($l -match '^([0-9a-fA-F]{64}) [ *]OpenCode Infinite[.]bat$'){ $h=$Matches[1] } }; Remove-Item -LiteralPath $sf -Force; if(-not $h){ exit 2 }; Invoke-WebRequest -UseBasicParsing -Uri ($b+'OpenCode%%20Infinite.bat') -OutFile $env:SU_TMP -TimeoutSec 30; if((Get-FileHash -Algorithm SHA256 -LiteralPath $env:SU_TMP).Hash -ne $h){ Remove-Item -LiteralPath $env:SU_TMP -Force; exit 2 }; [IO.File]::WriteAllText($env:SU_TAG_OUT,$t) }catch{ exit 1 }" >nul 2>&1
+set "SU_PEC=%errorlevel%"
+call :trace upd_release rc=%SU_PEC%
+if "%SU_PEC%"=="2" call echo %T_348%
+if not exist "%SU_TAG_OUT%" goto :su_delete
+for /f "usebackq delims=" %%s in ("%SU_TAG_OUT%") do set "SU_TAG=%%s"
+del /f /q "%SU_TAG_OUT%" >nul 2>&1
+if not defined SU_TAG goto :su_delete
+call :trace upd_tag %SU_TAG%
 :su_size
 set "SU_OK="
 if exist "%SU_TMP%" for %%s in ("%SU_TMP%") do if %%~zs GEQ 20000 set "SU_OK=1"
@@ -5087,6 +5071,8 @@ for /f "tokens=2 delims=()" %%v in ('findstr /b /c:"REM  OpenCode launcher  (" "
 if not defined SU_LV goto :su_delete
 if not defined SU_RV goto :su_delete
 call :trace upd_ver %SU_LV% / %SU_RV%
+REM v2.41: the file must carry the version its release tag names.
+if /i not "%SU_RV%"=="%SU_TAG%" goto :su_delete
 REM v2.22: compare numerically, not by string equality. A repo copy that
 REM is OLDER used to be offered as an "update".
 set "VGT=0"
@@ -5477,7 +5463,8 @@ $ShimInfPath = Join-Path $ShimDir 'opencodeinf.cmd'
 $ShimOcPath = Join-Path $ShimDir 'opencodeoc.cmd'
 # v2.30: setup copies the launcher here; the commands and shortcuts run this copy, not the download.
 $Official = Join-Path $State 'app\OpenCode Infinite.bat'
-$RawUrl = 'https://gitlab.com/jekooo/opencode-infinite/-/raw/main/OpenCode%%20Infinite.bat'
+# v2.41: a re-download takes the latest release, not main.
+$RawUrl = 'https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest/downloads/OpenCode-Infinite.bat'
 $Repo = 'https://gitlab.com/jekooo/opencode-infinite'
 # OC_TUI_KEYS_<MODE> (for example OC_TUI_KEYS_MAIN) overrides OC_TUI_KEYS for that screen only, so a whole
 # launcher run can be driven screen by screen.
@@ -6917,7 +6904,7 @@ function New-Report {
   $total = 6
   & $A 'OpenCode Infinite - support report'
   & $A ('Generated   ' + (Get-Date).ToString('o'))
-  & $A 'Launcher    v2.40'
+  & $A 'Launcher    v2.41'
   & $A ('File        ' + $Self)
   try { $fi = Get-Item -LiteralPath $Self; & $A ('Size/date   ' + $fi.Length + ' bytes, ' + $fi.LastWriteTime.ToString('s')); & $A ('SHA-256     ' + (Get-FileHash -LiteralPath $Self -Algorithm SHA256).Hash) } catch { }
   & $A 'Personal data (user name, PC name, e-mails, tokens, passwords, and by default public IPs) is removed from this file. Read it before sharing.'
@@ -7111,7 +7098,7 @@ function Menu-Main {
     @{ L = ($script:I.back + ' Back'); C = 10; H = 'Return to the home screen.' },
     @{ L = ($script:I.err + ' Exit'); C = 6; H = 'Close the launcher.' })
   $head = Header-Lines
-  $r = Show-Menu 'OpenCode' $items ('v2.40   ' + $Repo) $head 0
+  $r = Show-Menu 'OpenCode' $items ('v2.41   ' + $Repo) $head 0
   if ($r -eq -1) { exit 10 }
   exit $items[$r].C
 }
@@ -7282,7 +7269,7 @@ function Home-Loop {
       $head += ''
     }
     if ($script:Notice) { $head += (P (Style $script:Notice[0]) ($script:I.warn + ' ' + (T $script:Notice[1]))); $head += ''; $script:Notice = $null }
-    $r = Show-Menu 'Main menu' $items ('v2.40   ' + $Self) $head $pos $true
+    $r = Show-Menu 'Main menu' $items ('v2.41   ' + $Self) $head $pos $true
     if ($r -eq -1) { continue }
     $pos = $r
     Log ('home -> ' + $acts[$r])

@@ -16,9 +16,9 @@ The sections marked **Windows only** below are not on Linux.
 - **Windows:** one file, no installer, no services. Admin (UAC) for the optional WARP install and for VPN Gate (OpenVPN: one prompt on start, switch and stop). WireGuard never asks for administrator.
 - **Linux:** one script. No root needed for the launcher itself. WARP and Tor need their packages installed (section 1b).
 
-## Status (v2.40, 2026-11-01)
+## Status (v2.41, 2026-11-01)
 
-**Windows (`OpenCode Infinite.bat`):** v2.40 is the latest version. Checked on a real Windows 11 PC:
+**Windows (`OpenCode Infinite.bat`):** v2.41 is the latest version. Updates now come only from GitLab releases, checked with SHA-256 (section 11). Checked on a real Windows 11 PC:
 
 - **WARP:** `warp-cli` exit codes are read correctly. The real `warp-cli` returns 0 for `status` and `settings`. A failing command returns its code and writes the daemon's message to `wcli.log`. If a WARP step fails (protocol, mode, port or connect), the launcher stops there and reports it. It does **not** fall back to WireGuard.
 - **VPN Gate:** connects with OpenVPN to real servers. OpenCode's IPv4 traffic leaves through the tunnel, the rest of the PC stays direct, and the routes are removed on stop. The OpenVPN log is read while the tunnel runs, and when OpenCode's IPs leave the routes the status shows DOWN and the launcher reconnects.
@@ -70,13 +70,13 @@ The Desktop folder is asked from Windows, so it works when Desktop lives in OneD
 **PowerShell or Windows Terminal (recommended):**
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol='Tls12'; $d=[Environment]::GetFolderPath('Desktop'); iwr https://gitlab.com/jekooo/opencode-infinite/-/raw/main/OpenCode%20Infinite.bat -UseBasicParsing -OutFile "$d\OpenCode Infinite.bat"; & "$d\OpenCode Infinite.bat"
+[Net.ServicePointManager]::SecurityProtocol='Tls12'; $d=[Environment]::GetFolderPath('Desktop'); iwr https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest/downloads/OpenCode-Infinite.bat -UseBasicParsing -OutFile "$d\OpenCode Infinite.bat"; & "$d\OpenCode Infinite.bat"
 ```
 
 **cmd** (`curl.exe` ships with Windows 10 1803 and later):
 
 ```cmd
-powershell -NoProfile -Command "$d=[Environment]::GetFolderPath('Desktop'); [Net.ServicePointManager]::SecurityProtocol='Tls12'; iwr https://gitlab.com/jekooo/opencode-infinite/-/raw/main/OpenCode%20Infinite.bat -UseBasicParsing -OutFile (Join-Path $d 'OpenCode Infinite.bat'); & (Join-Path $d 'OpenCode Infinite.bat')"
+powershell -NoProfile -Command "$d=[Environment]::GetFolderPath('Desktop'); [Net.ServicePointManager]::SecurityProtocol='Tls12'; iwr https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest/downloads/OpenCode-Infinite.bat -UseBasicParsing -OutFile (Join-Path $d 'OpenCode Infinite.bat'); & (Join-Path $d 'OpenCode Infinite.bat')"
 ```
 
 To update an old copy, run `Update launcher.bat` from this repository in the same folder. It downloads the latest release and replaces the old file.
@@ -86,7 +86,7 @@ To update an old copy, run `Update launcher.bat` from this repository in the sam
 Download the script into your home folder and run it:
 
 ```bash
-mkdir -p ~/.local/share/opencode-infinite && curl -fsSL https://gitlab.com/jekooo/opencode-infinite/-/raw/main/opencode-infinite.sh -o ~/.local/share/opencode-infinite/opencode-infinite.sh && bash ~/.local/share/opencode-infinite/opencode-infinite.sh
+mkdir -p ~/.local/share/opencode-infinite && curl -fsSL https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest/downloads/opencode-infinite.sh -o ~/.local/share/opencode-infinite/opencode-infinite.sh && bash ~/.local/share/opencode-infinite/opencode-infinite.sh
 ```
 
 The launcher installs what is missing by itself on first start. Each step runs on its own, so one failure does not stop the others. The only possible prompt is sudo's password, and only when you are not root. Output goes to `~/.config/opencode-infinite/install.log`. The table shows what gets installed:
@@ -360,13 +360,23 @@ directly: `bash opencode-infinite.sh --run`.
 
 **Windows.** With `UPDATE_CHECK=1`, every start checks three things:
 
-- **A newer launcher** in this repository. It asks `[Y/N]`. On `Y`, it keeps a backup of the current file, replaces it and restarts.
+- **A newer launcher** in the latest [release](https://gitlab.com/jekooo/opencode-infinite/-/releases). The launcher reads the release tag, downloads the file and `SHA256SUMS` at that tag, and keeps the file only when its SHA-256 matches and its header carries the tag's version. It never takes a file from `main` that has no release. It asks `[Y/N]`. On `Y`, it keeps a backup of the current file, replaces it and restarts. A failed checksum is shown and nothing changes.
 - **A newer OpenCode** from opencode.ai (official release data, SHA-256 checked). It asks `[Y/N]`, closes every OpenCode process, then installs. It uses the same channel as the running command: npm or the standalone build.
 - **A newer OpenCode Desktop** (Desktop mode only). Same flow, with the silent installer.
 
 No network, or an unreadable version, changes nothing.
 
-**Linux.** On start the launcher checks for a newer copy of itself (it backs up the old file and asks first) and for a newer OpenCode through npm (it asks first). **Check for updates** in Settings > Support runs the same check now.
+**Linux.** On start the launcher checks the latest release for a newer copy of itself, with the same SHA-256 check (it backs up the old file and asks first) and for a newer OpenCode through npm (it asks first). **Check for updates** in Settings > Support runs the same check now.
+
+`Update launcher.bat` uses the same source and the same check.
+
+**Publishing a version** (maintainers):
+
+1. Raise the version in the launcher header (`REM  OpenCode launcher  (vX.Y)`) and, for Linux, `VERSION=` in the script.
+2. Write the checksums and commit them with the files: `sha256sum "OpenCode Infinite.bat" "Update launcher.bat" opencode-infinite.sh > SHA256SUMS`
+3. Push a tag with the same version: `git tag vX.Y && git push origin main vX.Y`
+
+The CI job in `.gitlab-ci.yml` then checks `SHA256SUMS` and the header version, and creates the release. If either check fails, no release is made and users keep the previous one. `.gitattributes` keeps the `.bat` files with CRLF in the repository, so the downloaded bytes are the ones that were hashed.
 
 ---
 

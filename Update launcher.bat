@@ -13,32 +13,17 @@ REM    3) OneDrive Desktop redirection, when it exists
 REM  If the launcher is nowhere, it is written fresh to the Desktop.
 REM ============================================================
 
-REM v2.25: the primary source is the LATEST GitHub RELEASE asset. A release
-REM asset is a fixed, published file: no CDN lag and no half-pushed branch.
-REM If the release cannot be reached (offline, none published yet) the old
-REM path is the fallback: newest commit SHA on main, raw URL pinned to it.
+REM v2.41: the only source is the LATEST GitLab RELEASE. The launcher and
+REM SHA256SUMS are read at the release tag, and the launcher must match its
+REM SHA-256 line. No fallback to main: an unreleased commit is never installed.
+REM PowerShell exit codes: 1 network, 2 checksum, 3 no release.
 set "TMPBAT=%TEMP%\opencode_infinite_latest.bat"
 if exist "%TMPBAT%" del /f /q "%TMPBAT%" >nul 2>&1
-set "REMOTE=https://gitlab.com/jekooo/opencode-infinite/-/raw/main/OpenCode%20Infinite.bat"
 
-echo Downloading the newest launcher (latest Release)...
-curl.exe -L -f -s --max-time 60 -o "%TMPBAT%" "%REMOTE%" >nul 2>&1
-if not errorlevel 1 goto size_gate
-powershell -NoProfile -Command "try{[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri $env:REMOTE -OutFile $env:TMPBAT -TimeoutSec 60}catch{exit 1}" >nul 2>&1
-if not errorlevel 1 goto size_gate
-
-echo   Release not reachable - trying the repo copy on main...
-if exist "%TMPBAT%" del /f /q "%TMPBAT%" >nul 2>&1
-set "SHAOUT=%TEMP%\opencode_update_sha.txt"
-set "HASHIK="
-powershell -NoProfile -Command "try{[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $r = Invoke-RestMethod -UseBasicParsing -Uri 'https://gitlab.com/api/v4/projects/jekooo%2Fopencode-infinite/repository/commits/main' -TimeoutSec 15; if ($r.id -match '^[0-9a-f]{40}$') { [IO.File]::WriteAllText($env:SHAOUT, $r.id) } }catch{}" >nul 2>&1
-if exist "%SHAOUT%" for /f "usebackq delims=" %%s in ("%SHAOUT%") do set "HASHIK=%%s"
-if exist "%SHAOUT%" del /f /q "%SHAOUT%" >nul 2>&1
-set "REMOTE=https://gitlab.com/jekooo/opencode-infinite/-/raw/main/OpenCode%%20Infinite.bat"
-if not "%HASHIK%"=="" set "REMOTE=https://gitlab.com/jekooo/opencode-infinite/-/raw/%HASHIK%/OpenCode%%20Infinite.bat"
-curl.exe -L -f -s --max-time 60 -o "%TMPBAT%" "%REMOTE%" >nul 2>&1
-if not errorlevel 1 goto size_gate
-powershell -NoProfile -Command "try{[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri $env:REMOTE -OutFile $env:TMPBAT -TimeoutSec 60}catch{exit 1}" >nul 2>&1
+echo Downloading the newest launcher (latest Release, SHA-256 checked)...
+powershell -NoProfile -Command "$ProgressPreference='SilentlyContinue'; try{ [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $r=@(Invoke-RestMethod -UseBasicParsing -Uri 'https://gitlab.com/api/v4/projects/88367491/releases?order_by=released_at&sort=desc&per_page=1' -TimeoutSec 15); if(-not $r.Count){ exit 3 }; $t=[string]$r[0].tag_name; if($t -notmatch '^v[0-9]+[.][0-9]+$'){ exit 3 }; $b='https://gitlab.com/jekooo/opencode-infinite/-/raw/'+$t+'/'; $sf=$env:TMPBAT+'.sums'; Invoke-WebRequest -UseBasicParsing -Uri ($b+'SHA256SUMS') -OutFile $sf -TimeoutSec 15; $h=$null; foreach($l in [IO.File]::ReadAllLines($sf)){ if($l -match '^([0-9a-fA-F]{64}) [ *]OpenCode Infinite[.]bat$'){ $h=$Matches[1] } }; Remove-Item -LiteralPath $sf -Force; if(-not $h){ exit 2 }; Invoke-WebRequest -UseBasicParsing -Uri ($b+'OpenCode%%20Infinite.bat') -OutFile $env:TMPBAT -TimeoutSec 60; if((Get-FileHash -Algorithm SHA256 -LiteralPath $env:TMPBAT).Hash -ne $h){ Remove-Item -LiteralPath $env:TMPBAT -Force; exit 2 }; Write-Host ('  Release ' + $t + ', SHA-256 ok.') }catch{ exit 1 }"
+if errorlevel 3 goto fail_norel
+if errorlevel 2 goto fail_sum
 if errorlevel 1 goto fail_net
 :size_gate
 set "SIZEOK="
@@ -89,6 +74,19 @@ exit /b 1
 echo.
 echo   [!] Download failed - check the connection or try again later.
 del /f /q "%TMPBAT%" >nul 2>&1
+pause
+exit /b 1
+
+:fail_sum
+echo.
+echo   [!] The download failed its SHA-256 check - discarded, nothing replaced.
+del /f /q "%TMPBAT%" >nul 2>&1
+pause
+exit /b 1
+
+:fail_norel
+echo.
+echo   [!] No release found on GitLab yet - nothing to install.
 pause
 exit /b 1
 
