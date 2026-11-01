@@ -142,7 +142,7 @@ REM    hang at the TOR readiness prompt, which is why each piece fails
 REM    loudly with a printed reason.
 REM
 REM  - Watches the log while opencode runs. A fatal line (drain
-REM    failure, usage limit, rate limit, quota, credits) kills the TUI
+REM    failure, usage limit, quota, credits) kills the TUI; a rate limit (ask= line) never kills it, the launcher asks after it closes
 REM    and starts the egress retry; recoverable errors are ignored, so
 REM    it only fires when the chat is actually stuck.
 REM
