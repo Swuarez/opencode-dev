@@ -10,15 +10,18 @@ Two versions, same flow:
 |---|---|---|
 | Windows 10 / 11 (x64, ARM64, x86 limited) | `OpenCode Infinite.bat` | Full: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages |
 | Linux (bash; tested on Ubuntu 24.04 with apt, command paths checked for dnf, pacman and zypper) | `opencode-infinite.sh` | Full except the desktop app and the Windows-only items. See [Linux: what is different](#linux-what-is-different) |
+| Windows 10 / 11 (x64), native app | `OpenCode Infinite.exe` | New, 3.1.0: WARP, Tor, proxies and direct connection; retries OpenCode after a crash; 7 languages. No WireGuard or VPN Gate yet. See [section 14](#14-c-app-opencode-infiniteexe). |
 
 The sections marked **Windows only** below are not on Linux.
 
 - **Windows:** one file, no installer, no services. Admin (UAC) for the optional WARP install and for VPN Gate (OpenVPN: one prompt on start, switch and stop). WireGuard never asks for administrator.
 - **Linux:** one script. No root needed for the launcher itself. WARP and Tor need their packages installed (section 1b).
 
-## Status (v2.45, 2026-11-01)
+## Status (v2.46, 2026-11-01)
 
 **Windows (`OpenCode Infinite.bat`):** v2.46 is the latest version. The same release ships `OpenCode Infinite.exe` (the C++ app) and `opencode-infinite.sh`; the launcher offers to replace an `.exe` that sits next to it (section 11). v2.45 fixes the watcher closing the window with "3 was unexpected at this time." after a fatal error when the chat was resumed (the rotation now starts with a defined quota counter), and logs the fatal line that triggered the rotation. v2.44 fixed the repeated "Review" lines on the rainbow theme in short windows. v2.43 keeps the tokens across restarts, retries a crashed OpenCode on the same IP (stops after 3 crashes in 10 minutes), and searches for the Desktop app again on request. Updates now come only from GitLab releases, checked with SHA-256 (section 11). Checked on a real Windows 11 PC:
+
+**Windows C++ app (`OpenCode Infinite.exe`, 3.1.0):** part of the v2.46 release. It builds with Visual Studio (section 14). It has not been run against a real OpenCode install yet.
 
 - **WARP:** `warp-cli` exit codes are read correctly. The real `warp-cli` returns 0 for `status` and `settings`. A failing command returns its code and writes the daemon's message to `wcli.log`. If a WARP step fails (protocol, mode, port or connect), the launcher stops there and reports it. It does **not** fall back to WireGuard.
 - **VPN Gate:** connects with OpenVPN to real servers. OpenCode's IPv4 traffic leaves through the tunnel, the rest of the PC stays direct, and the routes are removed on stop. The OpenVPN log is read while the tunnel runs, and when OpenCode's IPs leave the routes the status shows DOWN and the launcher reconnects.
@@ -32,6 +35,7 @@ The sections marked **Windows only** below are not on Linux.
 
 **Known open items:**
 
+- **C++ app:** not tested with a real OpenCode install. It shares its state folder and `config.json` with the `.bat` (section 14).
 - **Automatic update:** some users report that the update is available but the file cannot be found. Not reproduced yet. Workaround in section 13.
 - **Not implemented yet:** an automatic provider switch when the free limit is reached; sessions nested under their parent chat; a folder browser that opens older versions of a project.
 - **Translations:** the newest texts were written without review by a native speaker.
@@ -57,7 +61,9 @@ The sections marked **Windows only** below are not on Linux.
 11. [Updates](#11-updates)
 12. [Files and folders](#12-files-and-folders)
 13. [Troubleshooting](#13-troubleshooting)
-14. [Linux: what is different](#linux-what-is-different)
+14. [C++ app (OpenCode Infinite.exe)](#14-c-app-opencode-infiniteexe)
+
+- [Linux: what is different](#linux-what-is-different)
 
 ---
 
@@ -402,6 +408,8 @@ The launcher only reads the latest release's tag and checks the file against `SH
 | `Desktop\opencode_chats_archiviate\` | Chats archived by a deep reset |
 | `Desktop\opencode_chats_before_restore\` | Chats moved aside by a restore |
 
+The C++ app uses this same folder and `config.json`, unless `OCIN_STATE` points to another folder (section 14).
+
 **Linux**
 
 | Path | Purpose |
@@ -439,6 +447,28 @@ For anything else, create a **Support report** from the home screen and attach
 the file to an issue.
 
 ---
+
+## 14. C++ app (OpenCode Infinite.exe)
+
+A native Windows app with the same job as the `.bat`: a new exit IP, then OpenCode. It is one `.exe` plus a `langs` folder.
+
+**Get it.** Download `OpenCode-Infinite.exe` from the [latest release](https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest). Rename it `OpenCode Infinite.exe` if you want the `.bat` updater to find it (section 11). The release does not include `langs`: copy the folder `C++/langs` from the repository next to the `.exe`, or the app runs in English.
+
+**Screens.** Home (New IP and start OpenCode, Connect with opencode, and the other pages), Settings, Chats, Renew session, Support and Uninstall. The log panel shows the time as HH:MM:SS.
+
+**Connection.** WARP, Tor, proxy and NONE, with the same meaning as in section 4.
+
+**Crash retry (`CRASH_RETRY`, on by default).** If OpenCode exits with an error code, the app restarts it on the same exit IP after 2 s, then after 4 s. A third crash within 10 minutes stops it. Ctrl+C (code 0xC000013A) is not counted as a crash. Caveat: an error exit code on a normal close of the desktop app also counts as a crash. Set `CRASH_RETRY` to 0 to turn this off.
+
+**Tokens.** The app keeps a copy of `auth.json` in `auth_snapshot` inside the state folder. If OpenCode deletes `auth.json` while it runs, the app restores it from that copy. Renew session and deep reset remove the copy on purpose.
+
+**Not in the C++ app yet.** WireGuard, VPN Gate, the automatic chat resume after a rotation (`RESUME_MODE`), and the other options that only the `.bat` has. Use the `.bat` for those.
+
+**Updates.** The app does not replace itself. The setting "Launcher release URL" is empty by default, so no check is made. If you set it to a JSON file with `version` and `url`, the app only reports a newer version in the log. To update, download the new `.exe` from the release. The `.bat` updater replaces an `OpenCode Infinite.exe` that sits next to it (section 11).
+
+**State folder.** The same as the `.bat`: `%LOCALAPPDATA%\opencode-infinite\`, with `config.json`. Both apps read and write the same `config.json`, so set `OCIN_STATE` to a folder of your own if you want a separate copy.
+
+**Build.** Windows 10 or 11 (x64) with Visual Studio and the "Desktop development with C++" workload. The project uses toolset v145. Open `C++\OpenCodeInfinite.sln`, choose Release and x64, and build. The result is `C++in\Release\OpenCodeInfinite.exe` with `langs` copied next to it. From a developer prompt: `MSBuild "C++\OpenCodeInfinite.vcxproj" /p:Configuration=Release /p:Platform=x64`. Dear ImGui is in `C++/third_party`.
 
 ## Linux: what is different
 
