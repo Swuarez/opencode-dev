@@ -2,7 +2,7 @@
 # OpenCode Infinite for Linux: the Windows launcher's flow in bash.
 # Egress WARP / TOR / PROXY / NONE, target IP hunt, probe, resume when a limit stops the chat.
 # Needs: bash 4.3+, curl, node + opencode. Optional: warp-cli, tor, privoxy, jq (menus in other languages).
-VERSION="linux-0.3.1"
+VERSION="linux-0.3.2"
 REPO="https://gitlab.com/jekooo/opencode-infinite"
 REPO_RAW="https://gitlab.com/jekooo/opencode-infinite/-/raw/main"
 
@@ -53,6 +53,8 @@ SETDEF=(
 'RESUME_MSG|Watcher|text|continue|Resume message|Sent automatically after a rotation.|'
 'RESUME_AUTO|Watcher|bool|1|Unattended resume|The resume auto-approves tool permissions (opencode run --auto).|'
 'RESUME_TIMEOUT|Watcher|num|90|Resume timeout (s)|Seconds before a silent resume counts as a dead IP.|10:900'
+'RESUME_MODE|Watcher|enum|continue|Resume mode|continue = the resume message. custom = the custom text below.|continue,custom'
+'RESUME_TEXT|Watcher|text||Custom resume text|Text sent when the resume mode is custom.|'
 'PROBE|Probe|bool|1|Test every new IP|Send one cheap message through each candidate IP.|'
 'PROBE_MODEL|Probe|text|opencode/big-pickle|Probe model|Model used by the IP probe.|'
 'PROBE_BROKEN_MAX|Probe|num|3|Probe failures tolerated|Non-limit probe failures before the hunt stops and says the probe is broken.|1:50'
@@ -571,6 +573,37 @@ export_proxy(){
   else unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy; fi
 }
 
+# ---------------------------------------------------------------- tokens and crash streak
+AUTH_SNAP_DIR="$STATE_DIR/auth_snapshot"
+token_guard(){ # the logins survive restarts: a copy of auth.json is kept; if it vanished it is put back
+  local auth="$DATA_DIR/auth.json" snap="$AUTH_SNAP_DIR/auth.json"
+  if [ -e "$auth" ]; then
+    [ "$(stat -c%s "$auth")" -ge 3 ] || return 0
+    mkdir -p "$AUTH_SNAP_DIR" && cp -f "$auth" "$snap" 2>/dev/null
+  elif [ -s "$snap" ]; then
+    mkdir -p "$DATA_DIR" && cp -f "$snap" "$auth" || return 0
+    log "tokens: auth.json was missing, restored from the launcher snapshot"
+    say warn "auth.json had disappeared; it was restored from the launcher copy. No login needed."
+  fi
+}
+drop_snapshot(){ rm -f "$AUTH_SNAP_DIR/auth.json"; } # a reset asked for by the user must not be undone
+CRASH_STREAK=0; CRASH_LAST=0
+crash_retry(){ # $1 = exit code. 0 = retry on the same egress, 1 = more than 2 crashes in 10 minutes, 2 = NONE: no retry
+  local now wait; now=$(date +%s)
+  [ $(( now - CRASH_LAST )) -gt 600 ] && CRASH_STREAK=0
+  CRASH_LAST=$now; CRASH_STREAK=$(( CRASH_STREAK + 1 ))
+  log "opencode crashed: code $1 streak $CRASH_STREAK egress=$EGRESS"
+  if [ "$CRASH_STREAK" -gt 2 ]; then
+    say err "OpenCode crashed $CRASH_STREAK times in 10 minutes. Stopped so it is not restarted in a loop. Details in launcher.log."
+    return 1
+  fi
+  [ "$EGRESS" = NONE ] && return 2
+  wait=$(( CRASH_STREAK * 2 ))
+  say warn "OpenCode stopped with code $1. Retry $CRASH_STREAK of 2 on the same connection in ${wait} s; the chat resumes."
+  sleep "$wait"
+  return 0
+}
+
 # ---------------------------------------------------------------- run OpenCode, watch its log
 oc_runner(){ # the command line that runs the real OpenCode (node for the npm build)
   case $OC_REAL in *.js|*.mjs|*.cjs) RUNNER=(node "$OC_REAL");; *) RUNNER=("$OC_REAL");; esac
@@ -601,7 +634,9 @@ resume_run(){ # sends RESUME_MSG to the chat, bounded by RESUME_TIMEOUT. 2 = the
   local folder=$1 out="$STATE_DIR/resume.out" err="$STATE_DIR/resume.err" rc
   local auto=(); [ "$RESUME_AUTO" = 1 ] && auto=(--auto)
   oc_runner; export_proxy
-  ( cd "$folder" && timeout -k 5 "$RESUME_TIMEOUT" "${RUNNER[@]}" run "${auto[@]}" -c "$RESUME_MSG" ) >"$out" 2>"$err"
+  local msg=$RESUME_MSG
+  [ "$RESUME_MODE" = custom ] && [ -n "$RESUME_TEXT" ] && msg=$RESUME_TEXT
+  ( cd "$folder" && timeout -k 5 "$RESUME_TIMEOUT" "${RUNNER[@]}" run "${auto[@]}" -c "$msg" ) >"$out" 2>"$err"
   rc=$?
   if grep -Eiq "$OC_PAT|usage limit|rate limit|out of usage|insufficient credits|payment required" "$out" "$err" 2>/dev/null; then return 2; fi
   return $rc
@@ -619,13 +654,21 @@ run_session(){ # run_session <folder> [opencode args...]
   oc_runner
   while :; do
     rm -f "$LIMIT_FLAG"
+    token_guard
     export_proxy
     start=$(date +%s); wpid=""
     if [ "$WATCH" = 1 ]; then watch_log "$start" & wpid=$!; fi
     ( cd "$folder" && "${RUNNER[@]}" ${cont:+-c} "$@" ); rc=$?
     [ -n "$wpid" ] && kill "$wpid" 2>/dev/null
     log "opencode exited rc=$rc"
-    [ -f "$LIMIT_FLAG" ] || return 0
+    if [ ! -f "$LIMIT_FLAG" ]; then
+      case $rc in 0|130|143) return 0;; esac # clean exit or Ctrl+C / kill: not a crash
+      crash_retry "$rc"; case $? in
+        0) resume_run "$folder" >/dev/null 2>&1; cont=1; continue;;
+        1) pause; return 1;;
+        *) return 0;;
+      esac
+    fi
     rm -f "$LIMIT_FLAG"; stop_opencode
     if [ "$AUTO_ROTATE" != 1 ]; then say warn "limit hit. Pick New IP from the menu."; return 0; fi
     say warn "limit hit: rotating the IP and resuming the chat..."
@@ -801,6 +844,7 @@ renew_session(){
   stop_opencode
   local desk; desk=$(desk_dir)
   if [ -f "$DATA_DIR/auth.json" ]; then cp "$DATA_DIR/auth.json" "$desk/auth.json" && rm -f "$DATA_DIR/auth.json" && say ok "auth.json saved to $desk"; fi
+  drop_snapshot
   if egress_new || egress_up; then say ok "new route: $(current_ip)"; else say err "no new route."; fi
   log 'renew done'
   pause
@@ -836,6 +880,7 @@ deep_reset(){
   if [ -d "$DATA_DIR/storage" ] && mv "$DATA_DIR/storage" "$target/storage"; then moved=1; fi
   for f in opencode.db opencode.db-wal opencode.db-shm; do archive_file "$DATA_DIR/$f" "$target/$f" && moved=1; done
   if archive_file "$DATA_DIR/auth.json" "$target/auth.json"; then say ok 'auth.json archived.'; moved=1; fi
+  drop_snapshot
   [ -n "$HOME" ] && rm -rf "$HOME/.cache/opencode"
   if [ "$moved" = 0 ]; then rmdir "$target" 2>/dev/null; say warn 'nothing to archive.'
   else say ok 'archived. Tokens cleared.'; log "deep reset to $target"; fi
