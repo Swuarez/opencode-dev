@@ -1,6 +1,8 @@
 // util.cpp
 #include "util.h"
 
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
 #include <shlobj.h>
 #include <cstdarg>
@@ -10,8 +12,21 @@
 
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "ws2_32.lib")
 
 namespace oi {
+
+// inet_pton expands "::", so compressed and full IPv6 forms compare alike.
+// IPv6 counts as the same exit when the /64 matches (WARP varies the host part).
+bool sameIp(const std::string& a, const std::string& b) {
+    in6_addr a6, b6;
+    if (inet_pton(AF_INET6, a.c_str(), &a6) == 1 && inet_pton(AF_INET6, b.c_str(), &b6) == 1)
+        return memcmp(&a6, &b6, 8) == 0;
+    in_addr a4, b4;
+    if (inet_pton(AF_INET, a.c_str(), &a4) == 1 && inet_pton(AF_INET, b.c_str(), &b4) == 1)
+        return memcmp(&a4, &b4, 4) == 0;
+    return false;   // empty, unparsable or mixed families: not a known same IP
+}
 
 std::string narrow(const std::wstring& w) { return wideToUtf8(w); }
 std::wstring widen(const std::string& s) { return utf8ToWide(s); }

@@ -144,7 +144,7 @@ bool installDesktopFromRelease(const ReleaseInfo& rel, const std::string& fileNa
             return false;
         }
     }
-    stopOpenCode();
+    // the caller stops its own OpenCode first (App::stopApp); one opened by hand is not killed here
     RunResult r = runCapture(setup, "/S", {}, 600000);
     removeFile(setup);
     if (!r.started) {

@@ -5,7 +5,10 @@
 #include "log.h"
 
 #include <windows.h>
+#include <wincrypt.h>
 #include <algorithm>
+
+#pragma comment(lib, "crypt32.lib")
 
 namespace oi {
 
@@ -23,7 +26,8 @@ static bool looksLikeDesktopApp(const std::string& exe) {
 
 std::string findDesktopApp(const Config& cfg) {
     std::string override = cfg.s("OC_APP");
-    if (!override.empty() && looksLikeDesktopApp(override)) return override;
+    // a path the user set is trusted as is; app.asar only tells Desktop from the CLI in the search
+    if (!override.empty() && fileExists(override)) return override;
 
     std::string local = localAppData();
     std::string pf = envVar("ProgramFiles");
@@ -44,6 +48,7 @@ std::string findDesktopApp(const Config& cfg) {
         "Programs\\opencode-desktop\\OpenCode.exe",
         "Programs\\opencode\\OpenCode.exe",
         "Programs\\@opencode-ai\\desktop\\OpenCode.exe",
+        "@opencode-ai\\desktop\\OpenCode.exe",   // ProgramFiles\@opencode-ai\desktop (the .bat checks it)
     };
     for (const auto& r : roots) {
         if (r.empty()) continue;
@@ -89,15 +94,12 @@ std::string findProbeCli(const std::string& desktopExe) {
 
 bool desktopRunning() { return !pidsByName("OpenCode.exe").empty(); }
 
-void stopOpenCode() {
-    killByName("OpenCode.exe");
-    killByName("opencode-cli.exe");
-    Sleep(1500);
-    if (desktopRunning()) {
-        killByName("OpenCode.exe");
-        Sleep(800);
-    }
-    logInfo("opencode processes stopped");
+// Only the tree this launcher started; an OpenCode opened by hand is never touched.
+void stopOpenCode(uint32_t pid, void* process, const std::string& reason) {
+    if (!pid || !process) return;   // without our open handle the pid may belong to someone else now
+    uint32_t n = killTree(pid);     // the sidecar opencode-cli is a child, so it goes too
+    WaitForSingleObject((HANDLE)process, 5000);
+    logInfo(fmt("opencode pid %u stopped (%u processes), reason: %s", pid, n, reason.c_str()));
 }
 
 // ---------------------------------------------------------------- log
@@ -120,16 +122,16 @@ bool launchDesktop(const std::string& exe, const std::string& proxyUrl, uint32_t
                    void** processOut) {
     if (exe.empty() || !fileExists(exe)) return false;
 
-    // a leftover app or sidecar was born without the proxy and would keep the old route
-    stopOpenCode();
-
+    // the caller stopped its own previous copy (App::stopApp); others are not ours to kill
     EnvList env;
     if (!proxyUrl.empty()) {
         env.push_back({"HTTP_PROXY", proxyUrl});
         env.push_back({"HTTPS_PROXY", proxyUrl});
         env.push_back({"http_proxy", proxyUrl});
         env.push_back({"https_proxy", proxyUrl});
-        env.push_back({"NO_PROXY", ""});
+        // an empty value is dropped by buildEnvBlock; the sidecar must reach localhost directly
+        env.push_back({"NO_PROXY", "localhost,127.0.0.1,::1"});
+        env.push_back({"no_proxy", "localhost,127.0.0.1,::1"});
     } else {
         env.push_back({"HTTP_PROXY", ""});
         env.push_back({"HTTPS_PROXY", ""});
@@ -140,51 +142,92 @@ bool launchDesktop(const std::string& exe, const std::string& proxyUrl, uint32_t
     if (!sp.ok) return false;
     if (pidOut) *pidOut = sp.pid;
     if (processOut) *processOut = sp.process;
-    logInfo(fmt("launched %s with proxy '%s' (pid %u)", exe.c_str(),
-                proxyUrl.empty() ? "direct" : proxyUrl.c_str(), sp.pid));
+    // a proxy URL may carry user:pass; the log keeps only scheme and host
+    std::string shown = proxyUrl.empty() ? std::string("direct") : proxyUrl;
+    size_t at = shown.rfind('@'), sch = shown.find("://");
+    if (at != std::string::npos) shown = shown.substr(0, sch == std::string::npos ? 0 : sch + 3) + "***" + shown.substr(at);
+    logInfo(fmt("launched pid %u: \"%s\" (no arguments), proxy '%s'", sp.pid, exe.c_str(), shown.c_str()));
     return true;
 }
 
 // ---------------------------------------------------------------- token guard
-static std::string tokenSnapshotFile() { return joinPath(joinPath(stateDir(), "auth_snapshot"), "auth.json"); }
+static std::string tokenSnapshotDir()  { return joinPath(stateDir(), "auth_snapshot"); }
+static std::string tokenSnapshotFile() { return joinPath(tokenSnapshotDir(), "auth.dpapi"); }
+
+bool dpapiCrypt(const std::string& in, std::string* out, bool protect) {
+    DATA_BLOB src{(DWORD)in.size(), (BYTE*)in.data()}, dst{};
+    BOOL ok = protect
+        ? CryptProtectData(&src, L"opencode-infinite auth", nullptr, nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &dst)
+        : CryptUnprotectData(&src, nullptr, nullptr, nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &dst);
+    if (!ok) return false;
+    out->assign((const char*)dst.pbData, dst.cbData);
+    LocalFree(dst.pbData);
+    return true;
+}
 
 bool tokenGuard() {
     std::string auth = joinPath(opencodeDataDir(), "auth.json");
     std::string snap = tokenSnapshotFile();
     if (fileExists(auth)) {
-        if (fileSizeOf(auth) >= 3) copyFileTo(auth, snap);   // a tiny file is not a login
+        std::string blob;
+        // a tiny file is not a login; the copy is DPAPI-encrypted so only this Windows user can read it
+        if (fileSizeOf(auth) >= 3 && dpapiCrypt(readFileText(auth), &blob, true) && writeFileText(snap, blob)) {
+            std::string legacy = joinPath(tokenSnapshotDir(), "auth.json");   // plaintext copy of older builds
+            if (fileExists(legacy) && removeFile(legacy))
+                logInfo("tokens: deleted " + legacy + ", reason: replaced by the encrypted snapshot");
+        }
         return false;
     }
     if (!fileExists(snap)) return false;
-    if (!copyFileTo(snap, auth)) return false;
+    std::string plain;
+    if (!dpapiCrypt(readFileText(snap), &plain, false)) {
+        logWarn("tokens: auth.json is missing and the snapshot could not be decrypted; nothing restored");
+        return false;
+    }
+    if (!writeFileText(auth, plain)) return false;
     logWarn("tokens: auth.json was missing, restored from the launcher snapshot");
     return true;
 }
 
-void tokenDropSnapshot() { removeFile(tokenSnapshotFile()); }
+void tokenDropSnapshot(const std::string& reason) {
+    std::string snap = tokenSnapshotFile();
+    if (fileExists(snap) && removeFile(snap))
+        logInfo("tokens: deleted the snapshot " + snap + ", reason: " + reason);
+}
 
 // ---------------------------------------------------------------- tokens
 
-bool clearTokens(const std::string& destDir) {
-    tokenDropSnapshot();   // an explicit reset: the copy must not bring the tokens back
+bool clearTokens(const std::string& reason, std::string* backupOut, std::string* errOut) {
     std::string auth = joinPath(opencodeDataDir(), "auth.json");
-    // the cache goes either way
-    std::string cache = opencodeCacheDir();
-    if (dirExists(cache)) {
-        runShell(fmt("rmdir /s /q %s", quoteArg(cache).c_str()), 60000);
+    if (!fileExists(auth)) {
+        tokenDropSnapshot(reason);   // an explicit reset: the copy must not bring the tokens back
+        return false;
     }
-    if (!fileExists(auth)) return false;
-
-    if (!destDir.empty()) {
-        makeDirs(destDir);
-        std::string dst = joinPath(destDir, "auth.json");
-        if (copyFileTo(auth, dst) && fileSizeOf(dst) == fileSizeOf(auth)) removeFile(auth);
-        else removeFile(dst);
-    } else {
-        removeFile(auth);
+    std::string dst = joinPath(joinPath(joinPath(localAppData(), "opencode-infinite\\backup\\auth"), nowStamp()), "auth.json");
+    makeDirs(dirName(dst));
+    if (!copyFileTo(auth, dst) || fileSizeOf(dst) != fileSizeOf(auth)) {
+        // no verified backup, no delete
+        logError("tokens: backup to " + dst + " failed; " + auth + " kept");
+        if (errOut) *errOut = "the backup copy failed, auth.json was not deleted.";
+        return false;
     }
-    logInfo("saved tokens cleared");
+    tokenDropSnapshot(reason);
+    if (!removeFile(auth)) {
+        if (errOut) *errOut = "auth.json could not be deleted.";
+        return false;
+    }
+    logInfo("tokens: deleted " + auth + ", reason: " + reason + ", backup: " + dst);
+    if (backupOut) *backupOut = dst;
     return true;
+}
+
+bool clearCache(const std::string& reason) {
+    std::string cache = opencodeCacheDir();   // %USERPROFILE%\.cache\opencode; auth.json lives elsewhere
+    if (!dirExists(cache)) return false;
+    runShell(fmt("rmdir /s /q %s", quoteArg(cache).c_str()), 60000);
+    bool gone = !dirExists(cache);
+    logInfo("cache: deleted " + cache + (gone ? "" : " (partly: some files in use)") + ", reason: " + reason);
+    return gone;
 }
 
 // ---------------------------------------------------------------- deep reset

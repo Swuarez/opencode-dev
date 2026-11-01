@@ -10,18 +10,18 @@ Two versions, same flow:
 |---|---|---|
 | Windows 10 / 11 (x64, ARM64, x86 limited) | `OpenCode Infinite.bat` | Full: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages |
 | Linux (bash; tested on Ubuntu 24.04 with apt, command paths checked for dnf, pacman and zypper) | `opencode-infinite.sh` | Full except the desktop app and the Windows-only items. See [Linux: what is different](#linux-what-is-different) |
-| Windows 10 / 11 (x64), native app | `OpenCode Infinite.exe` | New, 3.1.0: WARP, Tor, proxies and direct connection; retries OpenCode after a crash; 7 languages. No WireGuard or VPN Gate yet. See [section 14](#14-c-app-opencode-infiniteexe). |
+| Windows 10 / 11 (x64), native app | `OpenCode Infinite.exe` | New, 3.2.0: WARP, Tor, proxies and direct connection; retries OpenCode after a crash; 7 languages. No WireGuard or VPN Gate yet. See [section 14](#14-c-app-opencode-infiniteexe). |
 
 The sections marked **Windows only** below are not on Linux.
 
 - **Windows:** one file, no installer, no services. Admin (UAC) for the optional WARP install and for VPN Gate (OpenVPN: one prompt on start, switch and stop). WireGuard never asks for administrator.
 - **Linux:** one script. No root needed for the launcher itself. WARP and Tor need their packages installed (section 1b).
 
-## Status (v2.46, 2026-11-01)
+## Status (v2.47 in the repo, not released yet; v2.46 is the latest release, 2026-11-01)
 
-**Windows (`OpenCode Infinite.bat`):** v2.46 is the latest version. The same release ships `OpenCode Infinite.exe` (the C++ app) and `opencode-infinite.sh`; the launcher offers to replace an `.exe` that sits next to it (section 11). v2.45 fixes the watcher closing the window with "3 was unexpected at this time." after a fatal error when the chat was resumed (the rotation now starts with a defined quota counter), and logs the fatal line that triggered the rotation. v2.44 fixed the repeated "Review" lines on the rainbow theme in short windows. v2.43 keeps the tokens across restarts, retries a crashed OpenCode on the same IP (stops after 3 crashes in 10 minutes), and searches for the Desktop app again on request. Updates now come only from GitLab releases, checked with SHA-256 (section 11). Checked on a real Windows 11 PC:
+**Windows (`OpenCode Infinite.bat`):** v2.47 is in the repo but not released, and it has not been run end to end. It changes: a rate limit asks before rotating (a usage limit still rotates, with a cap of 5 in 30 minutes); the Desktop app is searched again on request and can be set by hand; only the processes the launcher started are stopped; a single-instance lock; at most 3 automatic restarts in 10 minutes; "Clear cache" no longer deletes tokens, and tokens are copied before they are deleted. v2.46 is the latest release. The same release ships `OpenCode Infinite.exe` (the C++ app) and `opencode-infinite.sh`; the launcher offers to replace an `.exe` that sits next to it (section 11). v2.45 fixes the watcher closing the window with "3 was unexpected at this time." after a fatal error when the chat was resumed (the rotation now starts with a defined quota counter), and logs the fatal line that triggered the rotation. v2.44 fixed the repeated "Review" lines on the rainbow theme in short windows. v2.43 keeps the tokens across restarts, retries a crashed OpenCode on the same IP (stops after 3 crashes in 10 minutes), and searches for the Desktop app again on request. Updates now come only from GitLab releases, checked with SHA-256 (section 11). Checked on a real Windows 11 PC:
 
-**Windows C++ app (`OpenCode Infinite.exe`, 3.1.0):** part of the v2.46 release. It builds with Visual Studio (section 14). It has not been run against a real OpenCode install yet.
+**Windows C++ app (`OpenCode Infinite.exe`, 3.2.0):** in the repo, not in a release yet (the v2.46 release has 3.1.1). It builds with Visual Studio (section 14). It has not been run against a real OpenCode install yet.
 
 - **WARP:** `warp-cli` exit codes are read correctly. The real `warp-cli` returns 0 for `status` and `settings`. A failing command returns its code and writes the daemon's message to `wcli.log`. If a WARP step fails (protocol, mode, port or connect), the launcher stops there and reports it. It does **not** fall back to WireGuard.
 - **VPN Gate:** connects with OpenVPN to real servers. OpenCode's IPv4 traffic leaves through the tunnel, the rest of the PC stays direct, and the routes are removed on stop. The OpenVPN log is read while the tunnel runs, and when OpenCode's IPs leave the routes the status shows DOWN and the launcher reconnects.
@@ -253,7 +253,7 @@ Login tokens are not restored. Sign in again if OpenCode asks.
 ## 8. Settings
 
 Open **Settings** from the home screen. Every change is saved at once to
-`config.json` on Windows, or to `config.env` on Linux (section 12).
+`config.json` on Windows, or to `config.env` on Linux (section 12). The `.bat` and the C++ app share `config.json`; on Linux it is updated too when it exists (section 14).
 
 ![Settings](images/07-settings.png)
 
@@ -450,9 +450,9 @@ the file to an issue.
 
 ## 14. C++ app (OpenCode Infinite.exe)
 
-A native Windows app with the same job as the `.bat`: a new exit IP, then OpenCode. It is one `.exe` plus a `langs` folder.
+A native Windows app with the same job as the `.bat`: a new exit IP, then OpenCode. It is one `.exe`. Its languages are downloaded from the repository into the state folder, as the `.bat` does.
 
-**Get it.** Download `OpenCode-Infinite.exe` from the [latest release](https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest). Rename it `OpenCode Infinite.exe` if you want the `.bat` updater to find it (section 11). The release does not include `langs`: copy the folder `C++/langs` from the repository next to the `.exe`, or the app runs in English.
+**Get it.** Download `OpenCode-Infinite.exe` from the [latest release](https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest). Rename it `OpenCode Infinite.exe` if you want the `.bat` updater to find it (section 11). A language is downloaded the first time it is chosen, or at start if it is missing; without a copy and without a connection the app runs in English.
 
 **Screens.** Home (New IP and start OpenCode, Connect with opencode, and the other pages), Settings, Chats, Renew session, Support and Uninstall. The log panel shows the time as HH:MM:SS.
 
@@ -466,9 +466,11 @@ A native Windows app with the same job as the `.bat`: a new exit IP, then OpenCo
 
 **Updates.** The app does not replace itself. The setting "Launcher release URL" is empty by default, so no check is made. If you set it to a JSON file with `version` and `url`, the app only reports a newer version in the log. To update, download the new `.exe` from the release. The `.bat` updater replaces an `OpenCode Infinite.exe` that sits next to it (section 11).
 
-**State folder.** The same as the `.bat`: `%LOCALAPPDATA%\opencode-infinite\`, with `config.json`. Both apps read and write the same `config.json`, so set `OCIN_STATE` to a folder of your own if you want a separate copy.
+**State folder.** The same as the `.bat`: `%LOCALAPPDATA%\opencode-infinite\`, with `config.json` (the `.bat`'s layout: `settings`, `setup`, `font`; only values that differ from the default are written) and `config.env`. Both apps read and write the same `config.json` and keep the keys the other one knows. Languages go to its `lang\` folder. Set `OCIN_STATE` to a folder of your own if you want a separate copy.
 
-**Build.** Windows 10 or 11 (x64) with Visual Studio and the "Desktop development with C++" workload. The project uses toolset v145. Open `C++\OpenCodeInfinite.sln`, choose Release and x64, and build. The result is `C++in\Release\OpenCodeInfinite.exe` with `langs` copied next to it. From a developer prompt: `MSBuild "C++\OpenCodeInfinite.vcxproj" /p:Configuration=Release /p:Platform=x64`. Dear ImGui is in `C++/third_party`.
+**Linux and WSL.** The `.sh` reads `config.env`. When `config.json` exists it also updates it (needs `python3`), so a change made in the `.sh` reaches the `.bat` and the app. To share the Windows folder from WSL, set `OCI_STATE=/mnt/c/Users/<you>/AppData/Local/opencode-infinite` before starting the `.sh`.
+
+**Build.** Windows 10 or 11 (x64) with Visual Studio and the "Desktop development with C++" workload. The project uses toolset v145. Open `C++\OpenCodeInfinite.sln`, choose Release and x64, and build. The result is `C++\bin\Release\OpenCodeInfinite.exe`. From a developer prompt: `MSBuild "C++\OpenCodeInfinite.vcxproj" /p:Configuration=Release /p:Platform=x64`. Dear ImGui is in `C++/third_party`.
 
 ## Linux: what is different
 

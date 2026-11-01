@@ -58,6 +58,8 @@ std::string  winLocaleCode();      // 2-letter code of the current UI language
 
 std::string  base64Encode(const std::string& in);
 
+bool         sameIp(const std::string& a, const std::string& b);   // IPv4 whole, IPv6 /64
+
 // UTF-8 <-> UTF-16 helpers for the Win32 wide APIs.
 std::wstring utf8ToWide(const std::string& s);
 std::string  wideToUtf8(const std::wstring& w);

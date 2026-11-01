@@ -4,6 +4,7 @@
 #include "json.h"
 
 #include <algorithm>
+#include <cstdlib>
 
 namespace oi {
 
@@ -160,21 +161,55 @@ void Config::load(const std::string& stateDir) {
     std::string err;
     Json j = Json::parse(readFileText(p), &err);
     if (!j.isObject()) return;
-    for (const auto& k : j.keys()) {
-        const Json& v = j[k];
+    raw_ = j;   // keeps keys this build does not know (the .bat's own settings)
+    // The .bat keeps its values under "settings"; older builds of this exe wrote them at the top level.
+    const Json& src = j.has("settings") && j["settings"].isObject() ? j["settings"] : j;
+    for (const auto& k : src.keys()) {
+        const Json& v = src[k];
         if (v.isString()) vals_[k] = v.asString();
         else if (v.isBool()) vals_[k] = v.asBool() ? "1" : "0";
         else if (v.isNumber()) vals_[k] = fmt("%lld", v.asInt());
     }
 }
 
+// Same files as the .bat: config.json is { version, settings, setup, font } where settings
+// holds only the values that differ from the default (booleans 0/1, numbers as numbers);
+// config.env (KEY=value, read by opencode-infinite.sh) holds every value. Keys this build does
+// not know are kept, so a setting changed by another launcher is not lost.
 void Config::save() const {
-    Json j = Json::object();
+    Json st = Json::object();
+    const Json& prev = raw_.has("settings") && raw_["settings"].isObject() ? raw_["settings"] : raw_;
+    for (const auto& k : prev.keys()) if (!findDef(k)) st.set(k, prev[k]);
     for (const auto& d : defs()) {
         auto it = vals_.find(d.key);
-        j.set(d.key, Json(it != vals_.end() ? it->second : d.def));
+        std::string v = it != vals_.end() ? it->second : d.def;
+        if (v == d.def) continue;
+        if (d.kind == SettingKind::BoolK) st.set(d.key, Json(v == "1" || lower(v) == "true" ? 1 : 0));
+        else if (d.kind == SettingKind::NumK) st.set(d.key, Json((int)atoll(v.c_str())));
+        else st.set(d.key, Json(v));
     }
-    writeFileText(path(), j.dump(2) + "\n");
+    Json root = Json::object();
+    root.set("version", Json(1));
+    root.set("settings", st);
+    root.set("setup", raw_.has("setup") ? raw_["setup"] : Json::object());
+    root.set("font", raw_.has("font") ? raw_["font"] : Json::object());
+    writeFileText(path(), root.dump(2) + "\n");
+
+    std::string env;
+    for (const auto& d : defs()) {
+        std::string v = get(d.key);
+        if (d.kind == SettingKind::BoolK) v = (v == "1" || lower(v) == "true") ? "1" : "0";
+        else if (d.kind == SettingKind::NumK) v = std::to_string(atoll(v.c_str()));
+        env += d.key + "=" + v + "\n";
+    }
+    for (const auto& k : st.keys()) {
+        if (findDef(k)) continue;
+        const Json& v = st[k];
+        if (v.isBool()) env += k + "=" + (v.asBool() ? "1" : "0") + "\n";
+        else if (v.isNumber()) env += k + "=" + fmt("%lld", v.asInt()) + "\n";
+        else if (v.isString()) env += k + "=" + v.asString() + "\n";
+    }
+    writeFileText(joinPath(dir_, "config.env"), env);
 }
 
 std::string Config::path() const { return joinPath(dir_, "config.json"); }

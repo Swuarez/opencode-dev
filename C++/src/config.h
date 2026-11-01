@@ -4,6 +4,8 @@
 #include <vector>
 #include <map>
 
+#include "json.h"
+
 namespace oi {
 
 enum class SettingKind { BoolK, NumK, TextK, EnumK };
@@ -45,6 +47,7 @@ public:
 private:
     std::string dir_;
     std::map<std::string, std::string> vals_;
+    Json raw_;   // the whole config.json as read, unknown keys included
 };
 
 } // namespace oi

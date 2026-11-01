@@ -904,5 +904,6 @@
   "%C_WARN%  [vpn] could not resolve the OpenCode hosts (opencode.ai, models.opencode.ai, opentunnel.xyz). Check the internet connection.%C_RST%": "%C_WARN%  [vpn] não foi possível resolver os hosts do OpenCode (opencode.ai, models.opencode.ai, opentunnel.xyz). Verifique a conexão com a internet.%C_RST%",
   "VPN Gate servers through OpenVPN. Only OpenCode's hosts go through the tunnel. Administrator prompt on start, switch and stop.": "Servidores do VPN Gate pelo OpenVPN. Só os hosts do OpenCode passam pelo túnel. Pedido de administrador ao iniciar, trocar e parar.",
   "Only opencode uses the connection. VPNGATE sends only opencode's hosts through the VPN.": "Só o opencode usa a conexão. O VPNGATE envia só os hosts do opencode pela VPN.",
-  "Enter opens the list of values.": "Enter abre a lista de valores."
+  "Enter opens the list of values.": "Enter abre a lista de valores.",
+  "Enter cycles: {0}.": "Enter percorre: {0}."
 }

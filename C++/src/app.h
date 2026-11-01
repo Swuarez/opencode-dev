@@ -61,9 +61,10 @@ public:
     bool        busy()   const { return busy_; }
     std::string status() const;
 
-    const std::string& appExe()     const { return appExe_; }
-    const std::string& appVersion() const { return appVersion_; }
-    const std::string& probeCli()   const { return probeCli_; }
+    // copies under the lock: the worker may be rescanning while the UI reads
+    std::string appExe()     const { std::lock_guard<std::mutex> lk(mtx_); return appExe_; }
+    std::string appVersion() const { std::lock_guard<std::mutex> lk(mtx_); return appVersion_; }
+    std::string probeCli()   const { std::lock_guard<std::mutex> lk(mtx_); return probeCli_; }
     const std::string& exeDir()     const { return exeDir_; }
 
     bool appRunning() const;
@@ -99,6 +100,10 @@ public:
     void openFolder(const std::string& path);
     void saveCfg();
 
+    void rescanDesktop();                        // Settings: detect the desktop app again
+    void clearCacheNow();                        // Settings: clear the OpenCode cache only
+    bool setDesktopPath(const std::string& p);   // Settings, Paths: OC_APP; false = file missing
+
     // Called once per frame from the UI thread.
     void tick();
 
@@ -114,6 +119,10 @@ private:
     void     stopApp();                   // stop the watcher and OpenCode, forget the handle
     uint32_t releaseAppHandle();          // close the handle; its exit code (0 = unknown)
     void     crashRetry(uint32_t code);   // same route after a short wait; 3 crashes in 10 min stop
+    void     detectDesktop(const std::string& why);   // find the app now, reset the 10 min cache
+    void     desktopIfStale();            // detect again when the cached result is older than 10 min
+    void     dropTokens(const std::string& why);      // clearTokens + UI log
+    bool     autoRestartAllowed(const char* why);     // 3 automatic restarts per 10 min, then ask
 
     Config cfg_;
     EgressState est_;
@@ -150,6 +159,10 @@ private:
     void*       appProc_ = nullptr;       // OpenCode process handle, guarded by mtx_
     int         crashStreak_ = 0;
     int64_t     crashLast_ = 0;
+    int64_t     detectAt_ = 0;            // when appExe_ was last detected (worker only)
+    int         closeRestarts_ = 0;       // automatic restarts in the current window, guarded by mtx_
+    int64_t     closeFirst_ = 0;
+    std::atomic<int64_t> rateAskAt_{0};   // last rate limit question (10 min cooldown)
 };
 
 } // namespace oi

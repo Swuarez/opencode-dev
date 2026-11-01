@@ -103,7 +103,7 @@ bool EgressEngine::warpCall(const std::string& args, int timeoutSec, std::string
     if (out) *out = r.out;
     // daemon chatter is kept for diagnosis, like wcli.log in the batch version
     std::string logf = joinPath(cfg_->dir(), "wcli.log");
-    std::string entry = fmt("$ warp-cli %s\n%s%s\n", args.c_str(), r.out.c_str(), r.err.c_str());
+    std::string entry = fmt("$ warp-cli %s  (exit %d)\n%s%s\n", args.c_str(), r.exitCode, r.out.c_str(), r.err.c_str());
     HANDLE h = CreateFileW(utf8ToWide(logf).c_str(), FILE_APPEND_DATA, FILE_SHARE_READ, nullptr,
                            OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (h != INVALID_HANDLE_VALUE) {
@@ -111,7 +111,10 @@ bool EgressEngine::warpCall(const std::string& args, int timeoutSec, std::string
         WriteFile(h, entry.data(), (DWORD)entry.size(), &wr, nullptr);
         CloseHandle(h);
     }
-    return r.started && r.exitCode == 0;
+    bool ok = r.started && r.exitCode == 0;
+    // failures reach the launcher log too, not only wcli.log
+    if (!ok) logWarn(fmt("[egress] warp-cli %s failed (exit %d)", args.c_str(), r.exitCode));
+    return ok;
 }
 
 bool EgressEngine::warpCheck(std::string* ip) const {
@@ -150,12 +153,16 @@ bool EgressEngine::warpUp(ProgressFn log) {
 bool EgressEngine::warpRotate(ProgressFn log) {
     if (!warpAvailable()) return false;
     int callTo = cfg_->i("WARP_CALL_TIMEOUT");
-    say(log, 0, "dropping the WARP registration and asking for a new one...");
+    say(log, 0, "disconnecting WARP and asking for a new registration...");
+    // disconnect first so the old tunnel is gone; disconnect/delete may fail harmlessly
+    // (already down / nothing registered), a failed "registration new" fails this attempt
+    warpCall("disconnect", callTo);
     warpCall("registration delete", callTo);
-    std::string out;
-    warpCall("registration new", callTo, &out);
-    if (!warpUp(log)) return false;
-    return true;
+    if (!warpCall("registration new", callTo)) {
+        say(log, 2, "warp-cli registration new failed.");
+        return false;
+    }
+    return warpUp(log);
 }
 
 // ---------------------------------------------------------------- Tor
@@ -404,7 +411,41 @@ bool EgressEngine::up(ProgressFn log) {
     }
 }
 
+// A rotation counts only when the exit IP really changed (sameIp: IPv4 whole, IPv6 /64).
 bool EgressEngine::rotate(ProgressFn log) {
+    // nothing to retry: no route, or a Tor this launcher cannot restart
+    if (st_->mode == Egress::None || (st_->mode == Egress::Tor && !st_->ourTor)) return rotateRoute(log);
+    int tries = cfg_->i("ROTATE_TRIES_MAX");
+    int cooldown = cfg_->i("ROTATE_COOLDOWN");
+    int64_t t0 = nowSeconds();
+    std::string before = st_->lastIp, reason;
+    TraceInfo t;
+    int attempt = 0;
+    bool ok = false;
+    while (!ok && attempt < tries) {
+        if (attempt++ > 0) Sleep(cooldown * 1000);   // Cloudflare throttles rapid registrations
+        if (!rotateRoute(log)) { reason = "the route did not come up"; continue; }
+        // WARP can keep the old exit a few seconds after reconnecting: poll once a second
+        int64_t deadline = nowSeconds() + (st_->mode == Egress::Warp ? cfg_->i("WARP_WAIT") : 0);
+        for (;;) {
+            t = trace();
+            if ((t.ok && !sameIp(t.ip, before)) || nowSeconds() >= deadline) break;
+            Sleep(1000);
+        }
+        if (!t.ok) reason = "the new route does not answer";
+        else if (sameIp(t.ip, before)) reason = "the exit IP did not change";
+        else { reason = "new IP"; ok = true; }
+        if (!ok) say(log, 2, fmt("  attempt %d/%d: %s", attempt, tries, reason.c_str()));
+    }
+    say(log, ok ? 1 : 2, fmt("rotation %s: %s -> %s, %d attempt(s), %llds, %s",
+                             ok ? "done" : "failed", before.empty() ? "?" : before.c_str(),
+                             t.ip.empty() ? "?" : t.ip.c_str(), attempt,
+                             (long long)(nowSeconds() - t0), reason.c_str()));
+    if (ok) { st_->lastIp = t.ip; st_->lastLoc = t.loc; }
+    return ok;
+}
+
+bool EgressEngine::rotateRoute(ProgressFn log) {
     switch (st_->mode) {
         case Egress::Warp:
             if (!warpRotate(log)) return false;
@@ -509,6 +550,7 @@ bool EgressEngine::hunt(ProgressFn log, const std::string& cli) {
 
     int64_t start = nowSeconds();
     int burned = 0, broken = 0;
+    std::string startIp = st_->lastIp;   // rotate() moves lastIp on, keep the IP the hunt left
 
     for (int i = 1; i <= tries; ++i) {
         if (goal && nowSeconds() - start > (int64_t)minutes * 60) {
@@ -528,6 +570,11 @@ bool EgressEngine::hunt(ProgressFn log, const std::string& cli) {
             continue;
         }
         say(log, 1, fmt("  exit IP %s (country %s)", t.ip.c_str(), t.loc.c_str()));
+        if (sameIp(t.ip, startIp)) {
+            say(log, 2, "  back on the IP the hunt started from, rotating again...");
+            Sleep(interval * 1000);
+            continue;
+        }
         if (!targetMatch(t.ip, t.loc)) {
             say(log, 0, "  not the target, rotating again...");
             Sleep(interval * 1000);

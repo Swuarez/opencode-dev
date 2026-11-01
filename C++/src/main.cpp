@@ -157,6 +157,15 @@ static void LoadUiFont(float size) {
 }
 
 int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
+    // one launcher per session: two would fight over the same OpenCode and egress (released at exit)
+    HANDLE single = ::CreateMutexW(nullptr, FALSE, L"Local\\OpenCodeInfiniteLauncher");
+    if (single && ::GetLastError() == ERROR_ALREADY_EXISTS) {
+        ::MessageBoxW(nullptr, L"OpenCode Infinite is already running.", L"OpenCode Infinite",
+                      MB_ICONINFORMATION | MB_OK | MB_TOPMOST);
+        ::CloseHandle(single);
+        return 0;
+    }
+
     oi::App app;
     app.init();
 

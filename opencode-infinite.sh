@@ -2,7 +2,7 @@
 # OpenCode Infinite for Linux: the Windows launcher's flow in bash.
 # Egress WARP / TOR / PROXY / NONE, target IP hunt, probe, resume when a limit stops the chat.
 # Needs: bash 4.3+, curl, node + opencode. Optional: warp-cli, tor, privoxy, jq (menus in other languages).
-VERSION="linux-0.3.2"
+VERSION="linux-0.3.3"
 REPO="https://gitlab.com/jekooo/opencode-infinite"
 REPO_RAW="https://gitlab.com/jekooo/opencode-infinite/-/raw/main"
 
@@ -13,9 +13,18 @@ APP_DIR="$STATE_DIR/app"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/opencode"
 BIN_DIR="$HOME/.local/bin"
 LIMIT_FLAG="$STATE_DIR/limit.flag"
+OC_PIDS="$STATE_DIR/oc.pids"  # v0.3.3: PIDs of the opencode this launcher started, the only ones stop_opencode may kill
+ROT_LOG="$STATE_DIR/rotations.log"
+ASK_FLAG="$STATE_DIR/ask.flag"; ASK_LAST="$STATE_DIR/ask.last"  # v0.3.3: rate limit asks before rotating, at most once per 10 minutes
+PATTERNS="$STATE_DIR/patterns.conf"
 SELF="$(readlink -f "$0")"
 ARGS=("$@")
-OC_PAT='level=ERROR.*(Failed to drain Session|free usage limit|usage limit reached|rate limit|out of usage|insufficient credits|payment required)'
+# v0.3.3: three lists. rotate = usage limit and the like (rotates by itself), ask = rate limit (asks first), noop = never rotates (compaction, context, model).
+# "Failed to drain Session" (a compaction error) no longer rotates. patterns.conf (rotate= / ask= / noop=, regex alternatives joined by |) overrides these
+PAT_ROTATE_DEF='usage limit|out of usage|insufficient credits|payment required|ip (is )?blocked|blocked ip|403.*region|region.*403'
+PAT_ASK_DEF='rate limit|rate_limit_exceeded|too many requests|status(Code)?[=: ]*429|HTTP 429'
+PAT_NOOP_DEF='compaction|context length exceeded|context_length_exceeded|maximum context|model not found|invalid model|ProviderModelNotFound|content filter|content policy|content_policy'
+OC_PAT="level=ERROR.*($PAT_ROTATE_DEF)"
 ESC=$'\e'
 PATH="$PATH:/usr/sbin:/sbin"  # tor and privoxy live here on Debian and Ubuntu
 MARG=""
@@ -80,7 +89,19 @@ done
 
 # ---------------------------------------------------------------- config and log
 cfg_get(){ local v; v=$(sed -n "s/^$1=//p" "$CONF" 2>/dev/null | tail -n1); printf '%s' "${v:-$2}"; }
-cfg_set(){ touch "$CONF"; { grep -v "^$1=" "$CONF"; printf '%s=%s\n' "$1" "$2"; } > "$CONF.tmp" && mv "$CONF.tmp" "$CONF"; }
+# The .bat and the .exe read config.json from the same folder: a change made here goes there too.
+cfg_set(){
+  touch "$CONF"; { grep -v "^$1=" "$CONF"; printf '%s=%s\n' "$1" "$2"; } > "$CONF.tmp" && mv "$CONF.tmp" "$CONF"
+  [ -f "$STATE_DIR/config.json" ] && command -v python3 >/dev/null 2>&1 &&
+    python3 -I -c 'import json,os,sys
+p,k,v=sys.argv[1:4]
+j=json.load(open(p,encoding="utf-8"))
+s=j["settings"] if isinstance(j.get("settings"),dict) else j
+s[k]=int(v) if v.lstrip("-").isdigit() else v
+open(p+".tmp","w",encoding="utf-8").write(json.dumps(j,indent=2,ensure_ascii=False)+"\n")
+os.replace(p+".tmp",p)' "$STATE_DIR/config.json" "$1" "$2" 2>/dev/null
+  return 0
+}
 load_cfg(){
   local i k v
   for i in "${!SK[@]}"; do
@@ -97,7 +118,22 @@ load_cfg(){
   ROTATE_TRIES_MAX=$(cfg_get ROTATE_TRIES_MAX "$(cfg_get ROTATE_TRIES "$ROTATE_TRIES_MAX")")
   [[ $ROTATE_TRIES_MAX =~ ^[0-9]+$ ]] || ROTATE_TRIES_MAX=4
   OCUI_THEME=$(cfg_get OCUI_THEME "$(cfg_get THEME "$OCUI_THEME")")
+  load_patterns
 }
+# v0.3.3: pat_get <key> <default>: key missing = default, key present but empty = never matches
+pat_get(){
+  grep -q "^$1=" "$PATTERNS" 2>/dev/null || { printf '%s' "$2"; return 0; }
+  local v; v=$(sed -n "s/^$1=//p" "$PATTERNS" | tail -n1 | tr -d '\r'); printf '%s' "${v:-a^}"
+}
+# patterns.conf: rotate=, ask=, noop=. Missing file or key, or a broken regex: the defaults
+load_patterns(){
+  PAT_ROTATE=$(pat_get rotate "$PAT_ROTATE_DEF"); PAT_ASK=$(pat_get ask "$PAT_ASK_DEF"); PAT_NOOP=$(pat_get noop "$PAT_NOOP_DEF")
+  printf '' | grep -Eq "$PAT_ROTATE" 2>/dev/null; [ $? = 2 ] && { log 'patterns.conf: bad rotate regex, default used'; PAT_ROTATE=$PAT_ROTATE_DEF; }
+  printf '' | grep -Eq "$PAT_ASK" 2>/dev/null; [ $? = 2 ] && { log 'patterns.conf: bad ask regex, default used'; PAT_ASK=$PAT_ASK_DEF; }
+  printf '' | grep -Eq "$PAT_NOOP" 2>/dev/null; [ $? = 2 ] && { log 'patterns.conf: bad noop regex, default used'; PAT_NOOP=$PAT_NOOP_DEF; }
+  OC_PAT="level=ERROR.*($PAT_ROTATE)"
+}
+
 log(){
   [ "$LOG_ENABLED" = 1 ] || return 0
   printf '%s %s\n' "$(date '+%F %T')" "$*" >> "$LOG"
@@ -444,6 +480,8 @@ warp_rotate(){
 # ---------------------------------------------------------------- egress: TOR (user tor + privoxy bridge)
 port_open(){ (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; } # bash builtin, no ss or iproute2 needed
 tor_running(){ port_open "$TOR_SOCKS_PORT"; }
+# v0.3.3: polls once a second, at most $3 s, until port $1 is up or down ($2), instead of a fixed sleep
+port_wait(){ local i; for ((i = 0; i < $3; i++)); do if port_open "$1"; then [ "$2" = up ] && return 0; else [ "$2" = down ] && return 0; fi; sleep 1; done; return 1; }
 tor_start(){
   command -v tor >/dev/null || { log 'tor missing'; return 1; }
   command -v privoxy >/dev/null || { log 'privoxy missing'; return 1; }
@@ -455,7 +493,7 @@ tor_start(){
   printf 'listen-address 127.0.0.1:%s\nforward-socks5t / 127.0.0.1:%s .\n' "$TOR_HTTP_PORT" "$TOR_SOCKS_PORT" > "$STATE_DIR/privoxy.conf"
   if ! port_open "$TOR_HTTP_PORT"; then
     privoxy --no-daemon "$STATE_DIR/privoxy.conf" >/dev/null 2>&1 &
-    echo $! > "$STATE_DIR/privoxy.pid"; sleep 2
+    echo $! > "$STATE_DIR/privoxy.pid"; port_wait "$TOR_HTTP_PORT" up 10  # v0.3.3: poll, no fixed sleep
   fi
   # a port that is open is not enough: the bridge on it must route through Tor
   if curl -s -m 30 -x "http://127.0.0.1:$TOR_HTTP_PORT" https://check.torproject.org/api/ip 2>/dev/null | grep -q '"IsTor":true'; then return 0; fi
@@ -472,7 +510,7 @@ tor_check(){ # prints the Tor exit IP when check.torproject.org says IsTor
   printf '%s' "$out" | grep -q '"IsTor":true' || return 1
   printf '%s' "$out" | sed -n 's/.*"IP":"\([^"]*\)".*/\1/p'
 }
-tor_rotate(){ tor_stop; sleep 2; tor_start && tor_check >/dev/null; }
+tor_rotate(){ tor_stop; port_wait "$TOR_SOCKS_PORT" down 5; tor_start && tor_check >/dev/null; }  # v0.3.3: wait for the old tor to leave, no fixed sleep
 
 # ---------------------------------------------------------------- egress: PROXY list
 proxy_pick(){ # the list is a URL or a local file, any format: every ip:port in it is a candidate
@@ -536,41 +574,87 @@ probe_ip(){ # 0 = usable, 1 = burned (a limit answer), 2 = the probe itself is b
   [ "$rc" = 0 ] && return 0
   return 2
 }
+# v0.3.3: ip_key <ip>: IPv4 as is; IPv6 as its first 4 groups (/64), "::" expanded, zero padded
+ip_key(){
+  local ip=${1,,} a b n i out=""
+  [[ $ip == *:* ]] || { printf '%s' "$ip"; return 0; }
+  ip=${ip%%%*}
+  if [[ $ip == *::* ]]; then
+    IFS=: read -ra a <<< "${ip%%::*}"; IFS=: read -ra b <<< "${ip#*::}"
+    for ((n = 8 - ${#a[@]} - ${#b[@]}; n > 0; n--)); do a+=(0); done; a+=("${b[@]}")
+  else IFS=: read -ra a <<< "$ip"; fi
+  for i in 0 1 2 3; do out+=$(printf '%04x' "0x${a[i]:-0}" 2>/dev/null); done
+  printf '%s' "$out"
+}
+same_ip(){ [ -n "$1" ] && [ -n "$2" ] && [ "$(ip_key "$1")" = "$(ip_key "$2")" ]; }
+# rot_log <reason>: one line per rotation attempt (reads prev, ip, i, tries, start of hunt_new)
+rot_log(){ log "rotate prev=${prev:-none} new=${ip:-none} try=$i/$tries t=$(( $(date +%s) - start ))s reason=$1"; }
 # hunt_new: rotates until a route passes the target and the probe. 0 = accepted, 1 = gave up
 hunt_new(){
-  local tries interval goal=0 i t ip gl burned=0 broken=0 start p
+  local tries interval goal=0 i t ip gl burned=0 broken=0 start p prev="" seen="" same=0 end
   [ "$EGRESS" = NONE ] && { say warn 'Egress is NONE - nothing to rotate.'; return 1; }
   if [ -n "$TARGET_COUNTRY$TARGET_PREFIX" ]; then goal=1; tries=$TARGET_TRIES; interval=$TARGET_INTERVAL; else tries=$ROTATE_TRIES_MAX; interval=$ROTATE_COOLDOWN; fi
   start=$(date +%s)
+  [ -n "${PROXY_URL:-}" ] && prev=$(current_ip); seen=$prev  # v0.3.3: the IP to get away from
   for ((i = 1; i <= tries; i++)); do
     if [ "$goal" = 1 ] && [ $(( $(date +%s) - start )) -gt $(( TARGET_MINUTES * 60 )) ]; then say warn 'target hunt: time is up.'; return 1; fi
     printf '\n%s  [%d/%d] rotating...\n' "$MARG" "$i" "$tries"
-    if ! egress_rotate; then say warn '  rotation failed'; log 'rotation failed'; sleep "$interval"; continue; fi
-    t=$(trace_get)
-    ip=$(printf '%s' "$t" | sed -n 's/^ip=//p'); gl=$(printf '%s' "$t" | sed -n 's/^loc=//p')
-    if [ -z "$ip" ] || ! route_ok "$t"; then say warn '  route not answering'; sleep "$interval"; continue; fi
+    if ! egress_rotate; then say warn '  rotation failed'; ip=""; rot_log rotate_failed; sleep "$interval"; continue; fi
+    # v0.3.3: poll the new route every second for up to WARP_WAIT s
+    end=$(( SECONDS + WARP_WAIT ))
+    while :; do
+      t=$(trace_get)
+      ip=$(printf '%s' "$t" | sed -n 's/^ip=//p'); gl=$(printf '%s' "$t" | sed -n 's/^loc=//p')
+      { [ -n "$ip" ] && route_ok "$t"; } && break
+      [ "$SECONDS" -ge "$end" ] && break
+      sleep 1
+    done
+    if [ -z "$ip" ] || ! route_ok "$t"; then say warn '  route not answering'; rot_log route_down; sleep "$interval"; continue; fi
     say ok "  exit IP $ip (country $gl)"
-    if ! target_match "$ip" "$gl"; then sleep "$interval"; continue; fi
+    # v0.3.3: the same IP (same /64 on IPv6) is no rotation: retry after ROTATE_COOLDOWN, give up after ROTATE_TRIES_MAX in a row
+    if same_ip "$ip" "$seen"; then
+      same=$(( same + 1 )); say warn "  same IP as before ($same of $ROTATE_TRIES_MAX), trying again"; rot_log same_ip
+      if [ "$same" -ge "$ROTATE_TRIES_MAX" ]; then say err 'the rotation keeps returning the same IP.'; return 1; fi
+      sleep "$ROTATE_COOLDOWN"; continue
+    fi
+    same=0; seen=$ip
+    if ! target_match "$ip" "$gl"; then rot_log "target_mismatch country=$gl"; sleep "$interval"; continue; fi
     probe_ip; p=$?
     case $p in
-      0) log "accepted $ip $gl"; return 0;;
-      1) burned=$(( burned + 1 )); log "burned $ip"; say warn '  IP already burned, rotating again...'
+      0) rot_log "accepted country=$gl"; return 0;;
+      1) burned=$(( burned + 1 )); rot_log burned; say warn '  IP already burned, rotating again...'
          if [ "$IP_FIND_MAX" -gt 0 ] && [ "$burned" -ge "$IP_FIND_MAX" ]; then say err 'burned IP limit reached.'; return 1; fi
          if [ "$EGRESS" = PROXY ] && [ "$burned" -ge "$PROXY_ROT_MAX" ]; then
            burned=0
            confirm 'Too many burned proxies. Switch this hunt to Tor?' && { EGRESS=TOR; say ok 'switched to Tor for this run.'; }
          fi;;
-      *) broken=$(( broken + 1 )); say err "  probe failed for a reason that is not a limit ($broken of $PROBE_BROKEN_MAX)"
+      *) broken=$(( broken + 1 )); rot_log probe_failed; say err "  probe failed for a reason that is not a limit ($broken of $PROBE_BROKEN_MAX)"
          if [ "$broken" -ge "$PROBE_BROKEN_MAX" ]; then say err 'the probe looks broken. Check Probe model in Settings > Probe.'; return 1; fi;;
     esac
     sleep "$interval"
   done
+  ip=""; i=$tries; rot_log "gave_up_after_$tries"
   return 1
 }
 egress_new(){ hunt_new; }
-export_proxy(){
-  if [ -n "${PROXY_URL:-}" ]; then export HTTP_PROXY="$PROXY_URL" HTTPS_PROXY="$PROXY_URL" http_proxy="$PROXY_URL" https_proxy="$PROXY_URL"
-  else unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy; fi
+export_proxy(){ # the one place that sets the proxy env: new chat, resume, probe and crash retry all call it
+  # v0.3.3: loopback never goes through the proxy (ECONNRESET on 127.0.0.1 after a rotation); ALL_PROXY set like the others
+  export NO_PROXY="localhost,127.0.0.1,::1" no_proxy="localhost,127.0.0.1,::1"
+  if [ -n "${PROXY_URL:-}" ]; then export HTTP_PROXY="$PROXY_URL" HTTPS_PROXY="$PROXY_URL" ALL_PROXY="$PROXY_URL" http_proxy="$PROXY_URL" https_proxy="$PROXY_URL" all_proxy="$PROXY_URL"
+  else unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy; fi
+}
+# v0.3.3: log_resume <command text> [opencode args]: what a resume uses, no secrets (proxy credentials masked, only flag names of the args)
+log_resume(){
+  local cmd=$1 a sid=last-chat prev="" flags=""; shift
+  for a in "$@"; do
+    case $prev in --session|-s) sid=$a;; esac
+    case $a in --session=*) sid=${a#*=};; -*) flags+=" ${a%%=*}";; esac
+    prev=$a
+  done
+  local px ip auth=no
+  px=$(printf 'HTTP=%s HTTPS=%s ALL=%s NO=%s' "${HTTP_PROXY:-none}" "${HTTPS_PROXY:-none}" "${ALL_PROXY:-none}" "${NO_PROXY:-none}" | sed -E 's|//[^/@ ]*@|//***@|g')
+  ip=$(current_ip); [ -s "$DATA_DIR/auth.json" ] && auth=yes
+  log "resume: session=$sid exit_ip=${ip:-none} proxy=[$px] auth=$auth cmd=$cmd$flags"
 }
 
 # ---------------------------------------------------------------- tokens and crash streak
@@ -608,10 +692,59 @@ crash_retry(){ # $1 = exit code. 0 = retry on the same egress, 1 = more than 2 c
 oc_runner(){ # the command line that runs the real OpenCode (node for the npm build)
   case $OC_REAL in *.js|*.mjs|*.cjs) RUNNER=(node "$OC_REAL");; *) RUNNER=("$OC_REAL");; esac
 }
-oc_pattern(){ printf '%s' "$OC_REAL" | sed 's/[][\\.^$*+?(){}|]/\\&/g'; }
-stop_opencode(){ pkill -TERM -f "$(oc_pattern)" 2>/dev/null; sleep 1; pkill -KILL -f "$(oc_pattern)" 2>/dev/null; return 0; }
+# v0.3.3: only the PIDs this launcher started (OC_PIDS, written by run_session) are stopped, never every opencode of the machine.
+# The cmdline check keeps a reused PID safe.
+stop_opencode(){
+  local p sig
+  [ -s "$OC_PIDS" ] || return 0
+  for sig in TERM KILL; do
+    while read -r p; do
+      [[ $p =~ ^[0-9]+$ ]] && grep -qaF "$OC_REAL" "/proc/$p/cmdline" 2>/dev/null && kill -"$sig" "$p" 2>/dev/null
+    done < "$OC_PIDS"
+    [ "$sig" = TERM ] && sleep 1
+  done
+  : > "$OC_PIDS"; return 0
+}
+# v0.3.3: line_class <log line>: prints noop (checked first), rotate or ask; nothing when no list matches
+line_class(){
+  if printf '%s' "$1" | grep -Eiq "$PAT_NOOP"; then echo noop
+  elif printf '%s' "$1" | grep -Eiq "$PAT_ROTATE"; then echo rotate
+  elif printf '%s' "$1" | grep -Eiq "$PAT_ASK"; then echo ask; fi
+}
+# limit_hit <new log text>: 0 = rotate now, 2 = ask the user first (not asked in the last 10 minutes), 1 = nothing. Every classified line is logged
+limit_hit(){
+  local l c act ask=1 now; now=$(date +%s)
+  while IFS= read -r l; do
+    c=$(line_class "$l"); [ -n "$c" ] || continue
+    act=ignore
+    case $c in
+      rotate) act=rotate;;
+      ask) if [ $(( now - $(cat "$ASK_LAST" 2>/dev/null || echo 0) )) -ge 600 ]; then act=ask; ask=0; else act=ignore-cooldown; fi;;
+    esac
+    log "watch: category=$c action=$act line=${l:0:160}"
+    [ "$act" = rotate ] && return 0
+  done < <(printf '%s\n' "$1" | grep -Ei 'level=ERROR')
+  [ "$ask" = 0 ] && return 2
+  return 1
+}
+# ask_rotate: the rate limit question, 60 s, no answer = no. Terminal in normal mode while it waits
+ask_rotate(){
+  local ans=""
+  printf '\n%sRate limit detectado. ¿Rotar IP ahora? [s/N] ' "$MARG"
+  stty echo icanon 2>/dev/null
+  IFS= read -t 60 -r ans; stty -echo -icanon 2>/dev/null; printf '\n'
+  log "rate limit: asked, answer='${ans:-timeout/empty}'"
+  [[ ${ans,,} == s || ${ans,,} == si || ${ans,,} == y ]]
+}
+# v0.3.3: anti-loop. 0 and records the rotation when fewer than 5 happened in the last 30 minutes
+rot_gate(){
+  local now t keep=(); now=$(date +%s)
+  if [ -f "$ROT_LOG" ]; then while read -r t; do [[ $t =~ ^[0-9]+$ ]] && [ $(( now - t )) -lt 1800 ] && keep+=("$t"); done < "$ROT_LOG"; fi
+  [ "${#keep[@]}" -ge 5 ] && return 1
+  keep+=("$now"); printf '%s\n' "${keep[@]}" > "$ROT_LOG"
+}
 watch_log(){ # background: on a limit line, flags LIMIT_FLAG and stops the TUI
-  local start=$1 cur="" pos=0 f size
+  local start=$1 cur="" pos=0 f size hit
   while sleep 2; do
     f=$(ls -t "$DATA_DIR"/log/*.log 2>/dev/null | head -n1)
     [ -n "$f" ] || continue
@@ -621,7 +754,12 @@ watch_log(){ # background: on a limit line, flags LIMIT_FLAG and stops the TUI
     fi
     size=$(stat -c%s "$f")
     if [ "$size" -gt "$pos" ]; then
-      if tail -c +$(( pos + 1 )) "$f" | grep -Eiq "$OC_PAT"; then
+      limit_hit "$(tail -c +$(( pos + 1 )) "$f")"; hit=$?
+      if [ "$hit" = 2 ]; then  # v0.3.3: rate limit: stop the TUI, run_session asks (the TUI owns the terminal while it runs)
+        date +%s > "$ASK_LAST"; : > "$ASK_FLAG"; stop_opencode; exit 0
+      elif [ "$hit" = 0 ]; then
+        # v0.3.3: 5 rotations in 30 minutes is a loop: stop watching, run_session tells the user
+        if ! rot_gate; then log 'watcher stopped: 5 rotations in the last 30 minutes'; : > "$STATE_DIR/watch.stopped"; exit 0; fi
         : > "$LIMIT_FLAG"; log "limit line seen in $(basename "$f")"
         stop_opencode
         exit 0
@@ -636,6 +774,7 @@ resume_run(){ # sends RESUME_MSG to the chat, bounded by RESUME_TIMEOUT. 2 = the
   oc_runner; export_proxy
   local msg=$RESUME_MSG
   [ "$RESUME_MODE" = custom ] && [ -n "$RESUME_TEXT" ] && msg=$RESUME_TEXT
+  log_resume "${RUNNER[*]} run ${auto[*]} -c <message>"  # v0.3.3
   ( cd "$folder" && timeout -k 5 "$RESUME_TIMEOUT" "${RUNNER[@]}" run "${auto[@]}" -c "$msg" ) >"$out" 2>"$err"
   rc=$?
   if grep -Eiq "$OC_PAT|usage limit|rate limit|out of usage|insufficient credits|payment required" "$out" "$err" 2>/dev/null; then return 2; fi
@@ -657,10 +796,21 @@ run_session(){ # run_session <folder> [opencode args...]
     token_guard
     export_proxy
     start=$(date +%s); wpid=""
+    [ -n "$cont" ] && log_resume "${RUNNER[*]} -c" "$@"  # v0.3.3
+    rm -f "$STATE_DIR/watch.stopped"
     if [ "$WATCH" = 1 ]; then watch_log "$start" & wpid=$!; fi
-    ( cd "$folder" && "${RUNNER[@]}" ${cont:+-c} "$@" ); rc=$?
+    # v0.3.3: exec keeps the PID, saved so stop_opencode kills only this one
+    ( cd "$folder" && echo $BASHPID > "$OC_PIDS" && exec "${RUNNER[@]}" ${cont:+-c} "$@" ); rc=$?
+    : > "$OC_PIDS"
     [ -n "$wpid" ] && kill "$wpid" 2>/dev/null
+    [ -f "$STATE_DIR/watch.stopped" ] && { say warn 'Watcher stopped: 5 rotations in 30 minutes. Not rotating again by itself; use New IP from the menu.'; rm -f "$STATE_DIR/watch.stopped"; }
     log "opencode exited rc=$rc"
+    if [ -f "$ASK_FLAG" ]; then  # v0.3.3: rate limit. Yes = the limit path below; no = the same chat reopens on the same IP
+      rm -f "$ASK_FLAG"
+      if ask_rotate; then
+        if rot_gate; then : > "$LIMIT_FLAG"; else say warn '5 rotations in 30 minutes: not rotating.'; cont=1; continue; fi
+      else cont=1; continue; fi
+    fi
     if [ ! -f "$LIMIT_FLAG" ]; then
       case $rc in 0|130|143) return 0;; esac # clean exit or Ctrl+C / kill: not a crash
       crash_retry "$rc"; case $? in
@@ -686,7 +836,7 @@ after_close(){ # ask: R = new IP and resume the chat, M = menu, Q = quit. The ke
   say warn "OpenCode closed. ${KEY_ROTATE^^} = new IP and resume, ${KEY_MENU^^} = menu, ${KEY_QUIT^^} = quit."
   IFS= read -rsn1 k; k=${k^^}
   if [ "$k" = "${KEY_ROTATE^^}" ]; then
-    if egress_new; then say ok "new route: $(current_ip)"; resume_run "$folder"; START_CONTINUE=1 run_session "$folder" && after_close "$folder"
+    if egress_new; then say ok "new route: $(current_ip)"; resume_run "$folder"; ROUTE_READY=1 START_CONTINUE=1 run_session "$folder" && after_close "$folder"  # v0.3.3: ROUTE_READY=1, the chat resumes on the route just made, not a new pick
     else say err 'no new route.'; pause; fi
   elif [ "$k" = "${KEY_QUIT^^}" ]; then QUIT=1
   fi
@@ -839,12 +989,18 @@ make_shortcut(){
   desk=$(desk_dir); cp "$f" "$desk/opencode-infinite.desktop"; chmod +x "$desk/opencode-infinite.desktop"
   say ok "shortcut: $f and $desk/opencode-infinite.desktop"; pause
 }
+# v0.3.3: backup_auth: auth.json is copied to $STATE_DIR/backup/auth/<date-time>/ before anything may delete it. 1 = no backup, do not delete
+backup_auth(){
+  [ -f "$DATA_DIR/auth.json" ] || return 0
+  local d="$STATE_DIR/backup/auth/$(date +%Y%m%d-%H%M%S)"
+  (umask 077; mkdir -p "$d") && cp -p "$DATA_DIR/auth.json" "$d/auth.json" && log "auth.json backed up to $d" || { say err "could not back up auth.json to $d: tokens kept"; return 1; }
+}
 renew_session(){
   confirm 'Close OpenCode, save auth.json to the Desktop and clear the tokens?' || return 0
   stop_opencode
   local desk; desk=$(desk_dir)
-  if [ -f "$DATA_DIR/auth.json" ]; then cp "$DATA_DIR/auth.json" "$desk/auth.json" && rm -f "$DATA_DIR/auth.json" && say ok "auth.json saved to $desk"; fi
-  drop_snapshot
+  if [ -f "$DATA_DIR/auth.json" ]; then backup_auth && cp "$DATA_DIR/auth.json" "$desk/auth.json" && rm -f "$DATA_DIR/auth.json" && say ok "auth.json saved to $desk"; fi
+  [ -e "$DATA_DIR/auth.json" ] || drop_snapshot  # v0.3.3: the snapshot goes only when the tokens went
   if egress_new || egress_up; then say ok "new route: $(current_ip)"; else say err "no new route."; fi
   log 'renew done'
   pause
@@ -879,9 +1035,9 @@ deep_reset(){
   say warn "archiving chats to: $target"
   if [ -d "$DATA_DIR/storage" ] && mv "$DATA_DIR/storage" "$target/storage"; then moved=1; fi
   for f in opencode.db opencode.db-wal opencode.db-shm; do archive_file "$DATA_DIR/$f" "$target/$f" && moved=1; done
-  if archive_file "$DATA_DIR/auth.json" "$target/auth.json"; then say ok 'auth.json archived.'; moved=1; fi
-  drop_snapshot
-  [ -n "$HOME" ] && rm -rf "$HOME/.cache/opencode"
+  if backup_auth && archive_file "$DATA_DIR/auth.json" "$target/auth.json"; then say ok 'auth.json archived.'; moved=1; fi
+  # v0.3.3: snapshot and cache go only when the tokens were backed up and removed
+  if [ ! -e "$DATA_DIR/auth.json" ]; then drop_snapshot; [ -n "$HOME" ] && rm -rf "$HOME/.cache/opencode"; fi
   if [ "$moved" = 0 ]; then rmdir "$target" 2>/dev/null; say warn 'nothing to archive.'
   else say ok 'archived. Tokens cleared.'; log "deep reset to $target"; fi
   pause

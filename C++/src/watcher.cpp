@@ -7,31 +7,56 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <vector>
+#include <algorithm>
+#include <cstring>
+#include <cctype>
 
 #pragma comment(lib, "ws2_32.lib")
 
 namespace oi {
 
-static const char* kLimitWords[] = {
+// Same list names as patterns.conf in the .bat/.sh: rotate= rotates alone (usage limit),
+// ask= asks the user first (rate limit). Compaction / context length are in neither: no rotation.
+static const char* kRotateWords[] = {
     "failed to drain session", "free usage limit", "usage limit reached",
-    "rate limit", "out of usage", "insufficient credits", "payment required"
+    "out of usage", "insufficient credits", "payment required"
+};
+static const char* kAskWords[] = {
+    "rate limit", "rate_limit_exceeded", "too many requests", "429"
 };
 
-bool LogWatcher::lineHasFatal(const std::string& line) {
-    std::string l = lower(line);
-    size_t e = l.find("level=error");
-    if (e == std::string::npos) return false;
-    std::string after = l.substr(e);
-    for (const char* w : kLimitWords) if (after.find(w) != std::string::npos) return true;
+static bool hasWord(const std::string& s, const char* w) {
+    size_t n = strlen(w);
+    bool digits = std::all_of(w, w + n, [](char c) { return c >= '0' && c <= '9'; });
+    for (size_t p = s.find(w); p != std::string::npos; p = s.find(w, p + 1)) {
+        if (!digits) return true;
+        // a bare status code must not be part of a longer number (pid=14290)
+        bool before = p > 0 && isdigit((unsigned char)s[p - 1]);
+        bool afterD = p + n < s.size() && isdigit((unsigned char)s[p + n]);
+        if (!before && !afterD) return true;
+    }
     return false;
 }
 
+int LogWatcher::lineKind(const std::string& line) {
+    std::string l = lower(line);
+    size_t e = l.find("level=error");
+    if (e == std::string::npos) return 0;
+    std::string after = l.substr(e);
+    for (const char* w : kRotateWords) if (hasWord(after, w)) return 1;
+    for (const char* w : kAskWords) if (hasWord(after, w)) return 2;
+    return 0;
+}
+
+bool LogWatcher::lineHasFatal(const std::string& line) { return lineKind(line) != 0; }
+
 LogWatcher::~LogWatcher() { stop(); }
 
-void LogWatcher::start(const WatchConfig& wc, HitFn onHit, WarnFn onWarn) {
+void LogWatcher::start(const WatchConfig& wc, HitFn onHit, HitFn onAsk, WarnFn onWarn) {
     if (running_) return;
     wc_ = wc;
     onHit_ = onHit;
+    onAsk_ = onAsk;
     onWarn_ = onWarn;
     offset_ = wc.startOffset;
     running_ = true;
@@ -124,7 +149,15 @@ void LogWatcher::loop() {
             logInfo("the limit error was followed by normal activity; leaving the session alone");
             continue;
         }
-        logInfo("a stuck limit error was confirmed in the OpenCode log");
+        bool usage = false;
+        for (const auto& l : lines) if (lineKind(l) == 1) usage = true;
+        if (!usage) {
+            // rate limit only: the app asks (at most once per 10 min); keep watching meanwhile
+            logInfo("a stuck rate limit error was confirmed in the OpenCode log; asking, not rotating");
+            if (onAsk_) onAsk_();
+            continue;
+        }
+        logInfo("a stuck usage limit error was confirmed in the OpenCode log");
         if (onHit_) onHit_();
         break;
     }

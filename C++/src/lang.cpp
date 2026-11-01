@@ -2,6 +2,8 @@
 #include "lang.h"
 #include "util.h"
 #include "json.h"
+#include "http.h"
+#include "log.h"
 
 #include <map>
 
@@ -30,13 +32,25 @@ std::string auto_lang() {
     return "en";
 }
 
-void load_lang(const std::string& exeDir, const std::string& langCode) {
+// Same folder and source as the .bat: stateDir\lang\<code>.json, downloaded from the repo.
+void load_lang(const std::string& stateDir, const std::string& langCode, bool fetch) {
     g_map.clear();
     std::string code = langCode;
     if (code.empty() || code == "auto") code = auto_lang();
     if (code == "en") return; // English is the identity
 
-    std::string file = joinPath(joinPath(exeDir, "langs"), code + ".json");
+    std::string dir = joinPath(stateDir, "lang");
+    std::string file = joinPath(dir, code + ".json");
+    if (fetch || !fileExists(file)) {
+        HttpResult r = httpGet("https://gitlab.com/jekooo/opencode-infinite/-/raw/main/langs/" + code + ".json", "", 8);
+        std::string err;
+        if (r.ok && Json::parse(r.body, &err).isObject()) {
+            makeDirs(dir);
+            writeFileText(file, r.body);
+        } else {
+            logWarn("language " + code + " not downloaded: " + (r.error.empty() ? std::string("bad file") : r.error));
+        }
+    }
     if (!fileExists(file)) return;
     std::string err;
     Json j = Json::parse(readFileText(file), &err);

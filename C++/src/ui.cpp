@@ -557,7 +557,7 @@ static void drawMenu(App& app) {
 
     float w = 0.0f;
     if (GhostButton(T("1  New IP and start OpenCode"), ImVec2(w, 32))) app.newIpAndStart();
-    if (GhostButton(T("2  Clear tokens and cache, then start"), ImVec2(w, 32))) app.clearTokensAndStart();
+    if (GhostButton(T("2  Clear tokens, then start"), ImVec2(w, 32))) app.clearTokensAndStart();
     if (GhostButton(T("3  Change IP (test)"), ImVec2(w, 32))) app.changeIpTest();
     if (GhostButton(T("4  Deep reset or restore chats"), ImVec2(w, 32))) { app.refreshArchives(); app.setScreen(Screen::Chats); }
     if (GhostButton(T("5  Settings"), ImVec2(w, 32))) app.setScreen(Screen::Settings);
@@ -574,6 +574,7 @@ static void drawSettings(App& app) {
         app.cfg().resetAll();
         app.saveCfg();
         app.swapLangRefresh();
+        app.rescanDesktop();   // OC_APP may have changed
     }
     ImGui::Spacing();
     ImGui::Separator();
@@ -589,6 +590,14 @@ static void drawSettings(App& app) {
             for (const auto& d : Config::defs()) {
                 if (d.group != g) continue;
                 drawSetting(app, d);
+            }
+            if (g == "Paths") {
+                // OC_APP is edited above (validated on save); these drop the 10 min detection cache
+                KeyValue(T("Desktop app"), app.appExe().empty() ? std::string(T("not found")) : app.appExe());
+                if (GhostButton(T("Detect again"), ImVec2(140, 28))) app.rescanDesktop();
+                ImGui::SameLine();
+                if (GhostButton(T("Clear cache"), ImVec2(140, 28))) app.clearCacheNow();
+                ImGui::Spacing();
             }
             ImGui::Unindent(14.0f);
             ImGui::Spacing();
@@ -646,7 +655,7 @@ static void drawRenew(App& app) {
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
-    Muted(T("Use this when the free limit is reached or the login has expired. It closes OpenCode, copies the login file to the Desktop, clears the saved tokens, and gets a new IP."));
+    Muted(T("Use this when the free limit is reached or the login has expired. It closes OpenCode, copies the login file to the launcher backup folder, clears the saved tokens, and gets a new IP."));
     ImGui::Spacing();
     if (PrimaryButton(T("Renew session"), ImVec2(180, 32))) app.renewSession();
     ImGui::SameLine();
@@ -719,9 +728,14 @@ static void drawTextEditPopup(App& app) {
             bool entered = ImGui::InputText("##val", buf, sizeof(buf), ImGuiInputTextFlags_EnterReturnsTrue);
             ImGui::Spacing();
             if (PrimaryButton(T("Save"), ImVec2(110, 30)) || entered) {
-                app.cfg().set(g_textEditKey, buf);
-                app.saveCfg();
-                ImGui::CloseCurrentPopup();
+                if (g_textEditKey == "OC_APP") {
+                    // checked and logged by the app; a missing file keeps the popup open
+                    if (app.setDesktopPath(buf)) ImGui::CloseCurrentPopup();
+                } else {
+                    app.cfg().set(g_textEditKey, buf);
+                    app.saveCfg();
+                    ImGui::CloseCurrentPopup();
+                }
             }
             ImGui::SameLine();
             if (GhostButton(T("Cancel"), ImVec2(110, 30))) ImGui::CloseCurrentPopup();

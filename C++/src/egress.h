@@ -63,6 +63,7 @@ public:
     std::string torLogPath() const;
 
 private:
+    bool rotateRoute(ProgressFn log);                        // one mode-specific rotation, unchecked
     bool warpAvailable() const;
     bool warpCall(const std::string& args, int timeoutSec, std::string* out = nullptr) const;
     bool warpUp(ProgressFn log);

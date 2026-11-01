@@ -904,5 +904,13 @@
   "%C_WARN%  [vpn] could not resolve the OpenCode hosts (opencode.ai, models.opencode.ai, opentunnel.xyz). Check the internet connection.%C_RST%": "%C_WARN%  [vpn] no se pudieron resolver los hosts de OpenCode (opencode.ai, models.opencode.ai, opentunnel.xyz). Revisa la conexión a internet.%C_RST%",
   "VPN Gate servers through OpenVPN. Only OpenCode's hosts go through the tunnel. Administrator prompt on start, switch and stop.": "Servidores de VPN Gate con OpenVPN. Solo los hosts de OpenCode pasan por el túnel. Aviso de administrador al iniciar, cambiar y parar.",
   "Only opencode uses the connection. VPNGATE sends only opencode's hosts through the VPN.": "Solo opencode usa la conexión. VPNGATE envía por la VPN solo los hosts de opencode.",
-  "Enter opens the list of values.": "Enter abre la lista de valores."
+  "Enter opens the list of values.": "Enter abre la lista de valores.",
+  "Enter cycles: {0}.": "Intro recorre: {0}.",
+  "Retry after a crash": "Reintentar tras un fallo",
+  "A crash restarts OpenCode on the same connection after a short wait. More than 2 crashes in 10 minutes stop it.": "Un fallo reinicia OpenCode con la misma conexión tras una pausa corta. Más de 2 fallos en 10 minutos lo detienen.",
+  "auth.json had disappeared; it was restored from the launcher copy. No login needed.": "auth.json había desaparecido; se restauró desde la copia del lanzador. No hace falta iniciar sesión.",
+  "OpenCode stopped with code {0} (streak {1}).": "OpenCode se detuvo con código {0} (racha {1}).",
+  "Retry {0} of 2 on the same connection in {1} s.": "Reintento {0} de 2 con la misma conexión en {1} s.",
+  "OpenCode crashed 3 times in 10 minutes. Stopped so it is not restarted in a loop. Details in the log.": "OpenCode falló 3 veces en 10 minutos. Detenido para no reiniciarlo en bucle. Detalles en el registro.",
+  "OpenCode is running again.": "OpenCode vuelve a estar en marcha."
 }

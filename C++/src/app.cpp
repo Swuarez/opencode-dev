@@ -10,6 +10,7 @@
 #include "proc.h"
 #include "http.h"
 
+#include <windows.h>
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -17,7 +18,7 @@
 
 namespace oi {
 
-const char* kLauncherVersion = "3.1.0";
+const char* kLauncherVersion = "3.2.0";
 
 App::App() {}
 App::~App() { shutdown(); }
@@ -36,17 +37,12 @@ bool App::init() {
     // Language: auto follows Windows, otherwise the stored code.
     std::string lc = cfg_.s("OCUI_LANG");
     if (lc.empty() || iequals(lc, "auto")) lc = auto_lang();
-    load_lang(exeDir_, lc);
+    load_lang(sd, lc);
 
     engine_.reset(new EgressEngine(&cfg_, &est_));
     engine_->detectTools();
 
-    appExe_     = findDesktopApp(cfg_);
-    appVersion_ = appExe_.empty() ? "" : desktopVersion(appExe_);
-    probeCli_   = appExe_.empty() ? std::string() : findProbeCli(appExe_);
-
-    logInfo("desktop app: " + (appExe_.empty() ? std::string("(not found)") : appExe_));
-    if (!probeCli_.empty()) logInfo("probe cli: " + probeCli_);
+    detectDesktop("launcher start");
 
     std::thread t([this] { workerLoop(); });
     worker_.swap(t);
@@ -119,10 +115,72 @@ std::string App::status() const {
 
 void App::saveCfg() { cfg_.save(); }
 
+// ------------------------------------------------------------ desktop detection
+
+void App::detectDesktop(const std::string& why) {
+    std::string exe = findDesktopApp(cfg_);
+    std::string ver = exe.empty() ? std::string() : desktopVersion(exe);
+    std::string cli = exe.empty() ? std::string() : findProbeCli(exe);
+    {
+        std::lock_guard<std::mutex> lk(mtx_);
+        appExe_ = exe;
+        appVersion_ = ver;
+        probeCli_ = cli;
+    }
+    detectAt_ = nowSeconds();
+    logInfo("desktop app (" + why + "): " + (exe.empty() ? std::string("(not found)") : exe));
+    if (!cli.empty()) logInfo("probe cli: " + cli);
+}
+
+// The result is cached 10 minutes; Detect again and Clear cache drop it.
+void App::desktopIfStale() {
+    if (appExe_.empty() || !fileExists(appExe_) || nowSeconds() - detectAt_ > 600)
+        detectDesktop("cache expired or app missing");
+}
+
+void App::rescanDesktop() {
+    runAsync([this] {
+        detectDesktop("detect again");
+        if (appExe_.empty()) log(2, tx("The OpenCode desktop app was not found. Set the path in Settings, Paths."));
+        else                 log(1, tx("OpenCode desktop found: {0}", appExe_));
+    });
+}
+
+bool App::setDesktopPath(const std::string& p) {
+    std::string v = trim(p);
+    if (v.size() >= 2 && v.front() == '"' && v.back() == '"') v = v.substr(1, v.size() - 2);   // "Copy as path"
+    if (!v.empty() && !fileExists(v)) {
+        log(3, tx("Not saved: the file {0} does not exist.", v));
+        return false;
+    }
+    cfg_.set("OC_APP", v);
+    cfg_.save();
+    log(1, v.empty() ? tx("Desktop app path cleared; it will be searched automatically.")
+                     : tx("Desktop app path saved: {0}", v));
+    rescanDesktop();
+    return true;
+}
+
+void App::clearCacheNow() {
+    runAsync([this] {
+        if (!dirExists(opencodeCacheDir()))           log(0, tx("There is no OpenCode cache to clear."));
+        else if (clearCache("user action: Clear cache")) log(1, tx("OpenCode cache cleared: {0}", opencodeCacheDir()));
+        else log(2, tx("Part of the cache is in use. Close OpenCode and try again."));
+        detectDesktop("cache cleared");
+    });
+}
+
+void App::dropTokens(const std::string& why) {
+    std::string bak, err;
+    if (clearTokens(why, &bak, &err)) log(1, tx("Saved the login file to {0}.", bak));
+    else if (!err.empty())            log(3, tx("The login was kept: {0}", err));
+    else                              log(0, tx("No saved login was found."));
+}
+
 void App::swapLangRefresh() {
     std::string lc = cfg_.s("OCUI_LANG");
     if (lc.empty() || iequals(lc, "auto")) lc = auto_lang();
-    load_lang(exeDir_, lc);
+    load_lang(stateDir(), lc, true);
 }
 
 // --------------------------------------------------------------- worker queue
@@ -167,8 +225,23 @@ void App::startWatcher() {
         wc,
         [this] {
             log(2, tx("OpenCode reported a usage limit."));
-            if (cfg_.b("AUTO_ROTATE")) rotateAndRestart();
+            if (cfg_.b("AUTO_ROTATE")) { if (autoRestartAllowed("usage limit in the OpenCode log")) rotateAndRestart(); }
             else closePrompt_ = true;
+        },
+        [this] {
+            // rate limit: never rotate alone; ask at most once per 10 minutes
+            int64_t now = nowSeconds();
+            if (now - rateAskAt_ < 600) { logInfo("rate limit seen; already asked in the last 10 minutes, not rotating"); return; }
+            rateAskAt_ = now;
+            log(2, tx("OpenCode reported a rate limit."));
+            std::wstring msg = utf8ToWide(tx("Rate limit detected. Rotate the IP now?"));
+            // own thread: a dialog left open must not block the watcher or stopApp (it joins the watcher)
+            std::thread([this, msg] {
+                int r = MessageBoxW(nullptr, msg.c_str(), L"OpenCode Infinite",
+                                    MB_YESNO | MB_ICONQUESTION | MB_TOPMOST | MB_SETFOREGROUND);
+                if (r == IDYES && !quit_) { logInfo("restart reason: rate limit, the user chose to rotate"); rotateAndRestart(); }
+                else log(0, tx("Rate limit: no rotation."));
+            }).detach();
         },
         [this](const std::string& m) { log(2, m); });
 }
@@ -216,6 +289,7 @@ void App::connectAndStart(const std::string& mode) {
         if (t.ok) log(1, tx("Exit IP {0} ({1}).", t.ip, t.loc));
         else      log(2, tx("Could not read the exit IP."));
 
+        desktopIfStale();
         if (cfg_.b("PROBE") && !probeCli_.empty()) {
             if (!engine_->hunt(lg, probeCli_))
                 log(2, tx("The IP hunt ended without a confirmed IP."));
@@ -278,6 +352,7 @@ void App::newIpAndStart() {
 void App::changeIpTest() {
     runAsync([this] {
         auto lg = [this](int k, const std::string& m) { log(k, m); };
+        bool wasRunning = appRunning();
         if (engine_->rotate(lg)) {
             TraceInfo t = engine_->trace();
             {
@@ -287,6 +362,12 @@ void App::changeIpTest() {
             }
             if (t.ok) log(1, tx("Exit IP {0} ({1}).", t.ip, t.loc));
             else      log(1, tx("New route set."));
+            // a running app keeps keep-alive sockets on the old tunnel (ECONNRESET): restart it
+            if (wasRunning) {
+                stopApp();
+                if (startDesktop()) log(1, tx("OpenCode is running again."));
+                else                log(3, tx("OpenCode did not start."));
+            }
         } else {
             log(3, tx("Could not get a new IP."));
         }
@@ -297,9 +378,7 @@ void App::clearTokensAndStart() {
     runAsync([this] {
         auto lg = [this](int k, const std::string& m) { log(k, m); };
         stopApp();
-        std::string desk = desktopFolder();
-        if (clearTokens(desk)) log(1, tx("Saved the login file to {0}.", desk));
-        else                   log(0, tx("No saved login was found."));
+        dropTokens("user action: Clear tokens, then start");   // tokens only; the cache has its own action
         engine_->rotate(lg);
         TraceInfo t = engine_->trace();
         {
@@ -319,9 +398,7 @@ void App::renewSession() {
         auto lg = [this](int k, const std::string& m) { log(k, m); };
         log(0, tx("Renewing the session."));
         stopApp();
-        std::string desk = desktopFolder();
-        if (clearTokens(desk)) log(1, tx("Saved the login file to {0}.", desk));
-        else                   log(0, tx("No saved login was found."));
+        dropTokens("user action: Renew session");
         if (engine_->rotate(lg)) {
             TraceInfo t = engine_->trace();
             {
@@ -342,6 +419,7 @@ void App::doUninstall() {
         removeFile(cfg_.path());
         cfg_.resetAll();
         cfg_.save();
+        detectAt_ = 0;   // OC_APP went back to automatic
         configured_ = false;
         log(1, tx("Settings restored to their defaults."));
         screen_ = Screen::Home;
@@ -403,7 +481,9 @@ void App::deepResetNow() {
         std::string folder = deepReset(joinPath(desk, "opencode_chats_archiviate"), &err);
         if (!folder.empty()) log(1, tx("Chats archived to {0}.", folder));
         else                 log(2, tx("Deep reset: {0}", err.empty() ? std::string(tx("nothing to move")) : err));
-        clearTokens(desk);
+        dropTokens("user action: Deep reset");
+        clearCache("user action: Deep reset");
+        detectAt_ = 0;   // the cache was cleared: detect the app again before the start
         refreshArchives();
         if (!appExe_.empty() && startDesktop()) {
             screen_ = Screen::Menu;
@@ -438,6 +518,10 @@ void App::openFolder(const std::string& path) {
 bool App::startDesktop() {
     if (tokenGuard()) log(2, tx("auth.json had disappeared; it was restored from the launcher copy. No login needed."));
     releaseAppHandle();
+    desktopIfStale();
+    // stopApp only kills what this launcher started; a hand-opened OpenCode keeps its old route
+    if (desktopRunning())
+        log(2, tx("An OpenCode opened outside the launcher is running. Close it so OpenCode uses the new route."));
     void* proc = nullptr;
     if (!launchDesktop(appExe_, est_.proxyUrl, &appPid_, &proc)) return false;
     {
@@ -452,7 +536,12 @@ bool App::startDesktop() {
 
 void App::stopApp() {
     stopWatcher();
-    stopOpenCode();
+    void* proc = nullptr;
+    {
+        std::lock_guard<std::mutex> lk(mtx_);
+        proc = appProc_;
+    }
+    stopOpenCode(appPid_, proc, "relaunch, rotation or reset requested");
     releaseAppHandle();
     appStarted_ = false;
 }
@@ -496,6 +585,22 @@ void App::crashRetry(uint32_t code) {
 
 // ------------------------------------------------------------------ frame tick
 
+// Automatic restarts (clean close, usage limit) must not loop: 3 per 10 minutes, then ask.
+bool App::autoRestartAllowed(const char* why) {
+    bool ok;
+    {
+        std::lock_guard<std::mutex> lk(mtx_);   // UI thread (tick) and watcher thread both come here
+        int64_t now = nowSeconds();
+        if (now - closeFirst_ > 600) { closeFirst_ = now; closeRestarts_ = 0; }
+        ok = ++closeRestarts_ <= 3;
+    }
+    if (ok) { logInfo(std::string("restart reason: ") + why); return true; }
+    logWarn(std::string("restart skipped (3 automatic restarts in 10 minutes): ") + why);
+    log(2, tx("OpenCode was restarted automatically 3 times in 10 minutes. Automatic restart paused; choose what to do."));
+    closePrompt_ = true;
+    return false;
+}
+
 // 0xC000013A is Ctrl+C; any other nonzero exit is a crash.
 static bool isCrashCode(uint32_t c) { return c != 0 && c != 0xC000013A; }
 
@@ -508,14 +613,18 @@ void App::tick() {
     appStarted_ = false;
     stopWatcher();
     uint32_t code = releaseAppHandle();
+    logInfo(fmt("opencode pid %u exited, code 0x%08X (0 = clean or unknown)", appPid_, code));
     log(0, tx("OpenCode closed."));
     // A crash restarts on the same route; a clean close follows ON_CLOSE.
     if (cfg_.b("CRASH_RETRY") && isCrashCode(code) && est_.mode != Egress::None) {
+        logInfo("restart reason: crash, same route");
         crashRetry(code);
         return;
     }
     if (cfg_.s("ON_CLOSE") == "quit") return;
-    if (cfg_.b("AUTO_ROTATE")) rotateAndRestart();
+    if (cfg_.b("AUTO_ROTATE")) {
+        if (autoRestartAllowed("OpenCode closed and AUTO_ROTATE is on")) rotateAndRestart();
+    }
     else closePrompt_ = true;
 }
 
