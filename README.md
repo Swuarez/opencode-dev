@@ -16,9 +16,9 @@ The sections marked **Windows only** below are not on Linux.
 - **Windows:** one file, no installer, no services. Admin (UAC) for the optional WARP install and for VPN Gate (OpenVPN: one prompt on start, switch and stop). WireGuard never asks for administrator.
 - **Linux:** one script. No root needed for the launcher itself. WARP and Tor need their packages installed (section 1b).
 
-## Status (v2.43, 2026-11-01)
+## Status (v2.44, 2026-11-01)
 
-**Windows (`OpenCode Infinite.bat`):** v2.43 is the latest version. v2.43 keeps the tokens across restarts, retries a crashed OpenCode on the same IP (stops after 3 crashes in 10 minutes), and searches for the Desktop app again on request. Updates now come only from GitLab releases, checked with SHA-256 (section 11). Checked on a real Windows 11 PC:
+**Windows (`OpenCode Infinite.bat`):** v2.44 is the latest version. It fixes the repeated "Review" lines on the rainbow theme in short windows. v2.43 keeps the tokens across restarts, retries a crashed OpenCode on the same IP (stops after 3 crashes in 10 minutes), and searches for the Desktop app again on request. Updates now come only from GitLab releases, checked with SHA-256 (section 11). Checked on a real Windows 11 PC:
 
 - **WARP:** `warp-cli` exit codes are read correctly. The real `warp-cli` returns 0 for `status` and `settings`. A failing command returns its code and writes the daemon's message to `wcli.log`. If a WARP step fails (protocol, mode, port or connect), the launcher stops there and reports it. It does **not** fall back to WireGuard.
 - **VPN Gate:** connects with OpenVPN to real servers. OpenCode's IPv4 traffic leaves through the tunnel, the rest of the PC stays direct, and the routes are removed on stop. The OpenVPN log is read while the tunnel runs, and when OpenCode's IPs leave the routes the status shows DOWN and the launcher reconnects.
