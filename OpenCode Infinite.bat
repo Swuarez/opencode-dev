@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 title OpenCode-Infinite
 REM ============================================================
-REM  OpenCode launcher  (v2.39)
+REM  OpenCode launcher  (v2.40)
 REM  Multi-egress (WARP / TOR / free HTTP) + dependency bootstrap
 REM  + auto-resume.
 REM  v2.22 - v2.29: every fixed bug carries an inline "REM v2.2x:"
@@ -12,6 +12,10 @@ REM  warp_up and shows its exit code. VPN Gate removes its routes on stop, reads
 REM  the OpenVPN log while it is open, checks the exit IP over IPv4 only, starts
 REM  OpenCode's Node with IPv4 first, and reports DOWN when OpenCode's IPs are
 REM  no longer routed. An invalid setting value names its key in the notice.
+REM  v2.40: VPN Gate configs stripped of script/plugin directives and IPv6
+REM  blocked; WIREGUARD service restarted behind the proxy; auth.json backups in
+REM  LOCALAPPDATA, not the Desktop; bounded probe; SHA-256 check of Tor; window
+REM  kept open on double click; fixes marked "REM v2.40:" / "# v2.40".
 REM  v2.38: Back in the folder menu; WIREGUARD and VPNGATE in the connection
 REM  method picker; Settings lists open a list of values. Language cache 2.38.
 REM  v2.37: egress WIREGUARD through wireproxy (a local proxy for OpenCode only, block
@@ -106,7 +110,7 @@ REM    call is time-bounded and logged to wcli.log, with the daemon's
 REM    own error text on every failure, so a wedge is readable instead
 REM    of a private salt of exit codes. A missing WARP registration is
 REM    detected and recreated before any tunnel call, and the tunnel
-REM    falls back to WireGuard when MASQUE is refused.
+REM    does not fall back to WireGuard (it is its own egress choice).
 REM
 REM  - Verifies the route, not just the tunnel: IP fetches ignore
 REM    stale HTTP_PROXY/HTTPS_PROXY, and optionally each candidate IP
@@ -186,7 +190,8 @@ set "AUTO_ROTATE=1"
 REM Target of the hunt: a country code and/or an IP prefix. Both empty = any new IP.
 set "TARGET_COUNTRY="
 set "TARGET_PREFIX="
-set "TARGET_TRIES=1"
+REM v2.40: one attempt ended the hunt on the first infrastructure miss; default is 5 now.
+set "TARGET_TRIES=5"
 set "TARGET_MINUTES=15"
 set "TARGET_INTERVAL=15"
 REM Seconds a single warp-cli call may take before it is killed.
@@ -326,7 +331,8 @@ REM Self-update source. In this file a literal % is written %% , so the
 REM URL below ends in the real "...%20Infinite.bat" form the repo uses.
 set "UPDATE_URL=https://gitlab.com/jekooo/opencode-infinite/-/raw/main/OpenCode%%20Infinite.bat"
 REM Hosts that must never go through the proxy.
-set "NO_PROXY=localhost,127.0.0.1,0.0.0.0,::1,[::1]"
+REM v2.40: NO_PROXY and no_proxy are the same variable on Windows, so the launcher list has its own name (it used to overwrite the user's own value before OC_NP0 saved it).
+set "OC_NOPROXY_LIST=localhost,127.0.0.1,0.0.0.0,::1,[::1]"
 REM Default PowerShell command; replaced below by the full path if it exists.
 set "PSX=powershell"
 if exist "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" set "PSX=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
@@ -426,7 +432,7 @@ set "T_49=  OpenCode"
 set "T_50=  Folder : "%%CD%%""
 set "T_51=  Egress : %%EGRESS%%"
 set "T_52=  Mode   : %%APP_MODE%%"
-set "T_53=  WARP   : none ^(rotation disabled^)"
+set "T_53=  WARP   : not found ^(warp-cli.exe missing^) - rotation disabled"
 set "T_54=  WARP   : "%%WARP%%""
 set "T_55=  Version: %%OC_VER%%  "%%OC_CMD%%""
 set "T_56=  Exit IP: %%IP%%"
@@ -451,7 +457,7 @@ set "T_73=  including windows opened by hand or by another launcher."
 set "T_74=--- token reset ----------------------------------------------"
 set "T_75=  This closes opencode, clears the saved tokens and opens a"
 set "T_76=  brand new session. Your chats are NOT moved."
-set "T_77=  auth.json is copied to the Desktop first, then removed."
+set "T_77=  auth.json is copied to a private backup folder first, then removed."
 set "T_78=    egress: %%EGRESS%%"
 set "T_79=%%C_WARN%%  [*] WARP proxy is not answering - rotation has no effect.%%C_RST%%"
 set "T_80=      Going direct would run opencode on your real IP."
@@ -617,7 +623,7 @@ set "T_239=  [*] could not move the storage folder - it stays where it is."
 set "T_240=  [*] could not copy %%1 - it stays where it is."
 set "T_241=  [*] size mismatch on %%1 - the bad copy is deleted, the original stays."
 set "T_242=  cache and tokens cleared."
-set "T_243=  auth.json archived in "%%TARGET%%"."
+set "T_243=  auth.json archived in "%%AUTH_BAK%%"."
 set "T_244=  [*] the auth.json copy did not verify - tokens are left in place."
 set "T_245=  [*] could not copy auth.json - tokens are left in place."
 set "T_246=  [*] no archive folder for this reset - auth.json is left in place."
@@ -715,6 +721,7 @@ set "T_342=country %%TARGET_COUNTRY%%"
 set "T_343=country %%TARGET_COUNTRY%% and prefix %%TARGET_PREFIX%%"
 set "T_344=Pick: "
 set "T_345=--- fresh start ---------------------------------------------"
+set "T_347=%%C_WARN%%  [*] the Tor bundle failed the SHA-256 check against sha256sums-signed-build.txt; it was deleted and NOT unpacked.%%C_RST%%"
 set "T_346=--- continue ------------------------------------------------"
 REM Batch messages are translated from lang\<code>.json; the UI writes lang\messages.txt (data only).
 set "OC_TUI=mki18n"
@@ -780,7 +787,7 @@ REM Validate the numeric settings: invalid values fall back to defaults.
 call :numcfg ROTATE_TRIES_MAX 4
 call :numcfg WARP_WAIT 6
 call :numcfg ROTATE_COOLDOWN 10
-call :numcfg TARGET_TRIES 1
+call :numcfg TARGET_TRIES 5
 call :numcfg TARGET_MINUTES 15
 call :numcfg0 TARGET_INTERVAL 15
 call :numcfg WARP_CALL_TIMEOUT 15
@@ -818,7 +825,7 @@ set "LOG_ARGS=%*"
 if defined LOG_ARGS set "LOG_ARGS=%LOG_ARGS:"='%"
 set "LOG_OSV="
 for /f "tokens=*" %%v in ('ver') do if not defined LOG_OSV set "LOG_OSV=%%v"
-call :log "start v2.39 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
+call :log "start v2.40 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
 REM v2.30: one official copy. Setup copies this file to STATE_DIR\app and the opencode
 REM command runs that copy. A duplicate (a second download, "(1)") hands over to it, or
 REM replaces it when it is the newer one.
@@ -830,13 +837,23 @@ call :launcher_ver "%OFFICIAL%" OFFVER
 if not defined RUNVER goto :official_ok
 if not defined OFFVER goto :official_ok
 call :ver_gt "%RUNVER%" "%OFFVER%"
-if "%VGT%"=="1" (
-    copy /y "%~f0" "%OFFICIAL%" >nul 2>&1
-    call :log "official copy replaced by this newer launcher" boot
-    goto :official_ok
-)
+if not "%VGT%"=="1" goto :official_hand
+REM v2.40: cmd re-reads a running .bat by byte offset, so never overwrite the official copy while a live lock owner or a cmd started on it runs.
+set "OC_LOCK=%STATE_DIR%\lock"
+set "OC_OFF=%OFFICIAL%"
+"%PSX%" -NoProfile -Command "$a=$false; try{ $me=(Get-CimInstance Win32_Process -Filter ('ProcessId='+$PID)).ParentProcessId; $of=Join-Path $env:OC_LOCK 'owner'; if(Test-Path -LiteralPath $of){ $o=[int](Get-Content -LiteralPath $of | Select-Object -First 1); $p=Get-Process -Id $o -ErrorAction SilentlyContinue; if($p -and $o -ne $me -and $p.ProcessName -eq 'cmd'){ $a=$true } }; foreach($c in @(Get-CimInstance Win32_Process -Filter \"Name='cmd.exe'\")){ if($c.ProcessId -ne $me -and $c.CommandLine -and $c.CommandLine.ToLower().Contains($env:OC_OFF.ToLower())){ $a=$true } } }catch{}; if($a){ exit 1 }; exit 0" >nul 2>&1
+if errorlevel 1 goto :official_inuse
+copy /y "%~f0" "%OFFICIAL%" >nul 2>&1
+call :log "official copy replaced by this newer launcher" boot
+goto :official_ok
+:official_inuse
+call :log "official copy in use by another window: not replaced" boot
+goto :official_ok
+:official_hand
 call echo %T_1%
 echo   %OFFICIAL%
+REM v2.40: give the console its original code page back first, or the official copy saves 65001 as the "original" and never undoes it.
+if defined OC_OLDCP chcp %OC_OLDCP% >nul 2>&1
 call "%OFFICIAL%" %*
 exit /b %errorlevel%
 :official_ok
@@ -1299,6 +1316,8 @@ call echo %T_43%
 call :find_opencode
 call :db_guard
 if defined OC_CMD goto :ready
+REM v2.40: Desktop mode launches the app, not the CLI: no CLI is not an error there, so do not install it or quit.
+if /i "%APP_MODE%"=="DESKTOP" goto :ready
 
 REM Not found: install it (npm first, then the standalone build).
 call echo %T_44%
@@ -1385,6 +1404,7 @@ if defined IP goto :menu_ip_ok
 REM No IP could be read: show "unknown" with the reason.
 set "IP=unknown"
 if /i "%EGRESS%"=="WARP" if defined WARP set "IP=unknown - WARP proxy not answering"
+if /i "%EGRESS%"=="WARP" if not defined WARP set "IP=unknown - WARP not installed"
 if /i "%EGRESS%"=="TOR" set "IP=via Tor"
 if /i "%EGRESS%"=="PROXY" if defined ACTIVE_PROXY set "IP=via free proxy"
 if /i "%EGRESS%"=="NONE" set "IP=direct"
@@ -1409,7 +1429,7 @@ set "OC_H_MODE=%APP_MODE%"
 set "OC_H_PROXY=%ACTIVE_PROXY%"
 set "OC_H_WARP="
 if /i "%EGRESS%"=="WARP" set "OC_H_WARP=%WARP%"
-if /i "%EGRESS%"=="WARP" if not defined WARP set "OC_H_WARP=none - rotation disabled"
+if /i "%EGRESS%"=="WARP" if not defined WARP set "OC_H_WARP=not found (warp-cli.exe missing) - rotation disabled"
 set "OC_H_VER=%OC_VER%"
 set "OC_H_IP=%IP%"
 call :tui main
@@ -1600,7 +1620,7 @@ set "COLD=1"
 goto :run
 
 REM NEW: Option 7 (token reset). Same as option 5 but the chats are NOT moved.
-REM Only the token cache is cleared and auth.json is copied to the Desktop
+REM Only the token cache is cleared and auth.json is copied to the private backup folder
 REM (verified) before it is removed.
 :run_soft
 echo.
@@ -1624,7 +1644,6 @@ REM NEW: builds the backup folder for option 7 only. It sets TARGET so
 REM :archive_auth works, and never creates the chats folder. TARGET is
 REM always recomputed so a value left by an earlier deep reset is not reused.
 :soft_target
-if not defined DESKTOP call :find_desktop
 set "STAMP="
 set "OC_OUT=%TEMP%\oc_stm_%RANDOM%.txt"
 if exist "%OC_OUT%" del /f /q "%OC_OUT%" >nul 2>&1
@@ -1633,7 +1652,8 @@ set "OC_STM=%OC_OUT%"
 if exist "%OC_OUT%" for /f "usebackq delims=" %%T in ("%OC_OUT%") do set "STAMP=%%T"
 if exist "%OC_OUT%" del /f /q "%OC_OUT%" >nul 2>&1
 if not defined STAMP set "STAMP=r%RANDOM%%RANDOM%"
-set "TARGET=%DESKTOP%\opencode_auth_backup\%STAMP%"
+REM v2.40: the auth.json copy now goes to :archive_auth's private folder, not the Desktop
+set "TARGET=%LOCALAPPDATA%\opencode-infinite\backup\auth\%STAMP%"
 goto :eof
 
 REM Launch step. Checks the egress first, then starts opencode.
@@ -1768,6 +1788,13 @@ set "SVC_PROXIED="
 
 REM Common launch path, proxied and direct runs alike (v2.23).
 :run_launch
+if /i "%APP_MODE%"=="DESKTOP" goto :rl_cmd_ok
+if defined OC_CMD goto :rl_cmd_ok
+echo.
+echo   OpenCode no encontrado, instalalo o indica la ruta en OC_APP ^(config^).
+call :pause_key
+goto :menu_loop
+:rl_cmd_ok
 
 REM Remember the log size before launch, so the watcher and the quota
 REM check only read what this run writes.
@@ -1842,6 +1869,8 @@ set "WHY=watcher"
 goto :quota_rotate
 REM No watcher hit. A nonzero exit code means opencode crashed.
 :run_no_hit
+REM 9009 = the launch guard found no opencode: rotating the IP cannot fix that.
+if "%EC%"=="9009" goto :menu_loop
 if not "%EC%"=="0" goto :exit_rotate
 REM NONE (or WARP mode without WARP) has no egress to retry: menu.
 if /i "%EGRESS%"=="NONE" goto :closed
@@ -2118,6 +2147,8 @@ if "%TMATCH%"=="0" goto :rotate_loop
 REM probe: one cheap message on the throwaway session. burned IP ->
 REM rotate again. With PROBE=0 the probe is skipped and the IP is accepted directly.
 if "%PROBE%"=="0" goto :rotate_good
+REM v2.40: Desktop mode without the CLI has nothing to probe with.
+if not defined OC_CMD goto :rotate_good
 call echo %T_108%
 call :probe_once
 if not errorlevel 1 goto :rotate_good
@@ -2349,6 +2380,8 @@ set "REC=%errorlevel%"
 call :log "resume finished code %REC%" resume
 REM v2.22: restore the user's own proxy variables instead of deleting them.
 call :restore_env
+if "%REC%"=="9009" echo   OpenCode no encontrado: la ruta esta vacia o no existe.
+if "%REC%"=="9009" goto :menu_loop
 REM 124 is the watchdog code: the resume was killed for taking too long.
 if "%REC%"=="124" (
     call echo %T_132%
@@ -2543,11 +2576,19 @@ set "ACTIVE_PROXY="
 if not "%VPN_PORT%"=="0" set "ACTIVE_PROXY=http://127.0.0.1:%VPN_PORT%"
 REM Node picks IPv6 first, and an IPv6 request leaves by the physical route. VPN Gate routes only IPv4,
 REM so the Node processes of this tree (opencode and its service) are told to use IPv4.
+REM v2.40: opencode runs on Bun, which ignores NODE_OPTIONS (tested); Build-Ovpn now routes and blocks its IPv6 in the tunnel.
 if /i "%EGRESS%"=="VPNGATE" set "NODE_OPTIONS=--no-network-family-autoselection --dns-result-order=ipv4first"
 call echo %T_284%
 call :log "vpn up: %EGRESS% %VPN_NAME% ip=%VPN_IP% port=%VPN_PORT%" vpn
 REM the shared background service holds the sockets of the old route: restart it so the next request leaves by the new one
-if defined CAP_SERVICE if defined OC_CMD call "%OC_CMD%" service restart >nul 2>&1
+REM v2.40: the restart ran on the user's env (no proxy) and :run_gate_ok skipped its own because the port
+REM never changes, so the WireGuard service left direct. Export around it, as :rotate_good does for WARP.
+if not defined CAP_SERVICE exit /b 0
+if not defined OC_CMD exit /b 0
+call :export_proxy_active >nul
+call "%OC_CMD%" service restart >nul 2>&1
+call :restore_env
+set "SVC_PROXIED=%ACTIVE_PROXY%"
 exit /b 0
 :vpn_r_noconf
 if /i "%EGRESS%"=="VPNGATE" if defined VPNGATE_COUNTRY call echo %T_289%
@@ -2585,6 +2626,7 @@ REM usage: call :chat_run snapshot|empty|resume|typed. Result: CHAT_EMPTY CHAT_D
 set "CHAT_EMPTY="
 set "CHAT_DUP="
 set "CHAT_MSG="
+set "CHAT_SHOW="
 set "CHAT_TYPED="
 if exist "%STATE_DIR%\chat_result.txt" del /f /q "%STATE_DIR%\chat_result.txt" >nul 2>&1
 set "OC_CHAT_ACT=%~1"
@@ -2609,6 +2651,8 @@ call :chat_run resume
 if defined CHAT_MSG set "OC_MSG=%CHAT_MSG%"
 set "RDUP=%CHAT_DUP%"
 set "OC_MSG_SHOW=%OC_MSG:~0,80%"
+REM v2.40: the echoed copy comes stripped of & | < > ^ % from the chat module (the sent text keeps them).
+if defined CHAT_SHOW set "OC_MSG_SHOW=%CHAT_SHOW%"
 if not "%RDUP%"=="1" call echo %T_307%
 exit /b 0
 
@@ -2665,9 +2709,10 @@ REM v2.25: the .cmd/.bat branch used to pass @('/c',$exe)+$a, which never
 REM quotes $exe: a path with a space ("C:\Users\John Smith\...") ran as
 REM "C:\Users\John" and died. The whole line is now one string, wrapped in
 REM the extra quote pair that /s strips, with the exe quoted inside it.
-"%PSX%" -NoProfile -Command "$exe=$env:OC_EXE; $a=@(); if($env:OC_FLAGS){ $a=([string]$env:OC_FLAGS) -split [char]32; $a=@($a | Where-Object { $_ }) }; if($env:OC_PROMPT){ $a+=@('--prompt',([char]34+$env:OC_PROMPT+[char]34)) }; $p=$null; if($exe -match '[.](cmd|bat)$'){ $q=[char]34; $cl='/s /c '+$q+$q+$exe+$q; foreach($x in $a){ $cl+=' '+$x }; $cl+=$q; $p=Start-Process cmd.exe -ArgumentList $cl -NoNewWindow -PassThru } elseif($a.Count){ $p=Start-Process $exe -ArgumentList @($a) -NoNewWindow -PassThru } else { $p=Start-Process $exe -NoNewWindow -PassThru }; if(-not $p){ exit 1 }; $null=$p.Handle; Set-Content -LiteralPath $env:OC_PIDF -Value $p.Id; [void]$p.WaitForExit(); if($p.ExitCode -ne $null){ exit $p.ExitCode }; exit 1"
+"%PSX%" -NoProfile -Command "$exe=$env:OC_EXE; if(-not $exe -or -not (Test-Path -LiteralPath $exe)){ exit 9009 }; $a=@(); if($env:OC_FLAGS){ $a=([string]$env:OC_FLAGS) -split [char]32; $a=@($a | Where-Object { $_ }) }; if($env:OC_PROMPT){ $a+=@('--prompt',([char]34+$env:OC_PROMPT+[char]34)) }; $p=$null; if($exe -match '[.](cmd|bat)$'){ $q=[char]34; $cl='/s /c '+$q+$q+$exe+$q; foreach($x in $a){ $cl+=' '+$x }; $cl+=$q; $p=Start-Process cmd.exe -ArgumentList $cl -NoNewWindow -PassThru } elseif($a.Count){ $p=Start-Process $exe -ArgumentList @($a) -NoNewWindow -PassThru } else { $p=Start-Process $exe -NoNewWindow -PassThru }; if(-not $p){ exit 1 }; $null=$p.Handle; Set-Content -LiteralPath $env:OC_PIDF -Value $p.Id; [void]$p.WaitForExit(); if($p.ExitCode -ne $null){ exit $p.ExitCode }; exit 1"
 set "EC=%errorlevel%"
-call :ui_apply
+if defined C_ACC <nul set /p "=%C_ACC%"
+if "%EC%"=="9009" echo   OpenCode no encontrado: la ruta esta vacia o no existe.
 goto :eof
 
 REM - resume message under a hard time limit
@@ -2685,7 +2730,7 @@ set "OC_ERRF=%STATE_DIR%\resume.err"
 set "OC_TO=%RESUME_TIMEOUT%"
 if exist "%OC_OUTF%" del /f /q "%OC_OUTF%" >nul 2>&1
 if exist "%OC_ERRF%" del /f /q "%OC_ERRF%" >nul 2>&1
-"%PSX%" -NoProfile -Command "$exe=$env:OC_EXE; $a=@('run'); if($env:OC_FL){ $a+=@($env:OC_FL -split [char]32 | Where-Object { $_ }) }; if($env:OC_MSG){ $a+=([char]34 + $env:OC_MSG + [char]34) }; $a=@($a | Where-Object { $_ }); $o=$env:OC_OUTF; $e=$env:OC_ERRF; if($exe -match '[.](cmd|bat)$'){ $q=[char]34; $cl='/s /c '+$q+$q+$exe+$q; foreach($x in $a){ $cl+=' '+$x }; $cl+=$q; $p=Start-Process cmd.exe -ArgumentList $cl -NoNewWindow -PassThru -RedirectStandardOutput $o -RedirectStandardError $e } else { $p=Start-Process $exe -ArgumentList $a -NoNewWindow -PassThru -RedirectStandardOutput $o -RedirectStandardError $e }; if(-not $p){ exit 1 }; $null=$p.Handle; if(-not $p.WaitForExit([int]$env:OC_TO*1000)){ Start-Process taskkill.exe -ArgumentList @('/T','/F','/PID',$p.Id) -WindowStyle Hidden -Wait; exit 124 }; exit $p.ExitCode"
+"%PSX%" -NoProfile -Command "$exe=$env:OC_EXE; if(-not $exe -or -not (Test-Path -LiteralPath $exe)){ exit 9009 }; $a=@('run'); if($env:OC_FL){ $a+=@($env:OC_FL -split [char]32 | Where-Object { $_ }) }; if($env:OC_MSG){ $mm=$env:OC_MSG; if($exe -match '[.](cmd|bat)$'){ $mm=$mm -replace '[&|<>^%%]',' ' }; $a+=([char]34 + $mm + [char]34) }; $a=@($a | Where-Object { $_ }); $o=$env:OC_OUTF; $e=$env:OC_ERRF; if($exe -match '[.](cmd|bat)$'){ $q=[char]34; $cl='/s /c '+$q+$q+$exe+$q; foreach($x in $a){ $cl+=' '+$x }; $cl+=$q; $p=Start-Process cmd.exe -ArgumentList $cl -NoNewWindow -PassThru -RedirectStandardOutput $o -RedirectStandardError $e } else { $p=Start-Process $exe -ArgumentList $a -NoNewWindow -PassThru -RedirectStandardOutput $o -RedirectStandardError $e }; if(-not $p){ exit 1 }; $null=$p.Handle; if(-not $p.WaitForExit([int]$env:OC_TO*1000)){ Start-Process taskkill.exe -ArgumentList @('/T','/F','/PID',$p.Id) -WindowStyle Hidden -Wait; exit 124 }; exit $p.ExitCode"
 exit /b %errorlevel%
 
 REM - print what the resume actually said
@@ -2740,13 +2785,16 @@ REM  1) save its own PID, 2) wait up to 60 s for the TUI PID,
 REM  3) loop every 2 s: read new log bytes, look for a fatal pattern,
 REM     re-read after 4 s, ignore it if INFO or DEBUG lines followed,
 REM     otherwise write the hit marker and kill the TUI process tree.
-start "" /b "%PSX%" -NoProfile -Command "$PID | Set-Content -LiteralPath $env:OC_WPIDF; $tpid=0; $off=0; $tick=0; $pfail=0; if($env:OC_OFF){$off=[int64]$env:OC_OFF}; $dl=(Get-Date).AddSeconds(60); while($tpid -eq 0){ if((Get-Date) -gt $dl){exit 0}; if(Test-Path -LiteralPath $env:OC_TPIDF){ $c=(Get-Content -LiteralPath $env:OC_TPIDF -ErrorAction SilentlyContinue | Select-Object -First 1); if($c){$tpid=[int]$c} }; if($tpid -eq 0){Start-Sleep -Seconds 1} }; while($true){ Start-Sleep -Seconds 2; $p=Get-Process -Id $tpid -ErrorAction SilentlyContinue; if(-not $p){exit 0}; $tick++; if($tick -ge 30){ $tick=0; if($env:OC_WATCHP){ try{ $hp=($env:OC_WATCHP -replace '^[A-Za-z0-9]+://',''); $ix=$hp.LastIndexOf([char]58); $ph=$hp.Substring(0,$ix); $pp=[int]$hp.Substring($ix+1); $c=New-Object Net.Sockets.TcpClient; $ar=$c.BeginConnect($ph,$pp,$null,$null); if($ar.AsyncWaitHandle.WaitOne(2500)){ $c.EndConnect($ar); $c.Close(); $pfail=0 } else { $pfail++ } }catch{ try{$c.Close()}catch{}; $pfail++ }; if($pfail -ge 3){ try{ Set-Content -LiteralPath $env:OC_PWARNF -Value ('egress proxy stopped answering: ' + $env:OC_WATCHP) }catch{}; $pfail=0 } } }; $t=''; try{ $fs=[IO.File]::Open($env:OC_LOGF,'Open','Read','ReadWrite'); if($fs.Length -lt $off){$off=0}; if($fs.Length -gt $off){ [void]$fs.Seek($off,'Begin'); $sr=New-Object IO.StreamReader($fs); $t=$sr.ReadToEnd(); $off=$fs.Length; $sr.Close() } else { $fs.Close() } }catch{ continue }; if(-not ($t -match $env:OC_FATPAT)){ continue }; Start-Sleep -Seconds 4; $t2=''; try{ $fs2=[IO.File]::Open($env:OC_LOGF,'Open','Read','ReadWrite'); if($fs2.Length -gt $off){ [void]$fs2.Seek($off,'Begin'); $sr2=New-Object IO.StreamReader($fs2); $t2=$sr2.ReadToEnd(); $off=$fs2.Length; $sr2.Close() } else { $fs2.Close() } }catch{}; $lines=($t+$t2) -split [char]10; $idx=-1; for($i=0;$i -lt $lines.Count;$i++){ if($lines[$i] -match $env:OC_FATPAT){$idx=$i} }; $rec=$false; if($idx -ge 0){ for($j=$idx+1;$j -lt $lines.Count;$j++){ if($lines[$j] -match 'level=(INFO|DEBUG)'){$rec=$true} } }; if($rec){ continue }; $p2=Get-Process -Id $tpid -ErrorAction SilentlyContinue; if($p2){ try{Set-Content -LiteralPath $env:OC_HITF -Value 'HIT'}catch{}; Start-Process taskkill.exe -ArgumentList @('/T','/F','/PID',$tpid) -WindowStyle Hidden -Wait; exit 1 } }"     
+REM v2.40: the watcher saves PID|StartTime so :watch_stop never kills a process that reused its PID.
+start "" /b "%PSX%" -NoProfile -Command "([string]$PID + '|' + (Get-Process -Id $PID).StartTime.Ticks) | Set-Content -LiteralPath $env:OC_WPIDF; $tpid=0; $off=0; $tick=0; $pfail=0; if($env:OC_OFF){$off=[int64]$env:OC_OFF}; $dl=(Get-Date).AddSeconds(60); while($tpid -eq 0){ if((Get-Date) -gt $dl){exit 0}; if(Test-Path -LiteralPath $env:OC_TPIDF){ $c=(Get-Content -LiteralPath $env:OC_TPIDF -ErrorAction SilentlyContinue | Select-Object -First 1); if($c){$tpid=[int]$c} }; if($tpid -eq 0){Start-Sleep -Seconds 1} }; while($true){ Start-Sleep -Seconds 2; $p=Get-Process -Id $tpid -ErrorAction SilentlyContinue; if(-not $p){exit 0}; $tick++; if($tick -ge 30){ $tick=0; if($env:OC_WATCHP){ try{ $hp=($env:OC_WATCHP -replace '^[A-Za-z0-9]+://',''); $ix=$hp.LastIndexOf([char]58); $ph=$hp.Substring(0,$ix); $pp=[int]$hp.Substring($ix+1); $c=New-Object Net.Sockets.TcpClient; $ar=$c.BeginConnect($ph,$pp,$null,$null); if($ar.AsyncWaitHandle.WaitOne(2500)){ $c.EndConnect($ar); $c.Close(); $pfail=0 } else { $pfail++ } }catch{ try{$c.Close()}catch{}; $pfail++ }; if($pfail -ge 3){ try{ Set-Content -LiteralPath $env:OC_PWARNF -Value ('egress proxy stopped answering: ' + $env:OC_WATCHP) }catch{}; $pfail=0 } } }; $t=''; try{ $fs=[IO.File]::Open($env:OC_LOGF,'Open','Read','ReadWrite'); if($fs.Length -lt $off){$off=0}; if($fs.Length -gt $off){ [void]$fs.Seek($off,'Begin'); $sr=New-Object IO.StreamReader($fs); $t=$sr.ReadToEnd(); $off=$fs.Length; $sr.Close() } else { $fs.Close() } }catch{ continue }; if(-not ($t -match $env:OC_FATPAT)){ continue }; Start-Sleep -Seconds 4; $t2=''; try{ $fs2=[IO.File]::Open($env:OC_LOGF,'Open','Read','ReadWrite'); if($fs2.Length -gt $off){ [void]$fs2.Seek($off,'Begin'); $sr2=New-Object IO.StreamReader($fs2); $t2=$sr2.ReadToEnd(); $off=$fs2.Length; $sr2.Close() } else { $fs2.Close() } }catch{}; $lines=($t+$t2) -split [char]10; $idx=-1; for($i=0;$i -lt $lines.Count;$i++){ if($lines[$i] -match $env:OC_FATPAT){$idx=$i} }; $rec=$false; if($idx -ge 0){ for($j=$idx+1;$j -lt $lines.Count;$j++){ if($lines[$j] -match 'level=(INFO|DEBUG)'){$rec=$true} } }; if($rec){ continue }; $p2=Get-Process -Id $tpid -ErrorAction SilentlyContinue; if($p2){ try{Set-Content -LiteralPath $env:OC_HITF -Value 'HIT'}catch{}; Start-Process taskkill.exe -ArgumentList @('/T','/F','/PID',$tpid) -WindowStyle Hidden -Wait; exit 1 } }"     
 goto :eof
 
 REM Stop the watcher and remove the PID files once the TUI has closed.
 :watch_stop
 if not exist "%STATE_DIR%\watch.pid" goto :ws_clean
-for /f "usebackq delims=" %%p in ("%STATE_DIR%\watch.pid") do taskkill /f /pid %%p >nul 2>&1
+REM v2.40: kill only if the PID still belongs to the watcher (same start time); it usually exited with the TUI.
+set "OC_WPIDF=%STATE_DIR%\watch.pid"
+"%PSX%" -NoProfile -Command "try{ $v=@((Get-Content -LiteralPath $env:OC_WPIDF -TotalCount 1) -split '\|'); $p=Get-Process -Id ([int]$v[0]) -ErrorAction Stop; if($v.Count -gt 1 -and [string]$p.StartTime.Ticks -eq $v[1]){ Stop-Process -Id $p.Id -Force } }catch{}" >nul 2>&1
 del /f /q "%STATE_DIR%\watch.pid" >nul 2>&1
 :ws_clean
 if exist "%STATE_DIR%\tui.pid" del /f /q "%STATE_DIR%\tui.pid" >nul 2>&1
@@ -2784,7 +2832,7 @@ set "HTTP_PROXY=%PROXY%"
 set "HTTPS_PROXY=%PROXY%"
 set "POUTF=%STATE_DIR%\probe.out"
 set "PERRF=%STATE_DIR%\probe.err"
-set "PARGS=run -m %PROBE_MODEL% -s %OC_PROBE_ID% --auto"
+set "PARGS=-m %PROBE_MODEL% -s %OC_PROBE_ID% --auto"
 if defined CAP_STANDALONE set "PARGS=%PARGS% --standalone"
 if exist "%POUTF%" del /f /q "%POUTF%" >nul 2>&1
 if exist "%PERRF%" del /f /q "%PERRF%" >nul 2>&1
@@ -2792,10 +2840,20 @@ REM No usable offset = no verdict from the log. Never scan the whole file:
 REM it still holds every old quota error and would fail every probe.
 set "PZB="
 for %%S in ("%LOGFILE%") do if not "%%~zS"=="" set "PZB=%%~zS"
-call "%OC_CMD%" %PARGS% "reply with just: ok" >"%POUTF%" 2>"%PERRF%"
+REM v2.40: the probe runs through :resume_run, so a hung IP is killed after RESUME_TIMEOUT (124) instead of freezing the hunt.
+set "PRB_MSG0=%OC_MSG%"
+set "OC_MSG=reply with just: ok"
+call :resume_run %PARGS%
 set "PEC=%errorlevel%"
+set "OC_MSG=%PRB_MSG0%"
+set "PRB_MSG0="
+move /y "%STATE_DIR%\resume.out" "%POUTF%" >nul 2>&1
+move /y "%STATE_DIR%\resume.err" "%PERRF%" >nul 2>&1
 REM v2.23: restore the user's own proxy variables instead of deleting them.
 call :restore_env
+REM A timeout means the exit IP is hung: count it as burned, not as a broken probe.
+if "%PEC%"=="124" set "PBURNED=1"
+if "%PEC%"=="124" goto :probe_bad
 if not "%PEC%"=="0" goto :probe_classify
 REM The CLI exited clean, but a limit answer can still reach the log a
 REM moment later (flush race). Settle once, then judge only what arrived:
@@ -2960,7 +3018,7 @@ REM - install opencode: official winget channel first, npm next, else the
 REM standalone build from the GitHub release. Every hop is logged to
 REM %STATE_DIR%\install.log so a VM that stalls shows where it stalled.
 :install_opencode
-if exist "%LOCALAPPDATA%\opencode\bin\opencode.exe" goto :eof
+REM v2.40: the only caller gets here after :find_opencode found nothing usable, so an opencode.exe that exists is broken: reinstall over it (Expand-Archive -Force) instead of doing nothing.
 call :olog "install opencode start"
 REM v2.28: the winget channel (SST.opencode) is frozen on 1.19.5, the old v1
 REM line, so it is not used. The official build from opencode.ai goes first.
@@ -3199,6 +3257,9 @@ REM starts v1 against a v2 database and dies with
 REM "Database is not empty and has no session table".
 REM Sets OC_CMD to the newest working binary and OC_VER to its version.
 :find_opencode
+REM A failed re-scan must not blank OC_CMD: the launch then passed an empty path to Start-Process.
+set "OC_PREV=%OC_CMD%"
+set "OC_PREV_VER=%OC_VER%"
 set "OC_CMD="
 set "OC_VER="
 set "OCCAND=%TEMP%\oc_cand_%RANDOM%%RANDOM%.txt"
@@ -3211,7 +3272,8 @@ call :add_cand "%LOCALAPPDATA%\Programs\opencode\opencode.exe"
 call :add_cand "%LOCALAPPDATA%\opencode\bin\opencode.exe"
 call :add_cand "%USERPROFILE%\.opencode\bin\opencode.exe"
 call :add_cand "%LOCALAPPDATA%\Microsoft\WinGet\Links\opencode.exe"
-if not exist "%OCCAND%" goto :eof
+if exist "%STATE_DIR%\opencode_path.txt" for /f "usebackq delims=" %%p in ("%STATE_DIR%\opencode_path.txt") do call :add_cand "%%p"
+if not exist "%OCCAND%" goto :fo_ver
 REM One candidate: take it without paying the cost of a version probe.
 set "OCN=0"
 for /f "usebackq delims=" %%c in ("%OCCAND%") do set /a OCN+=1
@@ -3221,6 +3283,8 @@ REM Several candidates: probe each one, the highest version wins.
 for /f "usebackq delims=" %%c in ("%OCCAND%") do call :oc_probe "%%c"
 :fo_ver
 del /f /q "%OCCAND%" >nul 2>&1
+if not defined OC_CMD if defined OC_PREV if exist "%OC_PREV%" set "OC_CMD=%OC_PREV%"
+if not defined OC_VER if defined OC_CMD if defined OC_PREV_VER if "%OC_CMD%"=="%OC_PREV%" set "OC_VER=%OC_PREV_VER%"
 if defined OC_CMD if not defined OC_VER (
     set "OC_CAN=%OC_CMD%"
     call :oc_version
@@ -3229,6 +3293,7 @@ if defined OC_CMD if not defined OC_VER (
     REM pays for a second probe.
     if defined CVER set "OC_VER=%CVER%"
 )
+if defined OC_CMD >"%STATE_DIR%\opencode_path.txt" echo %OC_CMD%
 goto :eof
 
 REM - add one candidate path, at most once
@@ -3663,7 +3728,16 @@ set "HTTP_PROXY=%KEEP_HP%"
 set "HTTPS_PROXY=%KEEP_SP%"
 call echo %T_191%
 goto :eof
+:tia_badsum
+if exist "%TGZ%" del /f /q "%TGZ%" >nul 2>&1
+set "HTTP_PROXY=%KEEP_HP%"
+set "HTTPS_PROXY=%KEEP_SP%"
+call echo %T_347%
+goto :eof
 :tia_up_ok
+REM v2.40: the size alone proved nothing. SHA-256 against the sums file published next to the bundle (as opencode and wireproxy are checked).
+"%PSX%" -NoProfile -Command "try{[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $u=$env:OC_TURL; $i=$u.LastIndexOf([char]47)+1; $n=$u.Substring($i); $t=(Invoke-WebRequest -UseBasicParsing -Uri ($u.Substring(0,$i)+'sha256sums-signed-build.txt') -TimeoutSec 30).Content; $m=[regex]::Match($t,'(?mi)^([0-9a-f]{64})\s+'+[regex]::Escape($n)+'\s*$'); if(-not $m.Success){ exit 1 }; if((Get-FileHash -LiteralPath $env:OC_TGZ -Algorithm SHA256).Hash -ieq $m.Groups[1].Value){ exit 0 } else { exit 1 } }catch{ exit 1 }" >nul 2>&1
+if errorlevel 1 goto :tia_badsum
 set "HTTP_PROXY=%KEEP_HP%"
 set "HTTPS_PROXY=%KEEP_SP%"
 call echo %T_192%
@@ -3779,10 +3853,14 @@ REM probe through the bridge. Without curl: "Bootstrapped 100" in the
 REM tor log plus both ports listening. Bounded.
 :tor_wait_up
 call echo %T_199%
-set /a TW_TRIES=0
+REM v2.40: the wait is measured on the clock; counting 2 s per pass ignored the up-to-8 s each curl check takes.
+call :nowsecs
+set "TW_START=%NOWS%"
 :tw_loop
-set /a TW_TRIES+=2
-if %TW_TRIES% GTR %TOR_BOOTSTRAP_WAIT% goto :tw_timeout
+call :nowsecs
+set /a TW_TRIES=NOWS-TW_START
+if %TW_TRIES% LSS 0 set /a TW_TRIES+=86400
+if %TW_TRIES% GEQ %TOR_BOOTSTRAP_WAIT% goto :tw_timeout
 timeout /t 2 /nobreak >nul 2>&1
 call :tw_check
 if not errorlevel 1 goto :tw_up
@@ -4219,7 +4297,7 @@ set "OC_STATE=%STATE_DIR%"
 "%PSX%" -NoProfile -Command "$l=Get-Content -LiteralPath $env:OCI_SELF; $i=[Array]::IndexOf($l,'#>>>OC_TUI_PS'); $e=[Array]::IndexOf($l,'#>>>OC_ENDTUI'); if(($i -lt 0) -or ($e -le $i)){exit 20}; Invoke-Expression (($l[($i+1)..($e-1)]) -join [Environment]::NewLine)"
 set "TUIX=%errorlevel%"
 if not "%~1"=="probe" call :log "ui %~1 -> %TUIX%" ui
-if not "%~1"=="probe" call :ui_apply
+if not "%~1"=="probe" if defined C_ACC <nul set /p "=%C_ACC%"
 if exist "%STATE_DIR%\lang\messages.txt" for /f "usebackq tokens=1,* delims==" %%a in ("%STATE_DIR%\lang\messages.txt") do set "%%a=%%b"
 exit /b %TUIX%
 
@@ -4282,10 +4360,7 @@ if defined UI_ACC if not "%UI_ACC%"=="0" set "C_ACC=%ESC%[%UI_ACC%m"
 set "C_RST=%C_OFF%%C_ACC%"
 goto :eof
 
-REM - make the theme accent the current text color / put the console back to normal
-:ui_apply
-if defined C_ACC <nul set /p "=%C_ACC%"
-goto :eof
+REM - put the console back to normal (the accent is set inline where it is needed)
 :ui_reset
 if defined C_OFF <nul set /p "=%C_OFF%"
 goto :eof
@@ -4593,20 +4668,22 @@ goto :eof
 
 REM - archive auth.json into this reset's folder, verify, then delete
 :archive_auth
-if not defined TARGET goto :aa_nodir
-if not exist "%TARGET%" mkdir "%TARGET%" >nul 2>&1
-copy /y "%DATA_DIR%\auth.json" "%TARGET%\auth.json" >nul 2>&1
+if not defined STAMP goto :aa_nodir
+REM v2.40: auth.json holds every API key: it is kept in the private state folder, never on the (often OneDrive-synced) Desktop.
+set "AUTH_BAK=%LOCALAPPDATA%\opencode-infinite\backup\auth\%STAMP%"
+if not exist "%AUTH_BAK%" mkdir "%AUTH_BAK%" >nul 2>&1
+copy /y "%DATA_DIR%\auth.json" "%AUTH_BAK%\auth.json" >nul 2>&1
 if errorlevel 1 goto :aa_fail
 set "SZS="
 set "SZD="
 for %%A in ("%DATA_DIR%\auth.json") do set "SZS=%%~zA"
-for %%A in ("%TARGET%\auth.json") do set "SZD=%%~zA"
+for %%A in ("%AUTH_BAK%\auth.json") do set "SZD=%%~zA"
 if not "%SZS%"=="%SZD%" goto :aa_bad
 del /f /q "%DATA_DIR%\auth.json" >nul 2>&1
 call echo %T_243%
 goto :eof
 :aa_bad
-del /f /q "%TARGET%\auth.json" >nul 2>&1
+del /f /q "%AUTH_BAK%\auth.json" >nul 2>&1
 call echo %T_244%
 goto :eof
 :aa_fail
@@ -4634,7 +4711,7 @@ exit /b 1
 :ep_http
 set "HTTP_PROXY=%PROXY%"
 set "HTTPS_PROXY=%PROXY%"
-set "no_proxy=%NO_PROXY%"
+set "no_proxy=%OC_NOPROXY_LIST%"
 exit /b 0
 
 REM - hand ACTIVE_PROXY (TOR / free HTTP) to the child process only
@@ -4642,7 +4719,7 @@ REM - hand ACTIVE_PROXY (TOR / free HTTP) to the child process only
 if not defined ACTIVE_PROXY exit /b 1
 set "HTTP_PROXY=%ACTIVE_PROXY%"
 set "HTTPS_PROXY=%ACTIVE_PROXY%"
-set "no_proxy=%NO_PROXY%"
+set "no_proxy=%OC_NOPROXY_LIST%"
 call echo %T_249%
 exit /b 0
 
@@ -4933,14 +5010,14 @@ if not exist "%~1" goto :eof
 set "OC_TLF=%~1"
 set "OC_TMAX=%~2"
 set "OC_TKEEP=%~3"
-"%PSX%" -NoProfile -Command "$i=Get-Item -LiteralPath $env:OC_TLF -ErrorAction SilentlyContinue; if($i -and $i.Length -gt [long]$env:OC_TMAX){ try{ $l=@(Get-Content -LiteralPath $env:OC_TLF | Select-Object -Last ([int]$env:OC_TKEEP)); if($l.Count){ Set-Content -LiteralPath $env:OC_TLF -Value $l -Encoding ascii } }catch{} }" >nul 2>&1
+"%PSX%" -NoProfile -Command "$i=Get-Item -LiteralPath $env:OC_TLF -ErrorAction SilentlyContinue; if($i -and $i.Length -gt [long]$env:OC_TMAX){ try{ $l=@(Get-Content -LiteralPath $env:OC_TLF | Select-Object -Last ([int]$env:OC_TKEEP)); if($l.Count){ Set-Content -LiteralPath $env:OC_TLF -Value $l -Encoding Default } }catch{} }" >nul 2>&1
 goto :eof
 
 REM - self-update: newest launcher from the GitHub repo [upd] ---------
 REM Once per start, before anything interactive. Steps:
 REM   1) download the raw .bat (curl, else PowerShell), 30 s cap,
 REM      direct (never through the WARP proxy), HTTP errors fail;
-REM   2) size gate (this script is ~135 KB; an error page is not) plus
+REM   2) size gate (this script is ~400 KB; an error page is not) plus
 REM      a header-marker gate, so a truncated or wrong file never
 REM      replaces the launcher;
 REM   3) read "launcher  (vX.Y)" from the running file and the
@@ -5126,17 +5203,19 @@ REM v2.22: never delete a lock that belongs to another instance the user
 REM chose not to interrupt.
 if exist "%STATE_DIR%\lock\" rmdir /s /q "%STATE_DIR%\lock" >nul 2>&1
 :quit_nolock
+REM v2.30: a double-click (no args, started by explorer) closes the window when the
+REM batch ends. --run (shim and shortcut) keeps its own window; this keeps the rest.
+REM A typed command has no /c in its command line, so nothing below runs for it. Explorer,
+REM PowerShell and other shells start a bat with /c; only then :keep_open checks who started it.
+REM v2.40: done before endlocal (PSX and the texts died with it) and on a quote-free copy (explorer's quotes broke the if).
+if /i "%~1"=="--run" goto :quit_cp
+set "OC_CL=%CMDCMDLINE%"
+set "OC_CL=%OC_CL:"=%"
+if not "%OC_CL:/c=%"=="%OC_CL%" call :keep_open
+:quit_cp
 REM v2.22: put the console code page back the way it was found.
 if defined OC_OLDCP chcp %OC_OLDCP% >nul 2>&1
 endlocal
-REM v2.30: a double-click (no args, started by explorer) closes the window when the
-REM batch ends. --run (shim and shortcut) keeps its own window; this keeps the rest.
-if /i "%~1"=="--run" goto :main_end
-REM A typed command has no /c in its command line, so nothing below runs for it. Explorer,
-REM PowerShell and other shells start a bat with /c; only then :keep_open checks who started it.
-set "OC_CL=%CMDCMDLINE%"
-if "%OC_CL:/c=%"=="%OC_CL%" goto :main_end
-call :keep_open
 :main_end
 
 REM ============================================================
@@ -5257,10 +5336,18 @@ function Spawn-Pump($from, $to, $code) {
         $pw2 = [powershell]::Create()
         $pw2.Runspace = $rs2
         [void]$pw2.AddScript($code)
-        [void]($pw2.BeginInvoke())
+        $ar2 = $pw2.BeginInvoke()
+        return @{ ps = $pw2; rs = $rs2; ar = $ar2 }
     } catch {
         Write-BridgeLog ('pumpspawn: ' + $_.Exception.Message)
     }
+}
+# v2.40: the reverse pump's runspace was never freed (a leak per tunnel). Pump $cs $st closes both streams, which ends it.
+function Free-Pump($h) {
+    if (-not $h) { return }
+    try { [void]$h.ar.AsyncWaitHandle.WaitOne(3000) } catch { }
+    try { $h.ps.Dispose() } catch { }
+    try { $h.rs.Dispose() } catch { }
 }
 $PUMP_CODE = 'try{ $buf = New-Object byte[] 65536; while ($true) { $x = $FROM.Read($buf, 0, 65536); if ($x -le 0) { break }; $TO.Write($buf, 0, $x) } } catch { }; try { $TO.Close() } catch { }; try { $FROM.Close() } catch { }'
 function Handle-Client($client) {
@@ -5295,8 +5382,9 @@ function Handle-Client($client) {
             $st.Write($okReply, 0, $okReply.Length)
             $cs = $dst.GetStream()
             # both directions must live at once; see the header note
-            Spawn-Pump $st $cs $PUMP_CODE
+            $pp = Spawn-Pump $st $cs $PUMP_CODE
             Pump $cs $st
+            Free-Pump $pp
             return
         }
         # plain HTTP with an absolute URI: rewrite it to origin form and relay
@@ -5320,8 +5408,9 @@ function Handle-Client($client) {
             }
             $bytes = [Text.Encoding]::ASCII.GetBytes($rewritten)
             $cs.Write($bytes, 0, $bytes.Length)
-            Spawn-Pump $st $cs $PUMP_CODE
+            $pp = Spawn-Pump $st $cs $PUMP_CODE
             Pump $cs $st
+            Free-Pump $pp
             return
         }
         $client.Close()
@@ -5455,7 +5544,7 @@ $Schema = @(
   S 'AUTO_ROTATE' 'Rotation' 'Automatic rotation' 'bool' 1 'On: a limit or a closed opencode gets a new IP and the chat resumes. Off: the menu decides.' 'now'
   S 'TARGET_COUNTRY' 'Rotation' 'Target country' 'country' '' 'Keep asking for IPs until one is in this country, e.g. DE. Empty = any new IP.' 'now'
   S 'TARGET_PREFIX' 'Rotation' 'Target IP prefix' 'ipprefix' '' 'Keep asking until the IP starts with this, e.g. 104.28. Empty = not used.' 'now'
-  S 'TARGET_TRIES' 'Rotation' 'Max attempts per hunt' 'int' 1 'New IPs requested in one hunt. The hunt stops at this count.' 'now' 1 100
+  S 'TARGET_TRIES' 'Rotation' 'Max attempts per hunt' 'int' 5 'New IPs requested in one hunt. The hunt stops at this count.' 'now' 1 100
   S 'TARGET_MINUTES' 'Rotation' 'Max minutes per hunt' 'int' 15 'The hunt stops after this many minutes.' 'now' 1 240
   S 'TARGET_INTERVAL' 'Rotation' 'Seconds between attempts' 'int' 15 'Pause between two attempts, so Cloudflare is not hit too fast.' 'now' 0 300
   S 'LIMIT_ACTION' 'Rotation' 'When the free limit returns' 'enum' 'rotate' 'rotate = a new IP every time. provider = after the rotations below, switch to the fallback model. ask = stop and ask.' 'now' 0 0 @('rotate', 'provider', 'ask')
@@ -6048,16 +6137,16 @@ function Run-Child([string]$label, [string]$arg, [string]$log, [int]$timeout = 3
   $psi.UseShellExecute = $false
   $psi.CreateNoWindow = $true
   $p = [Diagnostics.Process]::Start($psi)
-  $t0 = Get-Date; $f = 0
+  $t0 = Get-Date; $f = 0; $killed = $false
   while (-not $p.HasExited) {
     $frame = $script:I.spin[$f % $script:I.spin.Count]; $f++
     $sec = [int]((Get-Date) - $t0).TotalSeconds
     W ("`r" + (' ' * $script:Margin) + (P (Style 'accent') $frame) + ' ' + $label + ' ' + (P (Style 'dim') ($sec.ToString() + 's')) + '   ')
     Start-Sleep -Milliseconds 120
-    if ($sec -gt $timeout) { try { Start-Process taskkill.exe -ArgumentList @('/T', '/F', '/PID', $p.Id) -WindowStyle Hidden -Wait } catch { }; break }
+    if ($sec -gt $timeout) { try { Start-Process taskkill.exe -ArgumentList @('/T', '/F', '/PID', $p.Id) -WindowStyle Hidden -Wait } catch { }; $killed = $true; break }
   }
   W ("`r" + (' ' * ($script:Margin + $label.Length + 12)) + "`r")
-  if (-not $p.HasExited) { return 124 }
+  if ($killed -or -not $p.HasExited) { return 124 }
   return $p.ExitCode
 }
 function Show-LogTail([string]$log, [int]$n = 6) {
@@ -6479,11 +6568,17 @@ function Settings-Menu {
 function Test-Configured { return (($script:Cfg.setup -is [hashtable]) -and ($script:Cfg.setup.done -eq $true) -and (Test-Path -LiteralPath $ShimPath)) }
 function Get-UserPath {
   if ($env:OC_TUI_FAKEPATH) { if (Test-Path -LiteralPath $env:OC_TUI_FAKEPATH) { return [string](Get-Content -LiteralPath $env:OC_TUI_FAKEPATH -Raw).Trim() } return '' }
-  return [string][Environment]::GetEnvironmentVariable('Path', 'User')
+  # v2.40: the raw registry value. GetEnvironmentVariable expands %VAR% entries, and writing that back flattened them.
+  $k = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment')
+  try { if ($k) { return [string]$k.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames) } return '' } finally { if ($k) { $k.Close() } }
 }
 function Set-UserPath([string]$v) {
   if ($env:OC_TUI_FAKEPATH) { [IO.File]::WriteAllText($env:OC_TUI_FAKEPATH, $v); return }
-  [Environment]::SetEnvironmentVariable('Path', $v, 'User')
+  # v2.40: written as REG_EXPAND_SZ (SetEnvironmentVariable writes REG_SZ). Deleting a variable that does not exist
+  # still broadcasts WM_SETTINGCHANGE, which is what makes new windows see the change.
+  $k = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
+  try { $k.SetValue('Path', $v, [Microsoft.Win32.RegistryValueKind]::ExpandString) } finally { $k.Close() }
+  [Environment]::SetEnvironmentVariable('OC_PATH_NOTIFY', $null, 'User')
 }
 function Get-LinkDirs {
   if ($env:OC_TUI_LNKDIRS) { return @($env:OC_TUI_LNKDIRS -split ';') }
@@ -6693,7 +6788,7 @@ function Show-Status {
   if ($r -eq 0) { [void](Run-Setup) }
 }
 function Do-Renew {
-  if (-not (Confirm-Box 'Renew the session?' @('Closes every running opencode process.', 'Copies auth.json to your Desktop, then clears the saved tokens.', 'Gets a new IP / WARP registration / Tor circuit / proxy.'))) { return }
+  if (-not (Confirm-Box 'Renew the session?' @('Closes every running opencode process.', 'Copies auth.json to a private backup folder, then clears the saved tokens.', 'Gets a new IP / WARP registration / Tor circuit / proxy.'))) { return }
   Clear-Screen
   WL (P (Style 'title') ($script:I.renew + ' ' + (T 'Renewing')))
   $log = Join-Path $State 'renew.log'
@@ -6822,7 +6917,7 @@ function New-Report {
   $total = 6
   & $A 'OpenCode Infinite - support report'
   & $A ('Generated   ' + (Get-Date).ToString('o'))
-  & $A 'Launcher    v2.29'
+  & $A 'Launcher    v2.40'
   & $A ('File        ' + $Self)
   try { $fi = Get-Item -LiteralPath $Self; & $A ('Size/date   ' + $fi.Length + ' bytes, ' + $fi.LastWriteTime.ToString('s')); & $A ('SHA-256     ' + (Get-FileHash -LiteralPath $Self -Algorithm SHA256).Hash) } catch { }
   & $A 'Personal data (user name, PC name, e-mails, tokens, passwords, and by default public IPs) is removed from this file. Read it before sharing.'
@@ -6958,7 +7053,8 @@ function Menu-Mode {
     @{ L = ($script:I.err + ' Exit'); H = 'Close the launcher.' })
   $r = Show-Menu 'How do you want to run OpenCode?' $items $null $null 0
   if ($r -eq -1) { exit 3 }
-  exit ($r + 1)
+  # 3 is Esc (back to the home screen), so Exit (row 2) returns 4
+  exit $(if ($r -eq 2) { 4 } else { $r + 1 })
 }
 function Menu-Folder {
   $last = [string]$env:OC_LASTPATH; $cwd = [string]$env:OC_CWD
@@ -7015,7 +7111,7 @@ function Menu-Main {
     @{ L = ($script:I.back + ' Back'); C = 10; H = 'Return to the home screen.' },
     @{ L = ($script:I.err + ' Exit'); C = 6; H = 'Close the launcher.' })
   $head = Header-Lines
-  $r = Show-Menu 'OpenCode' $items ('v2.39   ' + $Repo) $head 0
+  $r = Show-Menu 'OpenCode' $items ('v2.40   ' + $Repo) $head 0
   if ($r -eq -1) { exit 10 }
   exit $items[$r].C
 }
@@ -7186,7 +7282,7 @@ function Home-Loop {
       $head += ''
     }
     if ($script:Notice) { $head += (P (Style $script:Notice[0]) ($script:I.warn + ' ' + (T $script:Notice[1]))); $head += ''; $script:Notice = $null }
-    $r = Show-Menu 'Main menu' $items ('v2.39   ' + $Self) $head $pos $true
+    $r = Show-Menu 'Main menu' $items ('v2.40   ' + $Self) $head $pos $true
     if ($r -eq -1) { continue }
     $pos = $r
     Log ('home -> ' + $acts[$r])
@@ -7689,7 +7785,8 @@ function Get-OcIps {
   if ($env:OC_VG_IPS) { return @($env:OC_VG_IPS -split ',' | Where-Object { $_ }) }
   $ips = @()
   foreach ($h in $OcHosts) {
-    try { $ips += @([Net.Dns]::GetHostAddresses($h) | Where-Object { $_.AddressFamily -eq 'InterNetwork' } | ForEach-Object { $_.IPAddressToString }) }
+    # v2.40: IPv6 too, so Build-Ovpn can keep it off the physical route
+    try { $ips += @([Net.Dns]::GetHostAddresses($h) | Where-Object { $_.AddressFamily -eq 'InterNetwork' -or ($_.AddressFamily -eq 'InterNetworkV6' -and -not $_.IsIPv6LinkLocal) } | ForEach-Object { $_.IPAddressToString }) }
     catch { VLog ('resolve failed ' + $h + ': ' + $_.Exception.Message) }
   }
   return @($ips | Sort-Object -Unique)
@@ -7700,7 +7797,9 @@ function Build-Ovpn([string]$text, [string[]]$ips) {
   $keep = @(); $server = @()
   foreach ($ln in ($text -split "`r?`n")) {
     if ($ln -match '^\s*remote\s+(\S+)') { $server += $matches[1] }
-    if ($ln -match '^\s*(redirect-gateway|route|route-ipv6|route-nopull|dhcp-option|block-outside-dns|pull-filter)\b') { continue }
+    if ($ln -match '^\s*(--)?(redirect-gateway|route|route-ipv6|route-nopull|dhcp-option|block-outside-dns|pull-filter)\b') { continue }
+    # v2.40: openvpn runs elevated, so drop server-supplied directives that run programs, load code or touch local files
+    if ($ln -match '^\s*(--)?(script-security|up|down|ipchange|plugin|tls-verify|auth-user-pass-verify|client-connect|client-disconnect|learn-address|tls-crypt-v2-verify|tls-export-cert|config|cd|chroot|log|log-append|status|writepid|tmp-dir|management\S*|win-sys|iproute|askpass|auth-user-pass|daemon|setenv|setenv-safe)(\s|$)') { continue }
     $keep += $ln
   }
   $srvIps = @()
@@ -7711,8 +7810,19 @@ function Build-Ovpn([string]$text, [string[]]$ips) {
   $keep += 'route-nopull'
   $keep += 'pull-filter ignore "redirect-gateway"'
   $keep += 'pull-filter ignore "dhcp-option"'
-  $n = 0
-  foreach ($ip in $ips) { if ($srvIps -notcontains $ip) { $keep += ('route ' + $ip + ' 255.255.255.255'); $n++ } }
+  $n = 0; $v6 = @()
+  foreach ($ip in $ips) {
+    if ($srvIps -contains $ip) { continue }
+    if ($ip -like '*:*') { $v6 += $ip } else { $keep += ('route ' + $ip + ' 255.255.255.255') }
+    $n++
+  }
+  # v2.40: Bun ignores NODE_OPTIONS, so opencode's IPv6 left by the physical route. Its IPv6 goes into the tunnel and is refused there (block-ipv6): IPv4 wins, nothing leaks.
+  if ($v6.Count -gt 0) {
+    $keep += 'ignore-unknown-option block-ipv6'
+    $keep += 'ifconfig-ipv6 fd15:53b6:dead::2/64 fd15:53b6:dead::1'
+    $keep += 'block-ipv6'
+    foreach ($ip in $v6) { $keep += ('route-ipv6 ' + $ip + '/128') }
+  }
   return @{ text = ($keep -join "`r`n"); routes = $n }
 }
 # the VPN Gate list: fresh from the API, else the last saved copy (the API is slow and sometimes down)
@@ -7762,7 +7872,7 @@ param([int]$TunPid = 0, [string]$Routes = '')
 if ($TunPid -gt 0) { & taskkill.exe /PID $TunPid /F | Out-Null }
 if ($Routes -and (Test-Path -LiteralPath $Routes)) {
   foreach ($ip in @(Get-Content -LiteralPath $Routes)) {
-    if ($ip) { Get-NetRoute -DestinationPrefix ($ip + '/32') -ErrorAction SilentlyContinue | Where-Object { $_.InterfaceAlias -like 'OpenVPN*' } | Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue }
+    if ($ip) { Get-NetRoute -DestinationPrefix ($ip + $(if ($ip -like '*:*') { '/128' } else { '/32' })) -ErrorAction SilentlyContinue | Where-Object { $_.InterfaceAlias -like 'OpenVPN*' } | Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue }
   }
 }
 '@
@@ -7916,7 +8026,8 @@ Fin 'ALLFAIL' -tool 'VPN Gate' -tried $tried -dir $cc
 #   resume also reads OC_RMODE (continue | last | custom), OC_BASE (the message for continue / custom),
 #   OC_SKIP1 / OC_SKIP2 (texts that never count as "your last message": the resume message itself).
 # Out: STATE\chat_result.txt (KEY=value lines; nothing written on any failure) and, for snapshot, the
-# last messages printed on the console. Text that reaches the batch is stripped of cmd metacharacters.
+# last messages printed on the console. Text that reaches the batch is stripped of cmd metacharacters,
+# except MSG (the text that is sent): v2.40 keeps its & | < > ^ % \ and only SHOW (for echo) is stripped.
 # Test hook: OC_CHAT_FILE = a session export (JSON) read instead of calling the CLI.
 $ErrorActionPreference = 'Stop'
 $Act = $env:OC_CHAT_ACT
@@ -7928,12 +8039,33 @@ function Clean([string]$t, [int]$max) {
   if ($t.Length -gt $max) { $t = $t.Substring(0, $max) }
   return $t
 }
+# v2.40: the message that is SENT. Only control chars, double quotes (they break set "..." and the argument)
+# and trailing backslashes (they would escape the closing quote) change; it travels via env vars, not echo.
+function CleanMsg([string]$t, [int]$max) {
+  $t = ($t -replace '[\r\n]+', ' ') -replace '[\x00-\x1f]', ' '
+  $t = ($t.Replace([string][char]34, "'") -replace '\s{2,}', ' ').Trim()
+  if ($t.Length -gt $max) { $t = $t.Substring(0, $max) }
+  return ($t -replace '\\+$', '')
+}
+# v2.40: a CLI call bounded to 20 s (a hung one used to freeze the launcher); returns its stdout or $null.
+function Run-Cli([string[]]$a) {
+  $f = Join-Path $env:OC_STATE ('chat_cli_' + $PID + '.txt')
+  try {
+    $exe = $env:OC_EXE; $al = $a
+    if ($exe -match '[.](cmd|bat)$') { $al = @('/s', '/c', ([char]34 + [char]34 + $exe + [char]34 + ' ' + ($a -join ' ') + [char]34)); $exe = 'cmd.exe' }
+    $p = Start-Process -FilePath $exe -ArgumentList $al -NoNewWindow -PassThru -RedirectStandardOutput $f -RedirectStandardError ($f + '.err')
+    if (-not $p) { return $null }
+    $null = $p.Handle
+    if (-not $p.WaitForExit(20000)) { & taskkill.exe /T /F /PID $p.Id *> $null; return $null }
+    return (Get-Content -LiteralPath $f -Raw -Encoding UTF8)
+  } finally { Remove-Item -LiteralPath $f, ($f + '.err') -ErrorAction SilentlyContinue }
+}
 # the newest chat of the folder opencode runs in (the same one --continue picks), as its export
 function Get-Chat {
   if ($env:OC_CHAT_FILE) { return (Get-Content -LiteralPath $env:OC_CHAT_FILE -Raw -Encoding UTF8 | ConvertFrom-Json) }
-  $j = @((& $env:OC_EXE session list --format json -n 1 2>$null | Out-String) | ConvertFrom-Json)
+  $j = @((Run-Cli @('session', 'list', '--format', 'json', '-n', '1')) | ConvertFrom-Json)
   if ($j.Count -eq 0 -or -not $j[0].id) { return $null }
-  return ((& $env:OC_EXE session export $j[0].id 2>$null | Out-String) | ConvertFrom-Json)
+  return ((Run-Cli @('session', 'export', [string]$j[0].id)) | ConvertFrom-Json)
 }
 try {
   if ($Act -eq 'typed') {
@@ -7967,19 +8099,19 @@ try {
     exit 0
   }
   if ($Act -eq 'resume') {
-    $msg = Clean ([string]$env:OC_BASE) 1500
+    $msg = CleanMsg ([string]$env:OC_BASE) 1500
     $users = @($e.messages | Where-Object { $_.type -eq 'user' -and $_.text })
     if ($env:OC_RMODE -eq 'last') {
       # your last real message: the resume message sent earlier does not count
       $skip = @($env:OC_SKIP1, $env:OC_SKIP2 | Where-Object { $_ } | ForEach-Object { $_.Trim() })
       $real = @($users | Where-Object { $skip -notcontains ([string]$_.text).Trim() })
-      if ($real.Count) { $m = Clean ([string]$real[-1].text) 1500; if ($m) { $msg = $m } }
+      if ($real.Count) { $m = CleanMsg ([string]$real[-1].text) 1500; if ($m) { $msg = $m } }
     }
     # already waiting: the last thing in the chat is this very message and nothing answered it
     $turns = @($e.messages | Where-Object { $_.type -eq 'user' -or $_.type -eq 'assistant' })
     $dup = '0'
-    if ($turns.Count -and $turns[-1].type -eq 'user' -and (Clean ([string]$turns[-1].text) 1500) -eq $msg) { $dup = '1' }
-    Put @(('DUP=' + $dup), ('MSG=' + $msg))
+    if ($turns.Count -and $turns[-1].type -eq 'user' -and (CleanMsg ([string]$turns[-1].text) 1500) -eq $msg) { $dup = '1' }
+    Put @(('DUP=' + $dup), ('MSG=' + $msg), ('SHOW=' + (Clean $msg 80)))
     exit 0
   }
 } catch { if ($env:OC_CHAT_DEBUG) { Write-Host ('chat module error: ' + $_ + ' at line ' + $_.InvocationInfo.ScriptLineNumber) } }

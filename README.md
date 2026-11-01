@@ -16,14 +16,19 @@ The sections marked **Windows only** below are not on Linux.
 - **Windows:** one file, no installer, no services. Admin (UAC) for the optional WARP install and for VPN Gate (OpenVPN: one prompt on start, switch and stop). WireGuard never asks for administrator.
 - **Linux:** one script. No root needed for the launcher itself. WARP and Tor need their packages installed (section 1b).
 
-## Status (v2.39, 2026-10-31)
+## Status (v2.40, 2026-11-01)
 
-**Windows (`OpenCode Infinite.bat`):** v2.39 is the latest version. Checked on a real Windows 11 PC:
+**Windows (`OpenCode Infinite.bat`):** v2.40 is the latest version. Checked on a real Windows 11 PC:
 
 - **WARP:** `warp-cli` exit codes are read correctly. The real `warp-cli` returns 0 for `status` and `settings`. A failing command returns its code and writes the daemon's message to `wcli.log`. If a WARP step fails (protocol, mode, port or connect), the launcher stops there and reports it. It does **not** fall back to WireGuard.
 - **VPN Gate:** connects with OpenVPN to real servers. OpenCode's IPv4 traffic leaves through the tunnel, the rest of the PC stays direct, and the routes are removed on stop. The OpenVPN log is read while the tunnel runs, and when OpenCode's IPs leave the routes the status shows DOWN and the launcher reconnects.
 - **WireGuard:** wireproxy starts and listens. A real WireGuard server has **not** been tested yet.
 - **Menus:** the UI self-test passes (65 checks). The newest menu changes (Back in the folder menu, the connection picker with WireGuard and VPN Gate, lists in Settings) are **not** tested in a console yet.
+- **v2.40 fixes (2026-11-01)** (each marked `REM v2.40:` or `# v2.40` in the file):
+  - **Security:** VPN Gate configs lose the directives that run programs or touch local files (`script-security`, `up`, `down`, `plugin`, `*-verify`, `management`...) before OpenVPN runs as administrator. VPN Gate also blocks IPv6 in the tunnel and routes OpenCode's IPv6 addresses into it. In WIREGUARD mode the OpenCode service is now restarted behind the proxy after a switch. The `auth.json` backup goes to `%LOCALAPPDATA%\opencode-infinite\backup\auth\`, not to the Desktop (which may sync to OneDrive). Portable Tor is checked against the official SHA-256 list.
+  - **Stability:** the IP probe and the chat lookup have a time limit. An old copy no longer overwrites the official copy while another window runs it. `watch_stop` checks the start time before it kills a PID. The window stays open after a double click. The Tor wait counts real time.
+  - **Behaviour:** a hunt makes 5 attempts by default (was 1). A resent message keeps `& | < > ^ % \`. Desktop mode starts without the CLI. Your own `NO_PROXY` is kept. The user PATH keeps its `%VAR%` entries. The console code page is restored. Other small fixes are listed in the file.
+  - **Not tested on a real run:** the VPN Gate IPv6 block (needs OpenVPN), a real double click from Explorer, and Desktop mode without the CLI. The other fixes were tested with small test scripts, not with a full launcher run.
 
 **Known open items:**
 
@@ -131,7 +136,7 @@ The screens and keys are the same as on Windows. Colors and the box drawing depe
 |---|---|
 | Launch OpenCode | Picks a folder and a connection, then starts the CLI or the desktop app *(desktop app: Windows only)* |
 | Connect with opencode | Guided setup. Creates the `opencode` command and the shortcuts. Shows `Configured` when done |
-| Renew session | Closes OpenCode, copies `auth.json` to the Desktop, clears the saved tokens and gets a new IP (section 6) |
+| Renew session | Closes OpenCode, backs up `auth.json` (section 6), clears the saved tokens and gets a new IP (section 6) |
 | Uninstall | Removes only what setup added and restores the settings it changed. Asks first |
 | Settings | Every launcher option (section 8) |
 | Support report | Writes one text file with versions, settings and the recent log, for help. Passwords and tokens are removed. IPs are masked by default |
@@ -144,7 +149,7 @@ Opened after **Launch OpenCode**. It shows the folder, egress, mode, WARP versio
 | Key | Option | What it does |
 |---|---|---|
 | `1` | New IP and start OpenCode | Gets a new IP or proxy, then opens OpenCode. Chats stay as they are |
-| `2` | Clear tokens and cache, then start | Stops OpenCode, saves the login file to the Desktop, clears the cache, then opens OpenCode. Chats stay |
+| `2` | Clear tokens and cache, then start | Stops OpenCode, backs up the login file (section 6), clears the cache, then opens OpenCode. Chats stay |
 | `3` | Change IP (test) | Rotates the connection only, without opening OpenCode |
 | `4` | Deep reset or restore chats | Submenu (section 7) |
 | `5` | Mode (CLI or Desktop) | Switches between the terminal and the desktop app *(Windows only)* |
@@ -173,7 +178,7 @@ The egress default is set during setup and in Settings, Connection (`OC_EGRESS_D
 The proxy applies only to the OpenCode process. Your browser and other apps
 stay direct. WIREGUARD makes no system tunnel. VPNGATE adds routes to the system
 table for OpenCode's IPs only, so any other program that talks to those same IPs also uses the tunnel.
-VPN Gate routes IPv4 only. In VPNGATE mode the launcher starts OpenCode's Node processes with IPv4 first, so OpenCode does not send its IPv6 requests outside the tunnel. Other programs' IPv6 traffic is not changed.
+VPN Gate servers carry IPv4 only. The launcher also routes OpenCode's IPv6 addresses into the tunnel, where OpenVPN's `block-ipv6` drops them, so OpenCode falls back to IPv4 through the tunnel and never sends IPv6 outside it. OpenCode's Node processes also start with IPv4 first. Other programs' IPv6 traffic is not changed. The IPv6 block is not tested with a real server yet. The server configs are filtered before use: directives that run programs or touch local files are removed.
 
 WIREGUARD was tested only with fake tools and a local proxy: a real WireGuard server and the proxy path through it are not verified yet. VPNGATE was tested with the real OpenVPN client and real vpngate.net servers: the tunnel came up, OpenCode's IPv4 requests left through it, other traffic stayed direct, and the routes were removed on stop. Not verified yet: the winget install on a clean PC, and the UAC prompts on machines other than the test one. The routes are set when the tunnel starts. If OpenCode's IPs change during a session, the status shows DOWN and the launcher reconnects, which may pick another server. The exit IP check goes through opencode.ai, so a request that leaves by the normal route is reported as a failure. Report problems in an issue.
 
@@ -205,11 +210,11 @@ When a chat hits a limit, the launcher hunts for a new IP.
 Use **Renew session** when the free limit is reached or the login has expired. It:
 
 1. closes every running OpenCode process;
-2. copies `auth.json` to your Desktop;
+2. backs up `auth.json` to `%LOCALAPPDATA%\opencode-infinite\backup\auth\<date-time>\`;
 3. clears the saved tokens;
 4. gets a new IP, WARP registration, Tor circuit or proxy.
 
-On Linux, step 2 uses your Desktop folder if it exists, and your home folder otherwise.
+The backup stays out of the Desktop because the Desktop often syncs to OneDrive, and `auth.json` holds your API keys in plain text. On Linux, step 2 still uses your Desktop folder if it exists, and your home folder otherwise.
 
 ![Renew confirmation](images/06-renew-confirm.png)
 
@@ -268,7 +273,7 @@ Setting names are the same on Windows (`config.json`) and Linux (`config.env`). 
 | `ROTATE_COOLDOWN` | `10` | Seconds between rotation attempts | both |
 | `IP_FIND_MAX` | `0` | Burned IPs a hunt may reject (`0` = no limit) | both |
 | `TARGET_COUNTRY` / `TARGET_PREFIX` | empty | Country (e.g. `DE`) and IP start (e.g. `104.28.`) to hunt for | both |
-| `TARGET_TRIES` / `TARGET_MINUTES` / `TARGET_INTERVAL` | `1` / `15` / `15` | Attempts, minutes and seconds between attempts of one hunt | both |
+| `TARGET_TRIES` / `TARGET_MINUTES` / `TARGET_INTERVAL` | `5` / `15` / `15` | Attempts, minutes and seconds between attempts of one hunt | both |
 | `ON_CLOSE` | `ask` | After OpenCode closes: `ask` (R new IP and resume, M menu, Q quit) or `quit` | both |
 | `WATCH` | `1` | Watch the OpenCode log for limit errors | both |
 | `RESUME_MSG` | `continue` | Message sent when a chat is resumed | both |
@@ -379,6 +384,7 @@ No network, or an unreadable version, changes nothing.
 | `...\opencode-infinite\launcher.log` | Launcher log |
 | `...\opencode-infinite\reports\` | Support reports |
 | `...\opencode-infinite\tor\` | Portable Tor (TOR mode only) |
+| `...\opencode-infinite\backup\auth\` | `auth.json` backups made by Renew session and the resets |
 | `Desktop\opencode_chats_archiviate\` | Chats archived by a deep reset |
 | `Desktop\opencode_chats_before_restore\` | Chats moved aside by a restore |
 
