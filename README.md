@@ -16,9 +16,9 @@ The sections marked **Windows only** below are not on Linux.
 - **Windows:** one file, no installer, no services. Admin (UAC) for the optional WARP install and for VPN Gate (OpenVPN: one prompt on start, switch and stop). WireGuard never asks for administrator.
 - **Linux:** one script. No root needed for the launcher itself. WARP and Tor need their packages installed (section 1b).
 
-## Status (v2.41, 2026-11-01)
+## Status (v2.43, 2026-11-01)
 
-**Windows (`OpenCode Infinite.bat`):** v2.41 is the latest version. Updates now come only from GitLab releases, checked with SHA-256 (section 11). Checked on a real Windows 11 PC:
+**Windows (`OpenCode Infinite.bat`):** v2.43 is the latest version. v2.43 keeps the tokens across restarts, retries a crashed OpenCode on the same IP (stops after 3 crashes in 10 minutes), and searches for the Desktop app again on request. Updates now come only from GitLab releases, checked with SHA-256 (section 11). Checked on a real Windows 11 PC:
 
 - **WARP:** `warp-cli` exit codes are read correctly. The real `warp-cli` returns 0 for `status` and `settings`. A failing command returns its code and writes the daemon's message to `wcli.log`. If a WARP step fails (protocol, mode, port or connect), the launcher stops there and reports it. It does **not** fall back to WireGuard.
 - **VPN Gate:** connects with OpenVPN to real servers. OpenCode's IPv4 traffic leaves through the tunnel, the rest of the PC stays direct, and the routes are removed on stop. The OpenVPN log is read while the tunnel runs, and when OpenCode's IPs leave the routes the status shows DOWN and the launcher reconnects.
@@ -149,7 +149,7 @@ Opened after **Launch OpenCode**. It shows the folder, egress, mode, WARP versio
 | Key | Option | What it does |
 |---|---|---|
 | `1` | New IP and start OpenCode | Gets a new IP or proxy, then opens OpenCode. Chats stay as they are |
-| `2` | Clear tokens and cache, then start | Stops OpenCode, backs up the login file (section 6), clears the cache, then opens OpenCode. Chats stay |
+| `2` | Continue | Same IP and chat: opens OpenCode as it was. Saved tokens are kept |
 | `3` | Change IP (test) | Rotates the connection only, without opening OpenCode |
 | `4` | Deep reset or restore chats | Submenu (section 7) |
 | `5` | Mode (CLI or Desktop) | Switches between the terminal and the desktop app *(Windows only)* |
@@ -213,6 +213,8 @@ Use **Renew session** when the free limit is reached or the login has expired. I
 2. backs up `auth.json` to `%LOCALAPPDATA%\opencode-infinite\backup\auth\<date-time>\`;
 3. clears the saved tokens;
 4. gets a new IP, WARP registration, Tor circuit or proxy.
+
+Between renewals the launcher keeps a copy of `auth.json` in its state folder (`auth_snapshot`) and puts it back at the next start if the file has disappeared. A reset removes that copy, so the tokens stay gone. Side effect: if you log out inside OpenCode, the old login comes back at the next start; use Renew session to be sure the tokens are cleared.
 
 The backup stays out of the Desktop because the Desktop often syncs to OneDrive, and `auth.json` holds your API keys in plain text. On Linux, step 2 still uses your Desktop folder if it exists, and your home folder otherwise.
 
@@ -295,7 +297,7 @@ Setting names are the same on Windows (`config.json`) and Linux (`config.env`). 
 | `WG_DIR` | empty | Folder of WireGuard `.conf` files (empty = `...\opencode-infinite\wireguard`) | Windows only |
 | `VPN_TIMEOUT` | `45` | Seconds one WireGuard or VPN Gate connection may take to answer | Windows only |
 | `VPNGATE_COUNTRY` / `VPNGATE_MAX` | empty / `8` | VPN Gate country (two letters, empty = any) and servers tried per start | Windows only |
-| `MENU_DEFAULT` | `ask` | Option that runs at once when the menu would show: `ask`, `1`, `2` or `3` | Windows only |
+| `MENU_DEFAULT` | `ask` | Option that runs at once when the menu would show: `ask`, `1` (new IP), `2` (continue, tokens kept) or `3` (change IP) | Windows only |
 | `MULTI_INSTANCE` | `0` | `1` lets a second launcher window run with its own copy of the settings (in `instances\<id>`) | Windows only |
 | `REUSE_EMPTY` | `1` | Continue the empty chat of the folder instead of creating another | Windows only |
 | `CHAT_SNAPSHOT` | `1` | Print the last messages of the chat when OpenCode closes for a renewal | Windows only |

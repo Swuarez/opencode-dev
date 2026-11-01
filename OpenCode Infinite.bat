@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 title OpenCode-Infinite
 REM ============================================================
-REM  OpenCode launcher  (v2.42)
+REM  OpenCode launcher  (v2.43)
 REM  Multi-egress (WARP / TOR / free HTTP) + dependency bootstrap
 REM  + auto-resume.
 REM  v2.22 - v2.29: every fixed bug carries an inline "REM v2.2x:"
@@ -16,6 +16,9 @@ REM  v2.40: VPN Gate configs stripped of script/plugin directives and IPv6
 REM  blocked; WIREGUARD service restarted behind the proxy; auth.json backups in
 REM  LOCALAPPDATA, not the Desktop; bounded probe; SHA-256 check of Tor; window
 REM  kept open on double click; fixes marked "REM v2.40:" / "# v2.40".
+REM  v2.43: MENU_DEFAULT=2 continues (no token reset); saved tokens come back if auth.json vanishes;
+REM  a crash relaunches on the same IP, and 3 crashes in 10 minutes stop it; the Desktop check repeats;
+REM  "Detect the desktop app again" row.
 REM  v2.42: same fixes as v2.41 plus the VPNGATE message on line 657 (caret).
 REM  v2.41: updates only from the latest GitLab release, checked against its
 REM  SHA256SUMS; the file must carry the version of its tag.
@@ -725,6 +728,9 @@ set "T_344=Pick: "
 set "T_345=--- fresh start ---------------------------------------------"
 set "T_347=%%C_WARN%%  [*] the Tor bundle failed the SHA-256 check against sha256sums-signed-build.txt; it was deleted and NOT unpacked.%%C_RST%%"
 set "T_348=%%C_WARN%%  [upd] the release download failed its SHA-256 check; it was deleted and nothing was replaced.%%C_RST%%"
+set "T_349=%%C_WARN%%  [!] OpenCode crashed %%CRASH_STREAK%% times in 10 minutes. Stopped so it is not restarted in a loop. Details in launcher.log.%%C_RST%%"
+set "T_350=  [!] OpenCode stopped with code %%EC%%. Retry %%CRASH_STREAK%% of 2 on the same connection in %%CRASH_WAIT%% s; the chat resumes."
+set "T_351=  [tokens] auth.json had disappeared; it was restored from the launcher copy. No login needed."
 set "T_346=--- continue ------------------------------------------------"
 REM Batch messages are translated from lang\<code>.json; the UI writes lang\messages.txt (data only).
 set "OC_TUI=mki18n"
@@ -828,7 +834,7 @@ set "LOG_ARGS=%*"
 if defined LOG_ARGS set "LOG_ARGS=%LOG_ARGS:"='%"
 set "LOG_OSV="
 for /f "tokens=*" %%v in ('ver') do if not defined LOG_OSV set "LOG_OSV=%%v"
-call :log "start v2.42 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
+call :log "start v2.43 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
 REM v2.30: one official copy. Setup copies this file to STATE_DIR\app and the opencode
 REM command runs that copy. A duplicate (a second download, "(1)") hands over to it, or
 REM replaces it when it is the newer one.
@@ -922,7 +928,10 @@ call :find_desktop_app
 if not defined OC_DESKTOP goto :mode_show
 goto :mode_desktop_ok
 :mode_show
+REM v2.42: the mode screen always searches again. The once-per-session flag hid a Desktop installed later.
+set "OC_DESK_SCANNED="
 call :find_desktop_app
+call :log "mode screen: desktop=%OC_DESKTOP%" mode
 call :tui_init
 if not defined TUI_OK goto :mode_old
 call :tui mode
@@ -932,6 +941,8 @@ if "%TUIRC%"=="2" goto :mode_desktop
 if "%TUIRC%"=="1" goto :mode_cli
 REM v3.1: Esc (3) goes back to the home screen, it does not quit.
 if "%TUIRC%"=="3" goto :home_start
+REM v2.42: 5 = detect again: the screen is shown again with a fresh search.
+if "%TUIRC%"=="5" goto :mode_show
 goto :quit
 :mode_cli
 set "APP_MODE=CLI"
@@ -966,8 +977,17 @@ call :yn "   Download and install it now? [Y/N]: "
 if errorlevel 100 goto :quit
 if errorlevel 2 goto :mode_menu
 call :install_desktop
+REM v2.42: the silent installer can return before its files are in place: look again for up to 60 s.
+set "DSK_WAIT=0"
+:mode_desk_wait
+set "OC_DESK_SCANNED="
 call :find_desktop_app
 if defined OC_DESKTOP goto :mode_desktop_ok
+set /a DSK_WAIT+=1
+if %DSK_WAIT% GEQ 30 goto :mode_desk_nf
+timeout /t 2 /nobreak >nul 2>&1
+goto :mode_desk_wait
+:mode_desk_nf
 call echo %T_8%
 call :pause_key
 goto :mode_menu
@@ -1418,7 +1438,8 @@ if /i "%MENU_DEFAULT%"=="ask" goto :menu_ip_ok2
 set "MENU_AUTO_DONE=1"
 set "MD_RC="
 if "%MENU_DEFAULT%"=="1" set "MD_RC=1"
-if "%MENU_DEFAULT%"=="2" set "MD_RC=7"
+REM v2.42: 2 continues the same IP and chat (like menu [2]); it never clears the saved tokens.
+if "%MENU_DEFAULT%"=="2" set "MD_RC=2"
 if "%MENU_DEFAULT%"=="3" set "MD_RC=3"
 if not defined MD_RC goto :menu_ip_ok2
 call echo %T_298%
@@ -1499,6 +1520,8 @@ if errorlevel 7 goto :run_soft
 if errorlevel 6 goto :quit
 if errorlevel 4 goto :menu_deep
 if errorlevel 3 goto :rotate
+REM v2.42: code 2 = continue (the text menu sends it too; the screen menu never does).
+if errorlevel 2 goto :run_warm
 goto :run_cold
 
 REM Option 9 (Sessions): pick a chat from this folder and continue it with --session.
@@ -1616,6 +1639,7 @@ call :yn "  Do that now? [Y/N] "
 if errorlevel 2 goto :menu_loop
 call :stop_opencode
 call :deep_archive
+set "CLR_WHY=deep reset (menu 5)"
 call :clear_tokens
 REM After a reset there is nothing to resume: start cold.
 set "RESUME="
@@ -1638,6 +1662,7 @@ call :yn "  Do that now? [Y/N] "
 if errorlevel 2 goto :menu_loop
 call :stop_opencode
 call :soft_target
+set "CLR_WHY=token reset (menu 7)"
 call :clear_tokens
 set "RESUME="
 set "COLD=1"
@@ -1661,6 +1686,7 @@ goto :eof
 
 REM Launch step. Checks the egress first, then starts opencode.
 :run
+call :token_guard
 echo.
 if "%COLD%"=="1" call echo %T_345%
 if not "%COLD%"=="1" call echo %T_346%
@@ -1874,6 +1900,13 @@ REM No watcher hit. A nonzero exit code means opencode crashed.
 :run_no_hit
 REM 9009 = the launch guard found no opencode: rotating the IP cannot fix that.
 if "%EC%"=="9009" goto :menu_loop
+REM v2.42: a clean exit resets the crash streak. A crash retries on the same egress first (:crash_retry).
+if "%EC%"=="0" set "CRASH_STREAK=0"
+set "CRASH_RETRY="
+set "CRASH_STOP="
+if not "%EC%"=="0" call :crash_retry
+if defined CRASH_STOP goto :menu_loop
+if defined CRASH_RETRY goto :run
 if not "%EC%"=="0" goto :exit_rotate
 REM NONE (or WARP mode without WARP) has no egress to retry: menu.
 if /i "%EGRESS%"=="NONE" goto :closed
@@ -1940,6 +1973,36 @@ exit /b 0
 
 
 REM opencode exited with a nonzero code and the watcher did not catch it.
+REM v2.42: a crash (nonzero exit, no limit and no watcher) first relaunches on the SAME egress
+REM after a short backoff; the chat resumes with --continue. More than 2 crashes within 10
+REM minutes stop the launcher instead of restarting OpenCode in a loop. Limits and the
+REM watcher still rotate the IP as before.
+:crash_retry
+call :nowsecs
+set "CRASH_NOW=%NOWS%"
+if defined CRASH_LAST_S call :crash_age
+set "CRASH_LAST_S=%CRASH_NOW%"
+set /a CRASH_STREAK+=1
+call :log "opencode crashed: code %EC% streak %CRASH_STREAK% egress=%EGRESS%" run
+if %CRASH_STREAK% GTR 2 goto :crash_stop
+if /i "%EGRESS%"=="NONE" goto :eof
+set /a CRASH_WAIT=CRASH_STREAK*2
+call echo %T_350%
+timeout /t %CRASH_WAIT% /nobreak >nul 2>&1
+set "RESUME=1"
+set "COLD=0"
+set "CRASH_RETRY=1"
+goto :eof
+:crash_stop
+set "CRASH_STOP=1"
+call echo %T_349%
+call :pause_key
+goto :eof
+:crash_age
+set /a CRASH_AGE=CRASH_NOW-CRASH_LAST_S
+if %CRASH_AGE% LSS 0 set /a CRASH_AGE+=86400
+if %CRASH_AGE% GTR 600 set "CRASH_STREAK=0"
+goto :eof
 :exit_rotate
 set "WHY=exit"
 
@@ -4440,6 +4503,7 @@ call :find_opencode
 call :detect_caps
 call :stop_opencode
 call :soft_target
+set "CLR_WHY=--renew"
 call :clear_tokens
 if /i "%EGRESS%"=="NONE" goto :rm_done
 if /i "%EGRESS%"=="TOR" goto :rm_tor
@@ -4656,6 +4720,28 @@ del /f /q "%DATA_DIR%\%1" >nul 2>&1
 set "MOVED=1"
 goto :eof
 
+REM - v2.42: tokens survive restarts. A copy of auth.json is kept in the state
+REM folder at every start. If auth.json vanished and no reset was asked for,
+REM it is put back from that copy and the event is logged. A reset deletes the copy.
+:token_guard
+set "AUTH_SNAP=%STATE_DIR%\auth_snapshot"
+if exist "%DATA_DIR%\auth.json" goto :tg_save
+if exist "%AUTH_SNAP%\auth.json" goto :tg_restore
+goto :eof
+:tg_save
+set "AUTH_SZ=0"
+for %%A in ("%DATA_DIR%\auth.json") do set "AUTH_SZ=%%~zA"
+if %AUTH_SZ% LSS 3 goto :eof
+if not exist "%AUTH_SNAP%\" mkdir "%AUTH_SNAP%" >nul 2>&1
+copy /y "%DATA_DIR%\auth.json" "%AUTH_SNAP%\auth.json" >nul 2>&1
+goto :eof
+:tg_restore
+if not exist "%DATA_DIR%\" mkdir "%DATA_DIR%" >nul 2>&1
+copy /y "%AUTH_SNAP%\auth.json" "%DATA_DIR%\auth.json" >nul 2>&1
+if errorlevel 1 goto :eof
+call :log "tokens: auth.json was missing, restored from the launcher snapshot" tokens
+call echo %T_351%
+goto :eof
 REM - cache and saved tokens
 REM Delete the opencode cache folder and the saved login file (auth.json).
 REM Chats in the database are not touched here.
@@ -4665,8 +4751,13 @@ REM copy, against what the header promises.
 :clear_tokens
 set "CACHE_DIR=%USERPROFILE%\.cache\opencode"
 if exist "%CACHE_DIR%" rmdir /s /q "%CACHE_DIR%" >nul 2>&1
+if not defined CLR_WHY set "CLR_WHY=not given"
+call :log "tokens cleared: %CLR_WHY%" tokens
 if exist "%DATA_DIR%\auth.json" call :archive_auth
+REM v2.42: an explicit reset also drops the snapshot, so :token_guard cannot bring the tokens back.
+if exist "%STATE_DIR%\auth_snapshot\auth.json" del /f /q "%STATE_DIR%\auth_snapshot\auth.json" >nul 2>&1
 call echo %T_242%
+set "CLR_WHY="
 goto :eof
 
 REM - archive auth.json into this reset's folder, verify, then delete
@@ -5504,7 +5595,7 @@ $Schema = @(
   S 'OC_EGRESS_DEFAULT' 'Connection' 'Connection method' 'enum' 'ASK' 'Egress used for opencode. ASK shows the picker at every start.' 'now' 0 0 @('ASK', 'WARP', 'TOR', 'PROXY', 'WIREGUARD', 'VPNGATE', 'NONE')
   S 'OC_MODE_DEFAULT' 'Connection' 'Run mode' 'enum' 'ASK' 'CLI terminal, Desktop app, or ask at every start.' 'now' 0 0 @('ASK', 'CLI', 'DESKTOP')
   S 'OC_MODEL' 'Connection' 'Resume model' 'ostring' '' 'Model of the automatic resume, as provider/model, for example opencode/deepseek-v4.1-flash-free. Type - to clear: OpenCode keeps its own model.' 'now'
-  S 'MENU_DEFAULT' 'Connection' 'OpenCode menu shortcut' 'enum' 'ask' 'ask shows the OpenCode menu. 1 starts with a new IP, 2 clears the tokens and starts, 3 only changes the IP. The menu is skipped.' 'now' 0 0 @('ask', '1', '2', '3')
+  S 'MENU_DEFAULT' 'Connection' 'OpenCode menu shortcut' 'enum' 'ask' 'ask shows the OpenCode menu. 1 starts with a new IP, 2 continues with the same IP and chat (saved tokens untouched), 3 only changes the IP. The menu is skipped.' 'now' 0 0 @('ask', '1', '2', '3')
   S 'MULTI_INSTANCE' 'Connection' 'Several windows' 'bool' 0 'On: a second launcher window runs on its own copy of the settings. Off: it brings the first window to the front.' 'next launch'
   S 'REUSE_EMPTY' 'Connection' 'Reuse the empty chat' 'bool' 1 'A fresh start continues the newest chat when it is still empty, instead of piling up empty chats.' 'now'
   S 'PROXY_PORT' 'Connection' 'WARP proxy port' 'port' 40000 'Local port of the WARP proxy.' 'next WARP connect'
@@ -6905,7 +6996,7 @@ function New-Report {
   $total = 6
   & $A 'OpenCode Infinite - support report'
   & $A ('Generated   ' + (Get-Date).ToString('o'))
-  & $A 'Launcher    v2.42'
+  & $A 'Launcher    v2.43'
   & $A ('File        ' + $Self)
   try { $fi = Get-Item -LiteralPath $Self; & $A ('Size/date   ' + $fi.Length + ' bytes, ' + $fi.LastWriteTime.ToString('s')); & $A ('SHA-256     ' + (Get-FileHash -LiteralPath $Self -Algorithm SHA256).Hash) } catch { }
   & $A 'Personal data (user name, PC name, e-mails, tokens, passwords, and by default public IPs) is removed from this file. Read it before sharing.'
@@ -7038,11 +7129,12 @@ function Menu-Mode {
     @{ L = ($script:I.play + ' CLI'); V = 'terminal'; H = 'Run opencode in this terminal. After a new IP the chat resumes by itself.' },
     @{ L = ($script:I.link + ' Desktop app'); V = $(if ($dsk) { 'installed' } else { 'not installed' }); S = $(if ($dsk) { 'ok' } else { 'warn' })
        H = $(if ($dsk) { Tf 'Run the OpenCode desktop app ({0}). It is restarted after every new IP.' $dsk } else { 'The OpenCode desktop app was not found. Choosing this offers to download and install it.' }) },
+    @{ L = 'Detect the desktop app again'; H = 'Search again for OpenCode Desktop (install folders, registry, your OC_APP path).' },
     @{ L = ($script:I.err + ' Exit'); H = 'Close the launcher.' })
   $r = Show-Menu 'How do you want to run OpenCode?' $items $null $null 0
   if ($r -eq -1) { exit 3 }
-  # 3 is Esc (back to the home screen), so Exit (row 2) returns 4
-  exit $(if ($r -eq 2) { 4 } else { $r + 1 })
+  # 3 is Esc (back to the home screen). Rows: 0 CLI -> 1, 1 Desktop -> 2, 2 detect again -> 5, 3 Exit -> 4
+  exit $(switch ($r) { 0 { 1 } 1 { 2 } 2 { 5 } default { 4 } })
 }
 function Menu-Folder {
   $last = [string]$env:OC_LASTPATH; $cwd = [string]$env:OC_CWD
@@ -7099,7 +7191,7 @@ function Menu-Main {
     @{ L = ($script:I.back + ' Back'); C = 10; H = 'Return to the home screen.' },
     @{ L = ($script:I.err + ' Exit'); C = 6; H = 'Close the launcher.' })
   $head = Header-Lines
-  $r = Show-Menu 'OpenCode' $items ('v2.42   ' + $Repo) $head 0
+  $r = Show-Menu 'OpenCode' $items ('v2.43   ' + $Repo) $head 0
   if ($r -eq -1) { exit 10 }
   exit $items[$r].C
 }
@@ -7270,7 +7362,7 @@ function Home-Loop {
       $head += ''
     }
     if ($script:Notice) { $head += (P (Style $script:Notice[0]) ($script:I.warn + ' ' + (T $script:Notice[1]))); $head += ''; $script:Notice = $null }
-    $r = Show-Menu 'Main menu' $items ('v2.42   ' + $Self) $head $pos $true
+    $r = Show-Menu 'Main menu' $items ('v2.43   ' + $Self) $head $pos $true
     if ($r -eq -1) { continue }
     $pos = $r
     Log ('home -> ' + $acts[$r])
