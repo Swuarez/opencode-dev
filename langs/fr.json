@@ -905,5 +905,16 @@
   "VPN Gate servers through OpenVPN. Only OpenCode's hosts go through the tunnel. Administrator prompt on start, switch and stop.": "Serveurs VPN Gate via OpenVPN. Seuls les hôtes d'OpenCode passent par le tunnel. Demande d'administrateur au démarrage, au changement et à l'arrêt.",
   "Only opencode uses the connection. VPNGATE sends only opencode's hosts through the VPN.": "Seul opencode utilise la connexion. VPNGATE n'envoie par le VPN que les hôtes d'opencode.",
   "Enter opens the list of values.": "Entrée ouvre la liste des valeurs.",
-  "Enter cycles: {0}.": "Entrée parcourt : {0}."
+  "Enter cycles: {0}.": "Entrée parcourt : {0}.",
+  "  WARP   : not found (warp-cli.exe missing) - rotation disabled": "  WARP    : introuvable (warp-cli.exe absent) - rotation désactivée",
+  "  Only the opencode this launcher started is closed; windows opened": "  Seul l'opencode lancé par ce lanceur est fermé ; les fenêtres ouvertes",
+  "  by hand keep running (close them first if files are busy).": "  à la main restent actives (fermez-les d'abord si des fichiers sont occupés).",
+  "  auth.json is copied to a private backup folder first, then removed.": "  auth.json est d'abord copié dans un dossier de sauvegarde privé, puis supprimé.",
+  "  auth.json archived in \"%AUTH_BAK%\".": "  auth.json archivé dans \"%AUTH_BAK%\".",
+  "%C_WARN%  [*] the Tor bundle failed the SHA-256 check against sha256sums-signed-build.txt; it was deleted and NOT unpacked.%C_RST%": "%C_WARN%  [*] le paquet Tor a échoué à la vérification SHA-256 de sha256sums-signed-build.txt ; il a été supprimé et NON décompressé.%C_RST%",
+  "%C_WARN%  [upd] the release download failed its SHA-256 check; it was deleted and nothing was replaced.%C_RST%": "%C_WARN%  [upd] le téléchargement de la version a échoué à sa vérification SHA-256 ; il a été supprimé et rien n'a été remplacé.%C_RST%",
+  "%C_WARN%  [!] OpenCode crashed %CRASH_STREAK% times in 10 minutes. Stopped so it is not restarted in a loop. Details in launcher.log.%C_RST%": "%C_WARN%  [!] OpenCode a planté %CRASH_STREAK% fois en 10 minutes. Arrêté pour ne pas le relancer en boucle. Détails dans launcher.log.%C_RST%",
+  "  [!] OpenCode stopped with code %EC%. Retry %CRASH_STREAK% of 2 on the same connection in %CRASH_WAIT% s; the chat resumes.": "  [!] OpenCode s'est arrêté avec le code %EC%. Nouvel essai %CRASH_STREAK% sur 2 avec la même connexion dans %CRASH_WAIT% s ; le chat reprend.",
+  "  [tokens] auth.json had disappeared; it was restored from the launcher copy. No login needed.": "  [tokens] auth.json avait disparu ; il a été restauré depuis la copie du lanceur. Aucune connexion nécessaire.",
+  "%C_WARN%  [upd] the downloaded copy is missing; nothing was replaced.%C_RST%": "%C_WARN%  [upd] la copie téléchargée est absente ; rien n'a été remplacé.%C_RST%"
 }

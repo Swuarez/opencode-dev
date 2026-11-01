@@ -912,5 +912,16 @@
   "OpenCode stopped with code {0} (streak {1}).": "OpenCode se detuvo con código {0} (racha {1}).",
   "Retry {0} of 2 on the same connection in {1} s.": "Reintento {0} de 2 con la misma conexión en {1} s.",
   "OpenCode crashed 3 times in 10 minutes. Stopped so it is not restarted in a loop. Details in the log.": "OpenCode falló 3 veces en 10 minutos. Detenido para no reiniciarlo en bucle. Detalles en el registro.",
-  "OpenCode is running again.": "OpenCode vuelve a estar en marcha."
+  "OpenCode is running again.": "OpenCode vuelve a estar en marcha.",
+  "  WARP   : not found (warp-cli.exe missing) - rotation disabled": "  WARP    : no encontrado (falta warp-cli.exe) - rotación desactivada",
+  "  Only the opencode this launcher started is closed; windows opened": "  Solo se cierra el opencode que inició este lanzador; las ventanas abiertas",
+  "  by hand keep running (close them first if files are busy).": "  a mano siguen ejecutándose (ciérralas antes si los archivos están en uso).",
+  "  auth.json is copied to a private backup folder first, then removed.": "  auth.json se copia primero a una carpeta de copia de seguridad privada y luego se elimina.",
+  "  auth.json archived in \"%AUTH_BAK%\".": "  auth.json archivado en \"%AUTH_BAK%\".",
+  "%C_WARN%  [*] the Tor bundle failed the SHA-256 check against sha256sums-signed-build.txt; it was deleted and NOT unpacked.%C_RST%": "%C_WARN%  [*] el paquete de Tor no superó la comprobación SHA-256 con sha256sums-signed-build.txt; se eliminó y NO se descomprimió.%C_RST%",
+  "%C_WARN%  [upd] the release download failed its SHA-256 check; it was deleted and nothing was replaced.%C_RST%": "%C_WARN%  [upd] la descarga de la versión no superó su comprobación SHA-256; se eliminó y no se reemplazó nada.%C_RST%",
+  "%C_WARN%  [!] OpenCode crashed %CRASH_STREAK% times in 10 minutes. Stopped so it is not restarted in a loop. Details in launcher.log.%C_RST%": "%C_WARN%  [!] OpenCode falló %CRASH_STREAK% veces en 10 minutos. Detenido para no reiniciarlo en bucle. Detalles en launcher.log.%C_RST%",
+  "  [!] OpenCode stopped with code %EC%. Retry %CRASH_STREAK% of 2 on the same connection in %CRASH_WAIT% s; the chat resumes.": "  [!] OpenCode se detuvo con código %EC%. Reintento %CRASH_STREAK% de 2 en la misma conexión dentro de %CRASH_WAIT% s; el chat se reanuda.",
+  "  [tokens] auth.json had disappeared; it was restored from the launcher copy. No login needed.": "  [tokens] auth.json había desaparecido; se restauró desde la copia del lanzador. No hace falta iniciar sesión.",
+  "%C_WARN%  [upd] the downloaded copy is missing; nothing was replaced.%C_RST%": "%C_WARN%  [upd] falta la copia descargada; no se reemplazó nada.%C_RST%"
 }

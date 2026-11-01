@@ -905,5 +905,16 @@
   "VPN Gate servers through OpenVPN. Only OpenCode's hosts go through the tunnel. Administrator prompt on start, switch and stop.": "Servidores do VPN Gate pelo OpenVPN. Só os hosts do OpenCode passam pelo túnel. Pedido de administrador ao iniciar, trocar e parar.",
   "Only opencode uses the connection. VPNGATE sends only opencode's hosts through the VPN.": "Só o opencode usa a conexão. O VPNGATE envia só os hosts do opencode pela VPN.",
   "Enter opens the list of values.": "Enter abre a lista de valores.",
-  "Enter cycles: {0}.": "Enter percorre: {0}."
+  "Enter cycles: {0}.": "Enter percorre: {0}.",
+  "  WARP   : not found (warp-cli.exe missing) - rotation disabled": "  WARP    : não encontrado (warp-cli.exe ausente) - rotação desativada",
+  "  Only the opencode this launcher started is closed; windows opened": "  Só o opencode iniciado por este launcher é fechado; as janelas abertas",
+  "  by hand keep running (close them first if files are busy).": "  manualmente continuam em execução (feche-as antes se os arquivos estiverem em uso).",
+  "  auth.json is copied to a private backup folder first, then removed.": "  o auth.json é copiado primeiro para uma pasta de backup privada e depois removido.",
+  "  auth.json archived in \"%AUTH_BAK%\".": "  auth.json arquivado em \"%AUTH_BAK%\".",
+  "%C_WARN%  [*] the Tor bundle failed the SHA-256 check against sha256sums-signed-build.txt; it was deleted and NOT unpacked.%C_RST%": "%C_WARN%  [*] o pacote do Tor não passou na verificação SHA-256 contra sha256sums-signed-build.txt; foi apagado e NÃO foi descompactado.%C_RST%",
+  "%C_WARN%  [upd] the release download failed its SHA-256 check; it was deleted and nothing was replaced.%C_RST%": "%C_WARN%  [upd] o download da versão não passou na verificação SHA-256; foi apagado e nada foi substituído.%C_RST%",
+  "%C_WARN%  [!] OpenCode crashed %CRASH_STREAK% times in 10 minutes. Stopped so it is not restarted in a loop. Details in launcher.log.%C_RST%": "%C_WARN%  [!] o OpenCode travou %CRASH_STREAK% vezes em 10 minutos. Parado para não reiniciar em loop. Detalhes em launcher.log.%C_RST%",
+  "  [!] OpenCode stopped with code %EC%. Retry %CRASH_STREAK% of 2 on the same connection in %CRASH_WAIT% s; the chat resumes.": "  [!] o OpenCode parou com o código %EC%. Nova tentativa %CRASH_STREAK% de 2 na mesma conexão em %CRASH_WAIT% s; o chat é retomado.",
+  "  [tokens] auth.json had disappeared; it was restored from the launcher copy. No login needed.": "  [tokens] o auth.json havia desaparecido; foi restaurado a partir da cópia do launcher. Não é preciso fazer login.",
+  "%C_WARN%  [upd] the downloaded copy is missing; nothing was replaced.%C_RST%": "%C_WARN%  [upd] a cópia baixada não existe; nada foi substituído.%C_RST%"
 }

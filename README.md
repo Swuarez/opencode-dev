@@ -8,9 +8,9 @@ resumes the same chat.
 
 | File | Platform | What it is | Latest release |
 |---|---|---|---|
-| `OpenCode Infinite.bat` | Windows 10 / 11 (x64, ARM64, x86 limited) | Full launcher: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages | v2.47 |
-| `OpenCode Infinite.exe` | Windows 10 / 11 (x64) | Native C++ app: WARP, Tor, proxies and direct connection; retries OpenCode after a crash; 7 languages. No WireGuard or VPN Gate yet. See [section 14](#14-c-app-opencode-infiniteexe) | 3.2.0 in v2.47 |
-| `opencode-infinite.sh` | Linux (bash; tested on Ubuntu 24.04 with apt; command paths checked for dnf, pacman, zypper) | Full except the desktop app and the Windows-only items. See [Linux: what is different](#linux-what-is-different) | linux-0.3.3 in v2.47 |
+| `OpenCode Infinite.bat` | Windows 10 / 11 (x64, ARM64, x86 limited) | Full launcher: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages | v2.48 |
+| `OpenCode Infinite.exe` | Windows 10 / 11 (x64) | Native C++ app: WARP, Tor, proxies and direct connection; retries OpenCode after a crash; 7 languages. No WireGuard or VPN Gate yet. See [section 14](#14-c-app-opencode-infiniteexe) | 3.2.1 in v2.48 |
+| `opencode-infinite.sh` | Linux (bash; tested on Ubuntu 24.04 with apt; command paths checked for dnf, pacman, zypper) | Full except the desktop app and the Windows-only items. See [Linux: what is different](#linux-what-is-different) | linux-0.3.3 in v2.48 |
 
 The sections marked **Windows only** below are not on Linux.
 
@@ -479,13 +479,13 @@ A native Windows app with the same job as the `.bat`: a new exit IP, then OpenCo
 
 ### Current state
 
-v2.47 is the latest release, 2026-11-01; v2.46 is the previous release.
+v2.48 is the latest release, 2026-11-01; v2.47 is the previous release.
 
-**Windows (`OpenCode Infinite.bat`):** v2.47 is the latest release, and it has not been run end to end. It changes: a rate limit asks before rotating (a usage limit still rotates, with a cap of 5 in 30 minutes); the Desktop app is searched again on request and can be set by hand; only the processes the launcher started are stopped; a single-instance lock; at most 3 automatic restarts in 10 minutes; "Clear cache" no longer deletes tokens, and tokens are copied before they are deleted. v2.46 is the previous release. The same release ships `OpenCode Infinite.exe` (the C++ app) and `opencode-infinite.sh`; the launcher offers to replace an `.exe` that sits next to it (section 11). v2.45 fixes the watcher closing the window with "3 was unexpected at this time." after a fatal error when the chat was resumed (the rotation now starts with a defined quota counter), and logs the fatal line that triggered the rotation. v2.44 fixed the repeated "Review" lines on the rainbow theme in short windows. v2.43 keeps the tokens across restarts, retries a crashed OpenCode on the same IP (stops after 3 crashes in 10 minutes), and searches for the Desktop app again on request. Updates now come only from GitLab releases, checked with SHA-256 (section 11).
+**Windows (`OpenCode Infinite.bat`):** v2.48 is the latest release, and it has not been run end to end (the menu and the rotation TUI were not tested; real WARP rotation was tested with a copy of v2.47). It changes: if the downloaded file is missing or its SHA-256 does not match, the updater shows a warning and replaces nothing (before, it could fail without explanation); the updater helper also checks the SHA; the unused variable `OC_FATPAT` was removed; the new warning text T_352 was added to all 7 languages (`langs/*.json`). v2.47 is the previous release; it changed: a rate limit asks before rotating (a usage limit still rotates, with a cap of 5 in 30 minutes); the Desktop app is searched again on request and can be set by hand; only the processes the launcher started are stopped; a single-instance lock; at most 3 automatic restarts in 10 minutes; "Clear cache" no longer deletes tokens, and tokens are copied before they are deleted. v2.46 shipped `OpenCode Infinite.exe` (the C++ app) and `opencode-infinite.sh`; the launcher offers to replace an `.exe` that sits next to it (section 11). v2.45 fixes the watcher closing the window with "3 was unexpected at this time." after a fatal error when the chat was resumed (the rotation now starts with a defined quota counter), and logs the fatal line that triggered the rotation. v2.44 fixed the repeated "Review" lines on the rainbow theme in short windows. v2.43 keeps the tokens across restarts, retries a crashed OpenCode on the same IP (stops after 3 crashes in 10 minutes), and searches for the Desktop app again on request. Updates now come only from GitLab releases, checked with SHA-256 (section 11).
 
 ### Windows C++ app
 
-**Windows C++ app (`OpenCode Infinite.exe`, 3.2.0):** part of the v2.47 release (v2.46 had 3.1.1). It builds with Visual Studio (section 14). It has not been run against a real OpenCode install yet.
+**Windows C++ app (`OpenCode Infinite.exe`, 3.2.1):** part of the v2.48 release (v2.47 had 3.2.0). 3.2.1 no longer rotates the IP on "failed to drain session" (the `.bat` and the `.sh` already treated it as a no-op). The built exe is in the repo at `C++/bin/Release/OpenCodeInfinite.exe`, and it builds with Visual Studio (section 14). It has not been run against a real OpenCode install yet.
 
 ### Verified on a real Windows 11 PC
 
@@ -512,8 +512,9 @@ Checked on a real Windows 11 PC:
 
 ### Version history
 
-- **v2.47** (latest release; not run end to end). It changes: a rate limit asks before rotating (a usage limit still rotates, with a cap of 5 in 30 minutes); the Desktop app is searched again on request and can be set by hand; only the processes the launcher started are stopped; a single-instance lock; at most 3 automatic restarts in 10 minutes; "Clear cache" no longer deletes tokens, and tokens are copied before they are deleted.
-- **v2.46** (previous release, 2026-11-01). The same release ships `OpenCode Infinite.exe` (the C++ app) and `opencode-infinite.sh`; the launcher offers to replace an `.exe` that sits next to it (section 11). Updates now come only from GitLab releases, checked with SHA-256 (section 11).
+- **v2.48** (latest release, 2026-11-01; not run end to end). It changes: if the downloaded file is missing or its SHA-256 does not match, the updater shows a warning and replaces nothing (before, it could fail without explanation); the updater helper also checks the SHA; the unused variable `OC_FATPAT` was removed; the new warning text T_352 was added to all 7 languages (`langs/*.json`). The same release ships `OpenCode Infinite.exe` 3.2.1 and `opencode-infinite.sh`. The menu and the rotation TUI were not tested; real WARP rotation was tested with a copy of v2.47.
+- **v2.47** (previous release). It changed: a rate limit asks before rotating (a usage limit still rotates, with a cap of 5 in 30 minutes); the Desktop app is searched again on request and can be set by hand; only the processes the launcher started are stopped; a single-instance lock; at most 3 automatic restarts in 10 minutes; "Clear cache" no longer deletes tokens, and tokens are copied before they are deleted.
+- **v2.46** (2026-11-01). The same release ships `OpenCode Infinite.exe` (the C++ app) and `opencode-infinite.sh`; the launcher offers to replace an `.exe` that sits next to it (section 11). Updates now come only from GitLab releases, checked with SHA-256 (section 11).
 - **v2.45** fixes the watcher closing the window with "3 was unexpected at this time." after a fatal error when the chat was resumed (the rotation now starts with a defined quota counter), and logs the fatal line that triggered the rotation.
 - **v2.44** fixed the repeated "Review" lines on the rainbow theme in short windows.
 - **v2.43** keeps the tokens across restarts, retries a crashed OpenCode on the same IP (stops after 3 crashes in 10 minutes), and searches for the Desktop app again on request.

@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 title OpenCode-Infinite
 REM ============================================================
-REM  OpenCode launcher  (v2.47)
+REM  OpenCode launcher  (v2.48)
 REM  Multi-egress (WARP / TOR / free HTTP) + dependency bootstrap
 REM  + auto-resume.
 REM  v2.22 - v2.29: every fixed bug carries an inline "REM v2.2x:"
@@ -732,6 +732,7 @@ set "T_348=%%C_WARN%%  [upd] the release download failed its SHA-256 check; it w
 set "T_349=%%C_WARN%%  [!] OpenCode crashed %%CRASH_STREAK%% times in 10 minutes. Stopped so it is not restarted in a loop. Details in launcher.log.%%C_RST%%"
 set "T_350=  [!] OpenCode stopped with code %%EC%%. Retry %%CRASH_STREAK%% of 2 on the same connection in %%CRASH_WAIT%% s; the chat resumes."
 set "T_351=  [tokens] auth.json had disappeared; it was restored from the launcher copy. No login needed."
+set "T_352=%%C_WARN%%  [upd] the downloaded copy is missing; nothing was replaced.%%C_RST%%"
 set "T_346=--- continue ------------------------------------------------"
 REM Batch messages are translated from lang\<code>.json; the UI writes lang\messages.txt (data only).
 set "OC_TUI=mki18n"
@@ -782,7 +783,6 @@ REM with WATCH=0 (and in NONE / WARP-without-WARP) :scan_log read an empty
 REM OC_LOGF and always answered NOHIT. They are defined here, once, for the
 REM whole session; :watch_start still uses the same two names.
 set "OC_LOGF=%LOGFILE%"
-set "OC_FATPAT=%OC_PAT%"
 
 REM 32-bit Windows: PROCESSOR_ARCHITEW6432 is defined when a 32-bit
 REM process runs on a 64-bit OS, so x86 alone is not proof.
@@ -845,7 +845,7 @@ set "LOG_ARGS=%*"
 if defined LOG_ARGS set "LOG_ARGS=%LOG_ARGS:"='%"
 set "LOG_OSV="
 for /f "tokens=*" %%v in ('ver') do if not defined LOG_OSV set "LOG_OSV=%%v"
-call :log "start v2.47 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
+call :log "start v2.48 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
 REM v2.30: one official copy. Setup copies this file to STATE_DIR\app and the opencode
 REM command runs that copy. A duplicate (a second download, "(1)") hands over to it, or
 REM replaces it when it is the newer one.
@@ -2995,7 +2995,6 @@ REM v2.45: the watcher writes the fatal line to launcher.log, so the cause of a 
 set "OC_LAUNCHLOG=%STATE_DIR%\launcher.log"
 set "OC_LOGF=%LOGFILE%"
 set "OC_OFF=%SIZE_BEFORE%"
-set "OC_FATPAT=%OC_PAT%"
 REM v2.22: proxy watchdog target (host:port). The watcher polls it every
 REM minute and warns when the egress dies with the TUI open. It never kills
 REM the TUI: a dead proxy is a warning, not a verdict on the session.
@@ -5374,16 +5373,19 @@ REM The release tag (vX.Y) names the version. The file and SHA256SUMS are read
 REM at that tag, and the file must match its SHA-256 line or it is deleted
 REM unused. rc 0 ok, 1 network, 2 checksum, 3 no release. Only rc 2 is shown.
 set "SU_TAG="
+set "SU_SHA="
 set "SU_TAG_OUT=%STATE_DIR%\su_tag.tmp"
 if exist "%SU_TAG_OUT%" del /f /q "%SU_TAG_OUT%" >nul 2>&1
-"%PSX%" -NoProfile -Command "$ProgressPreference='SilentlyContinue'; try{ [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $r=@(Invoke-RestMethod -UseBasicParsing -Uri 'https://gitlab.com/api/v4/projects/88367491/releases?order_by=released_at&sort=desc&per_page=1' -TimeoutSec 15); if(-not $r.Count){ exit 3 }; $t=[string]$r[0].tag_name; if($t -notmatch '^v[0-9]+[.][0-9]+$'){ exit 3 }; $b='https://gitlab.com/jekooo/opencode-infinite/-/raw/'+$t+'/'; $sf=$env:SU_TMP+'.sums'; Invoke-WebRequest -UseBasicParsing -Uri ($b+'SHA256SUMS') -OutFile $sf -TimeoutSec 15; $h=$null; foreach($l in [IO.File]::ReadAllLines($sf)){ if($l -match '^([0-9a-fA-F]{64}) [ *]OpenCode Infinite[.]bat$'){ $h=$Matches[1] } }; Remove-Item -LiteralPath $sf -Force; if(-not $h){ exit 2 }; Invoke-WebRequest -UseBasicParsing -Uri ($b+'OpenCode%%20Infinite.bat') -OutFile $env:SU_TMP -TimeoutSec 30; if((Get-FileHash -Algorithm SHA256 -LiteralPath $env:SU_TMP).Hash -ne $h){ Remove-Item -LiteralPath $env:SU_TMP -Force; exit 2 }; [IO.File]::WriteAllText($env:SU_TAG_OUT,$t) }catch{ exit 1 }" >nul 2>&1
+"%PSX%" -NoProfile -Command "$ProgressPreference='SilentlyContinue'; try{ [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $r=@(Invoke-RestMethod -UseBasicParsing -Uri 'https://gitlab.com/api/v4/projects/88367491/releases?order_by=released_at&sort=desc&per_page=1' -TimeoutSec 15); if(-not $r.Count){ exit 3 }; $t=[string]$r[0].tag_name; if($t -notmatch '^v[0-9]+[.][0-9]+$'){ exit 3 }; $b='https://gitlab.com/jekooo/opencode-infinite/-/raw/'+$t+'/'; $sf=$env:SU_TMP+'.sums'; Invoke-WebRequest -UseBasicParsing -Uri ($b+'SHA256SUMS') -OutFile $sf -TimeoutSec 15; $h=$null; foreach($l in [IO.File]::ReadAllLines($sf)){ if($l -match '^([0-9a-fA-F]{64}) [ *]OpenCode Infinite[.]bat$'){ $h=$Matches[1] } }; Remove-Item -LiteralPath $sf -Force; if(-not $h){ exit 2 }; Invoke-WebRequest -UseBasicParsing -Uri ($b+'OpenCode%%20Infinite.bat') -OutFile $env:SU_TMP -TimeoutSec 30; if((Get-FileHash -Algorithm SHA256 -LiteralPath $env:SU_TMP).Hash -ne $h){ Remove-Item -LiteralPath $env:SU_TMP -Force; exit 2 }; [IO.File]::WriteAllText($env:SU_TAG_OUT,($t+' '+$h)) }catch{ exit 1 }" >nul 2>&1
 set "SU_PEC=%errorlevel%"
 call :trace upd_release rc=%SU_PEC%
 if "%SU_PEC%"=="2" call echo %T_348%
 if not exist "%SU_TAG_OUT%" goto :su_delete
-for /f "usebackq delims=" %%s in ("%SU_TAG_OUT%") do set "SU_TAG=%%s"
+REM The file holds "tag sha256"; :su_apply and the helper check the hash again before replacing.
+for /f "usebackq tokens=1,2" %%s in ("%SU_TAG_OUT%") do set "SU_TAG=%%s" & set "SU_SHA=%%t"
 del /f /q "%SU_TAG_OUT%" >nul 2>&1
 if not defined SU_TAG goto :su_delete
+if not defined SU_SHA goto :su_delete
 call :trace upd_tag %SU_TAG%
 call :exe_update
 :su_size
@@ -5421,6 +5423,10 @@ if errorlevel 2 goto :su_delete
 goto :su_apply
 :su_apply
 call :trace upd_apply
+REM Controlled failure: a missing or altered download replaces nothing and says why.
+if not exist "%SU_TMP%" goto :su_nofile
+"%PSX%" -NoProfile -Command "try{ if((Get-FileHash -Algorithm SHA256 -LiteralPath $env:SU_TMP).Hash -ieq $env:SU_SHA){ exit 0 } }catch{}; exit 1" >nul 2>&1
+if errorlevel 1 goto :su_badsha
 REM Backup first - it is never overwritten silently: timestamped name.
 set "SU_BAK=%STATE_DIR%\OpenCode Infinite backup %SU_LV%.bat"
 copy /y "%~f0" "%SU_BAK%" >nul 2>&1
@@ -5439,7 +5445,11 @@ set "SU_HELP=%STATE_DIR%\oc_updater.cmd"
 >>"%SU_HELP%" echo if not defined UP_NEW goto u_fail
 >>"%SU_HELP%" echo if not defined UP_DST goto u_fail
 REM v2.42: the helper used to start deleting at once while the parent cmd still had to re-read this file ("The batch file cannot be found"). It now waits 2 s first, and stops with a message if the new copy is missing.
->>"%SU_HELP%" echo if not exist "%%UP_NEW%%" goto u_fail
+>>"%SU_HELP%" echo set "UP_SHA=%%OC_UPD_SHA%%"
+>>"%SU_HELP%" echo if not defined UP_SHA goto u_fail
+>>"%SU_HELP%" echo if not exist "%%UP_NEW%%" goto u_nofile
+>>"%SU_HELP%" echo "%PSX%" -NoProfile -Command "try{ if((Get-FileHash -Algorithm SHA256 -LiteralPath $env:UP_NEW).Hash -ieq $env:UP_SHA){ exit 0 } }catch{}; exit 1" ^>nul 2^>^&1
+>>"%SU_HELP%" echo if errorlevel 1 goto u_badsha
 >>"%SU_HELP%" echo timeout /t 2 /nobreak ^>nul 2^>^&1
 >>"%SU_HELP%" echo :u_retry
 >>"%SU_HELP%" echo set /a UP_TRY+=1
@@ -5455,6 +5465,15 @@ REM v2.42: the helper used to start deleting at once while the parent cmd still 
 >>"%SU_HELP%" echo del /f /q "%%UP_NEW%%" ^>nul 2^>^&1
 >>"%SU_HELP%" echo del /f /q "%%~f0" ^>nul 2^>^&1
 >>"%SU_HELP%" echo exit /b 0
+>>"%SU_HELP%" echo :u_nofile
+>>"%SU_HELP%" echo echo   [upd] The downloaded copy is missing. Nothing was replaced.
+>>"%SU_HELP%" echo goto u_stop
+>>"%SU_HELP%" echo :u_badsha
+>>"%SU_HELP%" echo echo   [upd] The downloaded copy failed its SHA-256 check. It was deleted and nothing was replaced.
+>>"%SU_HELP%" echo del /f /q "%%UP_NEW%%" ^>nul 2^>^&1
+>>"%SU_HELP%" echo :u_stop
+>>"%SU_HELP%" echo pause
+>>"%SU_HELP%" echo exit /b 1
 >>"%SU_HELP%" echo :u_fail
 >>"%SU_HELP%" echo echo   [upd] The replacement could not finish during the restart.
 >>"%SU_HELP%" echo echo   The new copy stays in: %%UP_NEW%%
@@ -5470,8 +5489,18 @@ call echo %T_261%
 call :trace upd_launch
 set "OC_UPD_NEW=%SU_TMP%"
 set "OC_UPD_DST=%~f0"
+set "OC_UPD_SHA=%SU_SHA%"
 REM v2.42: start and exit share one line, so cmd has already read exit before the helper can touch this file (no timeout here).
 start "OpenCode update" "%SU_HELP%" & exit
+:su_nofile
+call echo %T_352%
+call :pause_key
+goto :eof
+:su_badsha
+call echo %T_348%
+del /f /q "%SU_TMP%" >nul 2>&1
+call :pause_key
+goto :eof
 :su_fail
 call echo %T_262%
 call echo %T_263%
@@ -7246,7 +7275,7 @@ function New-Report {
   $total = 6
   & $A 'OpenCode Infinite - support report'
   & $A ('Generated   ' + (Get-Date).ToString('o'))
-  & $A 'Launcher    v2.47'
+  & $A 'Launcher    v2.48'
   & $A ('File        ' + $Self)
   try { $fi = Get-Item -LiteralPath $Self; & $A ('Size/date   ' + $fi.Length + ' bytes, ' + $fi.LastWriteTime.ToString('s')); & $A ('SHA-256     ' + (Get-FileHash -LiteralPath $Self -Algorithm SHA256).Hash) } catch { }
   & $A 'Personal data (user name, PC name, e-mails, tokens, passwords, and by default public IPs) is removed from this file. Read it before sharing.'
@@ -7441,7 +7470,7 @@ function Menu-Main {
     @{ L = ($script:I.back + ' Back'); C = 10; H = 'Return to the home screen.' },
     @{ L = ($script:I.err + ' Exit'); C = 6; H = 'Close the launcher.' })
   $head = Header-Lines
-  $r = Show-Menu 'OpenCode' $items ('v2.47   ' + $Repo) $head 0
+  $r = Show-Menu 'OpenCode' $items ('v2.48   ' + $Repo) $head 0
   if ($r -eq -1) { exit 10 }
   exit $items[$r].C
 }
@@ -7614,7 +7643,7 @@ function Home-Loop {
       $head += ''
     }
     if ($script:Notice) { $head += (P (Style $script:Notice[0]) ($script:I.warn + ' ' + (T $script:Notice[1]))); $head += ''; $script:Notice = $null }
-    $r = Show-Menu 'Main menu' $items ('v2.47   ' + $Self) $head $pos $true
+    $r = Show-Menu 'Main menu' $items ('v2.48   ' + $Self) $head $pos $true
     if ($r -eq -1) { continue }
     $pos = $r
     Log ('home -> ' + $acts[$r])

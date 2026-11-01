@@ -905,5 +905,16 @@
   "VPN Gate servers through OpenVPN. Only OpenCode's hosts go through the tunnel. Administrator prompt on start, switch and stop.": "OpenVPN üzerinden VPN Gate sunucuları. Yalnızca OpenCode sunucuları tünelden geçer. Başlatma, değiştirme ve durdurmada yönetici istemi.",
   "Only opencode uses the connection. VPNGATE sends only opencode's hosts through the VPN.": "Bağlantıyı yalnızca opencode kullanır. VPNGATE yalnızca opencode sunucularını VPN üzerinden gönderir.",
   "Enter opens the list of values.": "Enter değer listesini açar.",
-  "Enter cycles: {0}.": "Enter ile dönüşür: {0}."
+  "Enter cycles: {0}.": "Enter ile dönüşür: {0}.",
+  "  WARP   : not found (warp-cli.exe missing) - rotation disabled": "  WARP    : bulunamadı (warp-cli.exe yok) - rotasyon devre dışı",
+  "  Only the opencode this launcher started is closed; windows opened": "  Yalnızca bu başlatıcının açtığı opencode kapatılır; elle açılan pencereler",
+  "  by hand keep running (close them first if files are busy).": "  açık kalır (dosyalar meşgulse önce bunları kapatın).",
+  "  auth.json is copied to a private backup folder first, then removed.": "  auth.json önce özel bir yedek klasörüne kopyalanır, sonra silinir.",
+  "  auth.json archived in \"%AUTH_BAK%\".": "  auth.json \"%AUTH_BAK%\" içine arşivlendi.",
+  "%C_WARN%  [*] the Tor bundle failed the SHA-256 check against sha256sums-signed-build.txt; it was deleted and NOT unpacked.%C_RST%": "%C_WARN%  [*] Tor paketi sha256sums-signed-build.txt ile SHA-256 kontrolünü geçemedi; silindi ve AÇILMADI.%C_RST%",
+  "%C_WARN%  [upd] the release download failed its SHA-256 check; it was deleted and nothing was replaced.%C_RST%": "%C_WARN%  [upd] sürüm indirmesi SHA-256 kontrolünü geçemedi; silindi ve hiçbir şey değiştirilmedi.%C_RST%",
+  "%C_WARN%  [!] OpenCode crashed %CRASH_STREAK% times in 10 minutes. Stopped so it is not restarted in a loop. Details in launcher.log.%C_RST%": "%C_WARN%  [!] OpenCode 10 dakikada %CRASH_STREAK% kez çöktü. Döngüde yeniden başlatılmaması için durduruldu. Ayrıntılar launcher.log dosyasında.%C_RST%",
+  "  [!] OpenCode stopped with code %EC%. Retry %CRASH_STREAK% of 2 on the same connection in %CRASH_WAIT% s; the chat resumes.": "  [!] OpenCode %EC% koduyla durdu. %CRASH_WAIT% sn sonra aynı bağlantıda yeniden deneniyor (%CRASH_STREAK% / 2); sohbet kaldığı yerden devam eder.",
+  "  [tokens] auth.json had disappeared; it was restored from the launcher copy. No login needed.": "  [tokens] auth.json kaybolmuştu; başlatıcının kopyasından geri yüklendi. Giriş yapmak gerekmez.",
+  "%C_WARN%  [upd] the downloaded copy is missing; nothing was replaced.%C_RST%": "%C_WARN%  [upd] indirilen kopya eksik; hiçbir şey değiştirilmedi.%C_RST%"
 }

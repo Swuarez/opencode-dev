@@ -18,7 +18,7 @@ namespace oi {
 // Same list names as patterns.conf in the .bat/.sh: rotate= rotates alone (usage limit),
 // ask= asks the user first (rate limit). Compaction / context length are in neither: no rotation.
 static const char* kRotateWords[] = {
-    "failed to drain session", "free usage limit", "usage limit reached",
+    "free usage limit", "usage limit reached",
     "out of usage", "insufficient credits", "payment required"
 };
 static const char* kAskWords[] = {

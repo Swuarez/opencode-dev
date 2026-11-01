@@ -1,5 +1,4 @@
 ﻿# Build output and Visual Studio state
-bin/
 obj/
 .vs/
 # Local per-user settings and backup copies
