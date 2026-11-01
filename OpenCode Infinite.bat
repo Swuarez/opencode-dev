@@ -324,7 +324,7 @@ REM Official download address for the WARP installer (64-bit MSI).
 set "WARP_MSI_URL=https://downloads.cloudflareclient.com/v1/download/windows/ga"
 REM Self-update source. In this file a literal % is written %% , so the
 REM URL below ends in the real "...%20Infinite.bat" form the repo uses.
-set "UPDATE_URL=https://raw.githubusercontent.com/jeko1107/opencode-infinite/main/OpenCode%%20Infinite.bat"
+set "UPDATE_URL=https://gitlab.com/jekooo/opencode-infinite/-/raw/main/OpenCode%%20Infinite.bat"
 REM Hosts that must never go through the proxy.
 set "NO_PROXY=localhost,127.0.0.1,0.0.0.0,::1,[::1]"
 REM Default PowerShell command; replaced below by the full path if it exists.
@@ -4968,13 +4968,13 @@ REM plain main URL.
 set "SU_SHA="
 set "SU_SHA_OUT=%STATE_DIR%\su_sha.tmp"
 if exist "%SU_SHA_OUT%" del /f /q "%SU_SHA_OUT%" >nul 2>&1
-"%PSX%" -NoProfile -Command "try{ [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $r = Invoke-RestMethod -UseBasicParsing -Uri 'https://api.github.com/repos/jeko1107/opencode-infinite/commits/main' -TimeoutSec 15; if ($r.sha -match '^[0-9a-f]{40}$') { [IO.File]::WriteAllText($env:SU_SHA_OUT, $r.sha) } }catch{}" >nul 2>&1
+"%PSX%" -NoProfile -Command "try{ [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $r = Invoke-RestMethod -UseBasicParsing -Uri 'https://gitlab.com/api/v4/projects/jekooo%2Fopencode-infinite/repository/commits/main' -TimeoutSec 15; if ($r.id -match '^[0-9a-f]{40}$') { [IO.File]::WriteAllText($env:SU_SHA_OUT, $r.id) } }catch{}" >nul 2>&1
 if not exist "%SU_SHA_OUT%" goto :su_url_plain
 for /f "usebackq delims=" %%s in ("%SU_SHA_OUT%") do set "SU_SHA=%%s"
 del /f /q "%SU_SHA_OUT%" >nul 2>&1
 if not defined SU_SHA goto :su_url_plain
 call :trace upd_sha %SU_SHA%
-set "SU_URL=https://raw.githubusercontent.com/jeko1107/opencode-infinite/%SU_SHA%/OpenCode%%20Infinite.bat"
+set "SU_URL=https://gitlab.com/jekooo/opencode-infinite/-/raw/%SU_SHA%/OpenCode%%20Infinite.bat"
 call :trace upd_url pinned
 goto :su_url_done
 :su_url_plain
@@ -5388,7 +5388,7 @@ $ShimInfPath = Join-Path $ShimDir 'opencodeinf.cmd'
 $ShimOcPath = Join-Path $ShimDir 'opencodeoc.cmd'
 # v2.30: setup copies the launcher here; the commands and shortcuts run this copy, not the download.
 $Official = Join-Path $State 'app\OpenCode Infinite.bat'
-$RawUrl = 'https://raw.githubusercontent.com/jeko1107/opencode-infinite/main/OpenCode%%20Infinite.bat'
+$RawUrl = 'https://gitlab.com/jekooo/opencode-infinite/-/raw/main/OpenCode%%20Infinite.bat'
 $Repo = 'https://gitlab.com/jekooo/opencode-infinite'
 # OC_TUI_KEYS_<MODE> (for example OC_TUI_KEYS_MAIN) overrides OC_TUI_KEYS for that screen only, so a whole
 # launcher run can be driven screen by screen.
@@ -5681,7 +5681,7 @@ function Hue-Rgb([double]$h) {
 }
 # v2.30: the languages the interface knows; each one is a JSON file in langs/.
 $Langs = @('en', 'es', 'fr', 'de', 'pt', 'it', 'tr')
-$LangBase = if ($env:OC_LANG_BASE) { $env:OC_LANG_BASE } else { 'https://raw.githubusercontent.com/jeko1107/opencode-infinite/main/langs' }
+$LangBase = if ($env:OC_LANG_BASE) { $env:OC_LANG_BASE } else { 'https://gitlab.com/jekooo/opencode-infinite/-/raw/main/langs' }
 # a cached language file is refreshed when it was downloaded by another launcher version (its .ver file)
 $LangVer = '2.39'
 # T looks a text up in the selected language; no entry means the English text is shown. Leading

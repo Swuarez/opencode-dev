@@ -19,7 +19,7 @@ REM If the release cannot be reached (offline, none published yet) the old
 REM path is the fallback: newest commit SHA on main, raw URL pinned to it.
 set "TMPBAT=%TEMP%\opencode_infinite_latest.bat"
 if exist "%TMPBAT%" del /f /q "%TMPBAT%" >nul 2>&1
-set "REMOTE=https://gitlab.com/jekooo/opencode-infinite/releases/latest/download/OpenCode-Infinite.bat"
+set "REMOTE=https://gitlab.com/jekooo/opencode-infinite/-/raw/main/OpenCode%20Infinite.bat"
 
 echo Downloading the newest launcher (latest Release)...
 curl.exe -L -f -s --max-time 60 -o "%TMPBAT%" "%REMOTE%" >nul 2>&1
@@ -31,11 +31,11 @@ echo   Release not reachable - trying the repo copy on main...
 if exist "%TMPBAT%" del /f /q "%TMPBAT%" >nul 2>&1
 set "SHAOUT=%TEMP%\opencode_update_sha.txt"
 set "HASHIK="
-powershell -NoProfile -Command "try{[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $r = Invoke-RestMethod -UseBasicParsing -Uri 'https://api.github.com/repos/jeko1107/opencode-infinite/commits/main' -TimeoutSec 15; if ($r.sha -match '^[0-9a-f]{40}$') { [IO.File]::WriteAllText($env:SHAOUT, $r.sha) } }catch{}" >nul 2>&1
+powershell -NoProfile -Command "try{[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $r = Invoke-RestMethod -UseBasicParsing -Uri 'https://gitlab.com/api/v4/projects/jekooo%2Fopencode-infinite/repository/commits/main' -TimeoutSec 15; if ($r.id -match '^[0-9a-f]{40}$') { [IO.File]::WriteAllText($env:SHAOUT, $r.id) } }catch{}" >nul 2>&1
 if exist "%SHAOUT%" for /f "usebackq delims=" %%s in ("%SHAOUT%") do set "HASHIK=%%s"
 if exist "%SHAOUT%" del /f /q "%SHAOUT%" >nul 2>&1
-set "REMOTE=https://raw.githubusercontent.com/jeko1107/opencode-infinite/main/OpenCode%%20Infinite.bat"
-if not "%HASHIK%"=="" set "REMOTE=https://raw.githubusercontent.com/jeko1107/opencode-infinite/%HASHIK%/OpenCode%%20Infinite.bat"
+set "REMOTE=https://gitlab.com/jekooo/opencode-infinite/-/raw/main/OpenCode%%20Infinite.bat"
+if not "%HASHIK%"=="" set "REMOTE=https://gitlab.com/jekooo/opencode-infinite/-/raw/%HASHIK%/OpenCode%%20Infinite.bat"
 curl.exe -L -f -s --max-time 60 -o "%TMPBAT%" "%REMOTE%" >nul 2>&1
 if not errorlevel 1 goto size_gate
 powershell -NoProfile -Command "try{[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri $env:REMOTE -OutFile $env:TMPBAT -TimeoutSec 60}catch{exit 1}" >nul 2>&1
