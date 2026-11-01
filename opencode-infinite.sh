@@ -3,7 +3,7 @@
 # Egress WARP / TOR / PROXY / NONE, target IP hunt, probe, resume when a limit stops the chat.
 # Needs: bash 4.3+, curl, node + opencode. Optional: warp-cli, tor, privoxy, jq (menus in other languages).
 VERSION="linux-0.3.0"
-REPO="https://github.com/jeko1107/opencode-infinite"
+REPO="https://gitlab.com/jekooo/opencode-infinite"
 REPO_RAW="https://raw.githubusercontent.com/jeko1107/opencode-infinite/main"
 
 STATE_DIR="${OCI_STATE:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode-infinite}"

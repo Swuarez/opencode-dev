@@ -65,13 +65,13 @@ The Desktop folder is asked from Windows, so it works when Desktop lives in OneD
 **PowerShell or Windows Terminal (recommended):**
 
 ```powershell
-[Net.ServicePointManager]::SecurityProtocol='Tls12'; $d=[Environment]::GetFolderPath('Desktop'); iwr https://github.com/jeko1107/opencode-infinite/releases/latest/download/OpenCode-Infinite.bat -UseBasicParsing -OutFile "$d\OpenCode Infinite.bat"; & "$d\OpenCode Infinite.bat"
+[Net.ServicePointManager]::SecurityProtocol='Tls12'; $d=[Environment]::GetFolderPath('Desktop'); iwr https://gitlab.com/jekooo/opencode-infinite/releases/latest/download/OpenCode-Infinite.bat -UseBasicParsing -OutFile "$d\OpenCode Infinite.bat"; & "$d\OpenCode Infinite.bat"
 ```
 
 **cmd** (`curl.exe` ships with Windows 10 1803 and later):
 
 ```cmd
-powershell -NoProfile -Command "$d=[Environment]::GetFolderPath('Desktop'); [Net.ServicePointManager]::SecurityProtocol='Tls12'; iwr https://github.com/jeko1107/opencode-infinite/releases/latest/download/OpenCode-Infinite.bat -UseBasicParsing -OutFile (Join-Path $d 'OpenCode Infinite.bat'); & (Join-Path $d 'OpenCode Infinite.bat')"
+powershell -NoProfile -Command "$d=[Environment]::GetFolderPath('Desktop'); [Net.ServicePointManager]::SecurityProtocol='Tls12'; iwr https://gitlab.com/jekooo/opencode-infinite/releases/latest/download/OpenCode-Infinite.bat -UseBasicParsing -OutFile (Join-Path $d 'OpenCode Infinite.bat'); & (Join-Path $d 'OpenCode Infinite.bat')"
 ```
 
 To update an old copy, run `Update launcher.bat` from this repository in the same folder. It downloads the latest release and replaces the old file.
@@ -439,4 +439,4 @@ the file to an issue.
 
 ---
 
-**jeko1107** - https://github.com/jeko1107/opencode-infinite
+**jeko1107** - https://gitlab.com/jekooo/opencode-infinite

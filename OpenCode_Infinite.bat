@@ -5384,7 +5384,7 @@ $ShimOcPath = Join-Path $ShimDir 'opencodeoc.cmd'
 # v2.30: setup copies the launcher here; the commands and shortcuts run this copy, not the download.
 $Official = Join-Path $State 'app\OpenCode Infinite.bat'
 $RawUrl = 'https://raw.githubusercontent.com/jeko1107/opencode-infinite/main/OpenCode%%20Infinite.bat'
-$Repo = 'https://github.com/jeko1107/opencode-infinite'
+$Repo = 'https://gitlab.com/jekooo/opencode-infinite'
 # OC_TUI_KEYS_<MODE> (for example OC_TUI_KEYS_MAIN) overrides OC_TUI_KEYS for that screen only, so a whole
 # launcher run can be driven screen by screen.
 $keySrc = [Environment]::GetEnvironmentVariable('OC_TUI_KEYS_' + ([string]$Mode).ToUpper())

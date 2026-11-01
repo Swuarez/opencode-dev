@@ -19,7 +19,7 @@ REM If the release cannot be reached (offline, none published yet) the old
 REM path is the fallback: newest commit SHA on main, raw URL pinned to it.
 set "TMPBAT=%TEMP%\opencode_infinite_latest.bat"
 if exist "%TMPBAT%" del /f /q "%TMPBAT%" >nul 2>&1
-set "REMOTE=https://github.com/jeko1107/opencode-infinite/releases/latest/download/OpenCode-Infinite.bat"
+set "REMOTE=https://gitlab.com/jekooo/opencode-infinite/releases/latest/download/OpenCode-Infinite.bat"
 
 echo Downloading the newest launcher (latest Release)...
 curl.exe -L -f -s --max-time 60 -o "%TMPBAT%" "%REMOTE%" >nul 2>&1
