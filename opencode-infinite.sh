@@ -2,7 +2,7 @@
 # OpenCode Infinite for Linux: the Windows launcher's flow in bash.
 # Egress WARP / TOR / PROXY / NONE, target IP hunt, probe, resume when a limit stops the chat.
 # Needs: bash 4.3+, curl, node + opencode. Optional: warp-cli, tor, privoxy, jq (menus in other languages).
-VERSION="linux-0.4.0"
+VERSION="linux-0.4.1"
 REPO="https://gitlab.com/jekooo/opencode-infinite"
 REPO_RAW="https://gitlab.com/jekooo/opencode-infinite/-/raw/main"
 
@@ -1038,10 +1038,9 @@ backup_auth(){
   (umask 077; mkdir -p "$d") && cp -p "$DATA_DIR/auth.json" "$d/auth.json" && log "auth.json backed up to $d" || { say err "could not back up auth.json to $d: tokens kept"; return 1; }
 }
 renew_session(){
-  confirm 'Close OpenCode, save auth.json to the Desktop and clear the tokens?' || return 0
+  confirm 'Close OpenCode, back up auth.json (launcher state folder) and clear the tokens?' || return 0
   stop_opencode
-  local desk; desk=$(desk_dir)
-  if [ -f "$DATA_DIR/auth.json" ]; then backup_auth && cp "$DATA_DIR/auth.json" "$desk/auth.json" && rm -f "$DATA_DIR/auth.json" && say ok "auth.json saved to $desk"; fi
+  if [ -f "$DATA_DIR/auth.json" ]; then backup_auth && rm -f "$DATA_DIR/auth.json" && say ok "auth.json backed up in the launcher state folder, tokens cleared"; fi  # not on the Desktop: a copy there is readable by any app and syncs to the cloud
   [ -e "$DATA_DIR/auth.json" ] || drop_snapshot  # v0.3.3: the snapshot goes only when the tokens went
   if egress_new || egress_up; then say ok "new route: $(current_ip)"; else say err "no new route."; fi
   log 'renew done'
@@ -1233,7 +1232,7 @@ home(){
     item "$(tx 'Launch OpenCode')" '' 'Pick a folder and a connection, then start OpenCode.'; acts+=(launch)
     if [ "$SETUP_DONE" = 1 ]; then
       item "$(tx 'Connect with opencode')" "Configured - $OC_EGRESS_DEFAULT" 'Connection and commands. Run it again to change the egress.'; acts+=(connect_setup)
-      item "$(tx 'Renew session')" '' 'Use it when the limit is hit or the login expired: saves auth.json to the Desktop, clears tokens, gets a new IP.'; acts+=(renew_session)
+      item "$(tx 'Renew session')" '' 'Use it when the limit is hit or the login expired: backs up auth.json in the launcher state folder, clears tokens, gets a new IP.'; acts+=(renew_session)
       item "$(tx 'Uninstall')" '' 'Removes the opencode commands and shortcuts and restores the old opencode command. Asks first.' '' err; acts+=(uninstall)
     else
       item "$(tx 'Connect with opencode')" 'Not configured' 'Guided setup: installs what is missing, then WARP, Tor, a proxy list or direct. Creates opencode, opencodeinf and opencodeoc.' '' warn; acts+=(connect_setup)
