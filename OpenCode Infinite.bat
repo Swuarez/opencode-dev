@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 title OpenCode-Infinite
 REM ============================================================
-REM  OpenCode launcher  (v2.52)
+REM  OpenCode launcher  (v2.53)
 REM  Multi-egress (WARP / TOR / free HTTP) + dependency bootstrap
 REM  + auto-resume.
 REM  v2.22 - v2.29: every fixed bug carries an inline "REM v2.2x:"
@@ -42,8 +42,7 @@ REM    drag a folder onto this file          -> opens in that folder
 REM    "OpenCode Infinite.bat" "D:\work\project"
 REM                                          -> opens in that folder
 REM    --run [opencode args]                 -> quick start with the saved
-REM                                             connection (the "opencode"
-REM                                             command and the shortcut)
+REM                                             connection
 REM    opencodeinf                           -> the menu (after setup)
 REM    --verify / --renew                    -> hidden checks run by the UI
 REM
@@ -853,7 +852,7 @@ set "LOG_ARGS=%*"
 if defined LOG_ARGS set "LOG_ARGS=%LOG_ARGS:"='%"
 set "LOG_OSV="
 for /f "tokens=*" %%v in ('ver') do if not defined LOG_OSV set "LOG_OSV=%%v"
-call :log "start v2.52 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
+call :log "start v2.53 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
 REM v2.30: one official copy. Setup copies this file to STATE_DIR\app and the opencode
 REM command runs that copy. A duplicate (a second download, "(1)") hands over to it, or
 REM replaces it when it is the newer one.
@@ -7154,8 +7153,29 @@ function Find-Original-Oc {
   return ''
 }
 function Shim-Original([string]$exe) {
-  if (-not $exe) { return "@echo off`r`necho OpenCode was not found outside the launcher. Install it, then run Connect with opencode again.`r`nexit /b 1`r`n" }
+  if (-not $exe) { return "@echo off`r`necho OpenCode was not found outside the launcher. Run opencodeinf to install it.`r`nexit /b 1`r`n" }
   return "@echo off`r`nrem Original OpenCode: no launcher and no connection change.`r`n`"$exe`" %*`r`nexit /b %errorlevel%`r`n"
+}
+# Keeps the commands current: "opencode" is always the real OpenCode, never the launcher, and the
+# shortcuts open opencodeinf. Runs at every start, so installs made by older versions are fixed too.
+function Refresh-Shims {
+  if (-not (Test-Configured)) { return }
+  try {
+    $utf8 = New-Object Text.UTF8Encoding($false)
+    $orig = Shim-Original (Find-Original-Oc)
+    foreach ($p in @($ShimPath, $ShimOcPath)) {
+      $cur = ''
+      if (Test-Path -LiteralPath $p) { $cur = [IO.File]::ReadAllText($p) }
+      if ($cur -ne $orig) { [IO.File]::WriteAllText($p, $orig, $utf8) }
+    }
+    $want = '/d /k ""' + $ShimInfPath + '""'
+    $wsh = New-Object -ComObject WScript.Shell
+    foreach ($l in @($script:Cfg.setup.shortcuts)) {
+      if (-not $l -or -not (Test-Path -LiteralPath $l)) { continue }
+      $sc = $wsh.CreateShortcut($l)
+      if ($sc.Arguments -ne $want) { $sc.Arguments = $want; $sc.Save() }
+    }
+  } catch { Log ('shim refresh: ' + $_.Exception.Message) 'error' }
 }
 function Run-Setup {
   Log 'setup start'
@@ -7234,7 +7254,7 @@ function Run-Setup {
     if ($Self -ne $Official) { Copy-Item -LiteralPath $Self -Destination $Official -Force }
     New-Item -ItemType Directory -Force -Path $ShimDir | Out-Null
     $utf8 = New-Object Text.UTF8Encoding($false)
-    [IO.File]::WriteAllText($ShimPath, (Shim-Text '--run'), $utf8)
+    [IO.File]::WriteAllText($ShimPath, (Shim-Original (Find-Original-Oc)), $utf8)
     [IO.File]::WriteAllText($ShimInfPath, (Shim-Text ''), $utf8)
     [IO.File]::WriteAllText($ShimOcPath, (Shim-Original (Find-Original-Oc)), $utf8)
     # 4 shortcuts
@@ -7246,9 +7266,9 @@ function Run-Setup {
       $lnk = Join-Path $dir 'OpenCode Infinite (egress).lnk'
       $sc = $wsh.CreateShortcut($lnk)
       $sc.TargetPath = $env:SystemRoot + '\System32\cmd.exe'
-      $sc.Arguments = '/d /k ""' + $Official + '" --run"'
+      $sc.Arguments = '/d /k ""' + $ShimInfPath + '""'
       $sc.WorkingDirectory = $env:USERPROFILE
-      $sc.Description = 'Start opencode through your configured connection'
+      $sc.Description = 'OpenCode Infinite: the launcher menu (opencodeinf)'
       $ico = Join-Path $env:LOCALAPPDATA 'Programs\ai.opencode.desktop\OpenCode.exe'
       if (Test-Path -LiteralPath $ico) { $sc.IconLocation = $ico }
       $sc.Save()
@@ -7438,7 +7458,7 @@ function New-Report {
   $total = 6
   & $A 'OpenCode Infinite - support report'
   & $A ('Generated   ' + (Get-Date).ToString('o'))
-  & $A 'Launcher    v2.52'
+  & $A 'Launcher    v2.53'
   & $A ('File        ' + $Self)
   try { $fi = Get-Item -LiteralPath $Self; & $A ('Size/date   ' + $fi.Length + ' bytes, ' + $fi.LastWriteTime.ToString('s')); & $A ('SHA-256     ' + (Get-FileHash -LiteralPath $Self -Algorithm SHA256).Hash) } catch { }
   & $A 'Personal data (user name, PC name, e-mails, tokens, passwords, and by default public IPs) is removed from this file. Read it before sharing.'
@@ -7633,7 +7653,7 @@ function Menu-Main {
     @{ L = ($script:I.back + ' Back'); C = 10; H = 'Return to the home screen.' },
     @{ L = ($script:I.err + ' Exit'); C = 6; H = 'Close the launcher.' })
   $head = Header-Lines
-  $r = Show-Menu 'OpenCode' $items ('v2.52   ' + $Repo) $head 0
+  $r = Show-Menu 'OpenCode' $items ('v2.53   ' + $Repo) $head 0
   if ($r -eq -1) { exit 10 }
   exit $items[$r].C
 }
@@ -7808,7 +7828,7 @@ function Home-Loop {
       $head += ''
     }
     if ($script:Notice) { $head += (P (Style $script:Notice[0]) ($script:I.warn + ' ' + (T $script:Notice[1]))); $head += ''; $script:Notice = $null }
-    $r = Show-Menu 'Main menu' $items ('v2.52   ' + $Self) $head $pos $true
+    $r = Show-Menu 'Main menu' $items ('v2.53   ' + $Self) $head $pos $true
     if ($r -eq -1) { continue }
     $pos = $r
     Log ('home -> ' + $acts[$r])
@@ -7887,6 +7907,7 @@ if ($Mode -eq 'mki18n') { try { Load-Cfg; Init-Ui; Write-I18n; exit 0 } catch { 
 if (-not $Scripted -and $Mode -ne 'export' -and $Mode -ne 'selftest' -and [Console]::IsInputRedirected) { exit 20 }
 try {
   Load-Cfg
+  if ($Mode -ne 'selftest' -and $Mode -ne 'export') { Refresh-Shims }
   Init-Ui
   Log ('ui ' + $Mode + ' start; color ' + $script:Color + ', icons ' + $script:IconMode + ', width ' + $script:Width)
   if ((Get-Val 'OCUI_FONT') -and -not $env:WT_SESSION -and -not $env:TERM_PROGRAM -and -not $Scripted) { try { [void](Apply-ConsoleFont ([string](Get-Val 'OCUI_FONT')) ([int](Get-Val 'OCUI_FONT_SIZE'))) } catch { } }

@@ -890,16 +890,24 @@ ensure_path(){
   case ":$PATH:" in *":$BIN_DIR:"*) return;; esac
   grep -q 'opencode-infinite' "$HOME/.bashrc" 2>/dev/null || printf '%s\n' "$PATH_LINE" >> "$HOME/.bashrc"
 }
-write_shims(){ # the commands: opencode (launcher), opencodeinf (menu), opencodeoc (plain OpenCode)
+fix_old_shim(){ # v2.52 and older replaced $BIN_DIR/opencode with a launcher shim: put the real command back. A real command is never touched
+  local p="$BIN_DIR/opencode"
+  { [ -e "$p" ] || [ -L "$p" ]; } || return 0
+  grep -q 'opencode-infinite' "$p" 2>/dev/null || return 0
+  rm -f "$p"
+  [ -n "$OC_LINK" ] && ln -sfn "$OC_LINK" "$p"
+  if [ ! -e "$p" ]; then rm -f "$p"; say warn 'opencode was replaced by an old launcher shim and could not be restored. Run opencodeinf: it installs opencode again.'; fi
+  if find_real_opencode; then cfg_set OC_REAL "$OC_REAL"; cfg_set OC_LINK "$OC_LINK"; fi
+}
+write_shims(){ # the commands: opencodeinf (menu), opencodeoc (plain OpenCode). opencode itself is never written: it stays the real one
   local app="$APP_DIR/opencode-infinite.sh"
   mkdir -p "$BIN_DIR" "$APP_DIR"
   cp "$SELF" "$app"
   oc_runner
-  rm -f "$BIN_DIR/opencode"
-  printf '#!/usr/bin/env bash\nexec bash "%s" --run "$@"\n' "$app" > "$BIN_DIR/opencode"
+  fix_old_shim
   printf '#!/usr/bin/env bash\nexec bash "%s" "$@"\n' "$app" > "$BIN_DIR/opencodeinf"
   printf '#!/usr/bin/env bash\nexec %s "$@"\n' "${RUNNER[*]}" > "$BIN_DIR/opencodeoc"
-  chmod +x "$BIN_DIR/opencode" "$BIN_DIR/opencodeinf" "$BIN_DIR/opencodeoc"
+  chmod +x "$BIN_DIR/opencodeinf" "$BIN_DIR/opencodeoc"
 }
 find_real_opencode(){ # sets OC_REAL and OC_LINK to the Linux opencode, never a Windows one (/mnt/...) or our own command
   local d p
@@ -1048,9 +1056,9 @@ renew_session(){
 }
 uninstall(){
   confirm 'Remove the opencode commands and shortcuts and restore the old opencode command? Settings are kept.' || return 0
-  rm -f "$BIN_DIR/opencodeinf" "$BIN_DIR/opencodeoc" "$BIN_DIR/opencode"
+  rm -f "$BIN_DIR/opencodeinf" "$BIN_DIR/opencodeoc"
   rm -f "$HOME/.local/share/applications/opencode-infinite.desktop" "$(desk_dir)/opencode-infinite.desktop"
-  [ -n "$OC_LINK" ] && ln -sfn "$OC_LINK" "$BIN_DIR/opencode"
+  if [ -n "$OC_LINK" ]; then fix_old_shim; elif grep -q 'opencode-infinite' "$BIN_DIR/opencode" 2>/dev/null; then rm -f "$BIN_DIR/opencode"; fi
   [ -f "$HOME/.bashrc" ] && sed -i '/opencode-infinite/d' "$HOME/.bashrc"
   cfg_set SETUP_DONE 0
   log 'uninstalled'
@@ -1260,6 +1268,7 @@ trap 'exit 130' INT TERM
 # ---------------------------------------------------------------- entry (OCI_NO_MAIN=1 loads the functions only, for tests)
 if [ -z "${OCI_NO_MAIN:-}" ]; then
   load_cfg
+  if [ "$SETUP_DONE" = 1 ]; then fix_old_shim; fi  # repairs an old shim at every start, also for the plain opencode command
   set_theme "$OCUI_THEME"
   shopt -s checkwinsize
   stty -echo -icanon 2>/dev/null
