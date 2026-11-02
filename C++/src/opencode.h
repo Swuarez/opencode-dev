@@ -23,7 +23,7 @@ void stopOpenCode(uint32_t pid, void* process, const std::string& reason);
 std::string newestLogFile();
 
 // Starts the desktop app with the given proxy (empty = direct). false = it did not start.
-bool launchDesktop(const std::string& exe, const std::string& proxyUrl, uint32_t* pidOut,
+bool launchDesktop(const std::string& exe, const std::string& proxyUrl, const std::string& nodeOptions, uint32_t* pidOut,
                    void** processOut = nullptr);
 
 // Copies auth.json to %LOCALAPPDATA%\opencode-infinite\backup\auth\<stamp>\ and only then

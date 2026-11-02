@@ -174,7 +174,7 @@ WIREGUARD was tested only with fake tools and a local proxy: a real WireGuard se
 
 ![Setup: connection method](images/03-setup-connection.png)
 
-**Run mode** is chosen the same way: **CLI** (terminal), **Desktop** (the OpenCode app), or **Ask every time**. Linux runs the CLI only.
+**Run mode** is chosen the same way: **CLI** (terminal), **Desktop** (the OpenCode app), or **Ask every time**. On Linux it is the setting Settings > Connection > Run mode (CLI or DESKTOP, no Ask every time), and the `opencode` command always runs the CLI.
 
 ![Setup: run mode](images/05-setup-run-mode.png)
 
@@ -459,9 +459,15 @@ A native Windows app with the same job as the `.bat`: a new exit IP, then OpenCo
   probe, the watcher that stops OpenCode at a limit line and resumes the chat, Renew
   session, deep reset and restore, Settings, the update check, the shortcut file
   (`.desktop`), the languages, the support report, and the three commands.
-- **Not on Linux:** the desktop app and run mode (Linux runs the CLI), the portable
-  Tor bundle (Linux uses your `tor` and `privoxy`), the `OC_APP` path, the `where`
-  lookup timeout, and the terminal font settings (the terminal owns its font).
+- **Not on Linux:** the portable Tor bundle (Linux uses your `tor` and `privoxy`), the
+  `where` lookup timeout, and the terminal font settings (the terminal owns its font).
+- **Desktop app (Run mode DESKTOP):** the launcher starts the path in `OC_APP` (the
+  setting, or the environment variable when the setting is empty), else
+  `/opt/OpenCode/ai.opencode.desktop` (the `.deb` from the OpenCode releases), else
+  `ai.opencode.desktop` on the PATH. After each new IP it closes the copy it started,
+  never one opened by hand, and starts it again. The chat is not resumed with a
+  message, as on Windows. The probe still uses the CLI, so opencode must be installed
+  too. Tested only with a fake app, not with the real one yet.
 - **Different:** the launcher installs WARP, Tor, privoxy and opencode with your
   package manager (apt, dnf, pacman or zypper). On pacman, WARP is an AUR package
   and is installed by hand.

@@ -920,5 +920,21 @@
   "  Running instance: PID %LK_PID%  \"%LK_BAT%\"": "  Laufende Instanz: PID %LK_PID%  \"%LK_BAT%\"",
   "  [1] Close it and continue   [2] Open anyway (own copy of the settings)   [3] Exit": "  [1] Schließen und fortfahren   [2] Trotzdem öffnen (eigene Kopie der Einstellungen)   [3] Beenden",
   "  The other instance was closed and its lock removed. Starting.": "  Die andere Instanz wurde geschlossen und ihre Sperre entfernt. Wird gestartet.",
-  "  Instance lock cleared.": "  Instanzsperre entfernt."
+  "  Instance lock cleared.": "  Instanzsperre entfernt.",
+  "Home": "Start",
+  "downloading wireproxy {0}...": "wireproxy {0} wird heruntergeladen...",
+  "[vpn] changing the {0} tunnel...": "[vpn] Der {0}-Tunnel wird gewechselt...",
+  "[vpn] wireproxy is missing and could not be downloaded and verified. Log: {0}": "[vpn] wireproxy fehlt und konnte nicht heruntergeladen und geprüft werden. Protokoll: {0}",
+  "[vpn] the WireGuard config \"{0}\" was skipped: it needs an [Interface] with a PrivateKey and a [Peer].": "[vpn] Die WireGuard-Konfiguration \"{0}\" wurde übersprungen: Sie braucht ein [Interface] mit PrivateKey und einen [Peer].",
+  "[vpn] there are no .conf files in \"{0}\". Copy your WireGuard configs there.": "[vpn] In \"{0}\" gibt es keine .conf-Dateien. Kopiere deine WireGuard-Konfigurationen dorthin.",
+  "[vpn] nothing left to try: every .conf failed in this session.": "[vpn] Nichts mehr zu versuchen: Alle .conf-Dateien sind in dieser Sitzung fehlgeschlagen.",
+  "[vpn] tunnel \"{0}\" is up. Exit IP {1} (country {2}).": "[vpn] Tunnel \"{0}\" ist aktiv. Ausgangs-IP {1} (Land {2}).",
+  "[vpn] no tunnel gave a new IP ({0} tried). Log: {1}": "[vpn] Kein Tunnel lieferte eine neue IP ({0} versucht). Protokoll: {1}",
+  "[vpn] OpenVPN is missing, installing it with winget (administrator prompt)...": "[vpn] OpenVPN fehlt und wird mit winget installiert (Administrator-Abfrage)...",
+  "[vpn] OpenVPN is missing and winget could not install it. Install OpenVPN from openvpn.net, then try again.": "[vpn] OpenVPN fehlt und winget konnte es nicht installieren. Installiere OpenVPN von openvpn.net und versuche es erneut.",
+  "[vpn] could not resolve the OpenCode hosts (opencode.ai, models.opencode.ai, opentunnel.xyz). Check the internet connection.": "[vpn] Die OpenCode-Hosts (opencode.ai, models.opencode.ai, opentunnel.xyz) konnten nicht aufgelöst werden. Prüfe die Internetverbindung.",
+  "[vpn] the VPN Gate list could not be downloaded and there is no saved copy.": "[vpn] Die VPN-Gate-Liste konnte nicht heruntergeladen werden und es gibt keine gespeicherte Kopie.",
+  "[vpn] no VPN Gate server matches the country \"{0}\". Clear the country to use any.": "[vpn] Kein VPN-Gate-Server passt zum Land \"{0}\". Leere das Land, um ein beliebiges zu verwenden.",
+  "[vpn] nothing left to try: every VPN Gate server failed in this session.": "[vpn] Nichts mehr zu versuchen: Alle VPN-Gate-Server sind in dieser Sitzung fehlgeschlagen.",
+  "Your WireGuard .conf files through wireproxy, a local proxy that only opencode uses. No administrator prompt.": "Deine WireGuard-.conf-Dateien über wireproxy, einen lokalen Proxy, den nur opencode nutzt. Keine Administrator-Abfrage."
 }

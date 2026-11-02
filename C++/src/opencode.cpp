@@ -119,7 +119,7 @@ std::string newestLogFile() {
 
 // ---------------------------------------------------------------- launch
 
-bool launchDesktop(const std::string& exe, const std::string& proxyUrl, uint32_t* pidOut,
+bool launchDesktop(const std::string& exe, const std::string& proxyUrl, const std::string& nodeOptions, uint32_t* pidOut,
                    void** processOut) {
     if (exe.empty() || !fileExists(exe)) return false;
 
@@ -139,6 +139,7 @@ bool launchDesktop(const std::string& exe, const std::string& proxyUrl, uint32_t
         env.push_back({"http_proxy", ""});
         env.push_back({"https_proxy", ""});
     }
+    if (!nodeOptions.empty()) env.push_back({"NODE_OPTIONS", nodeOptions});   // VPNGATE: IPv4 first, like the .bat
     Spawned sp = spawnDetached(exe, "", env, dirName(exe), false, processOut != nullptr);
     if (!sp.ok) return false;
     if (pidOut) *pidOut = sp.pid;

@@ -21,12 +21,13 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg
 
 // Custom (frameless) title bar. Keep in sync with the drawing in ui.cpp.
 static const int kTitleBarHeight = 38;
-static const int kTitleButtonsWidth = 88;   // two 44 px buttons on the right
+static const int kTitleButtonsWidth = 132;  // three 44 px buttons on the right
 
 static HWND g_hwnd = nullptr;
 
 namespace oi {
 void hostMinimize() { if (g_hwnd) ::ShowWindow(g_hwnd, SW_MINIMIZE); }
+void hostMaximize() { if (g_hwnd) ::ShowWindow(g_hwnd, ::IsZoomed(g_hwnd) ? SW_RESTORE : SW_MAXIMIZE); }
 void hostClose()    { if (g_hwnd) ::PostMessageW(g_hwnd, WM_CLOSE, 0, 0); }
 } // namespace oi
 
@@ -95,12 +96,45 @@ static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
         return true;
 
     switch (msg) {
+        case WM_NCCALCSIZE:
+            if (wParam) return 0;   // no system frame: the thick frame is only there for edge resizing
+            break;
+        case WM_GETMINMAXINFO: {
+            MINMAXINFO* mm = (MINMAXINFO*)lParam;
+            mm->ptMinTrackSize.x = 760;
+            mm->ptMinTrackSize.y = 520;
+            // maximise inside the work area (a popup would otherwise cover the taskbar)
+            HMONITOR mon = ::MonitorFromWindow(hWnd, MONITOR_DEFAULTTONEAREST);
+            MONITORINFO mi = { sizeof(mi) };
+            if (::GetMonitorInfoW(mon, &mi)) {
+                mm->ptMaxPosition.x = mi.rcWork.left - mi.rcMonitor.left;
+                mm->ptMaxPosition.y = mi.rcWork.top - mi.rcMonitor.top;
+                mm->ptMaxSize.x = mi.rcWork.right - mi.rcWork.left;
+                mm->ptMaxSize.y = mi.rcWork.bottom - mi.rcWork.top;
+                // never force a minimum larger than a small display
+                if (mm->ptMinTrackSize.x > mm->ptMaxSize.x) mm->ptMinTrackSize.x = mm->ptMaxSize.x;
+                if (mm->ptMinTrackSize.y > mm->ptMaxSize.y) mm->ptMinTrackSize.y = mm->ptMaxSize.y;
+            }
+            return 0;
+        }
         case WM_NCHITTEST: {
-            // Frameless window: the title strip drags, everything else is client space.
+            // Frameless window: edges resize, the title strip drags, everything else is client space.
             POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
             ::ScreenToClient(hWnd, &pt);
             RECT rc;
             ::GetClientRect(hWnd, &rc);
+            if (!::IsZoomed(hWnd)) {
+                const int b = 6;
+                bool l = pt.x < b, r = pt.x >= rc.right - b, t = pt.y < b, bt = pt.y >= rc.bottom - b;
+                if (t && l) return HTTOPLEFT;
+                if (t && r) return HTTOPRIGHT;
+                if (bt && l) return HTBOTTOMLEFT;
+                if (bt && r) return HTBOTTOMRIGHT;
+                if (l) return HTLEFT;
+                if (r) return HTRIGHT;
+                if (t) return HTTOP;
+                if (bt) return HTBOTTOM;
+            }
             bool inTitle   = (pt.y >= 0 && pt.y < kTitleBarHeight);
             bool inButtons = (pt.x >= rc.right - kTitleButtonsWidth && pt.x < rc.right);
             if (inTitle && !inButtons) return HTCAPTION;
@@ -169,21 +203,21 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
     oi::App app;
     app.init();
 
-    WNDCLASSEXW wc = { sizeof(wc), CS_CLASSDC, WndProc, 0L, 0L, hInstance, nullptr, nullptr, nullptr, nullptr,
-                       L"OpenCodeInfiniteWnd", nullptr };
+    WNDCLASSEXW wc = { sizeof(wc), CS_CLASSDC, WndProc, 0L, 0L, hInstance, ::LoadIconW(hInstance, MAKEINTRESOURCEW(101)), nullptr, nullptr, nullptr,
+                       L"OpenCodeInfiniteWnd", ::LoadIconW(hInstance, MAKEINTRESOURCEW(101)) };
     ::RegisterClassExW(&wc);
 
-    // Frameless, fixed-size window. The chrome is drawn by ui.cpp.
+    // Frameless, resizable window. The chrome is drawn by ui.cpp.
     // Fit the window to the work area so it never overflows a small display.
     RECT wa = { 0, 0, 1280, 720 };
     ::SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0);
     int waW = wa.right - wa.left;
     int waH = wa.bottom - wa.top;
-    int w = 980, h = 620;
+    int w = 1180, h = 760;
     if (w > waW - 40) w = waW - 40;
     if (h > waH - 40) h = waH - 40;
     HWND hwnd = ::CreateWindowExW(WS_EX_APPWINDOW, wc.lpszClassName, L"OpenCode Infinite",
-                                  WS_POPUP | WS_MINIMIZEBOX,
+                                  WS_POPUP | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX,
                                   wa.left + (waW - w) / 2, wa.top + (waH - h) / 2, w, h,
                                   nullptr, nullptr, wc.hInstance, nullptr);
     if (!hwnd) return 1;

@@ -5,6 +5,7 @@
 
 #include <windows.h>
 #include <tlhelp32.h>
+#include <shellapi.h>
 #include <thread>
 #include <atomic>
 #include <algorithm>
@@ -172,6 +173,33 @@ Spawned spawnDetached(const std::string& exe, const std::string& args, const Env
         CloseHandle(pi.hThread);
     } else {
         logError(fmt("spawnDetached failed %lu: %s", GetLastError(), exe.c_str()));
+    }
+    return s;
+}
+
+Spawned spawnElevated(const std::string& exe, const std::string& args, bool wait, uint32_t* exitCode, int waitMs) {
+    Spawned s;
+    std::wstring wexe = utf8ToWide(exe), wargs = utf8ToWide(args);
+    SHELLEXECUTEINFOW sei{};
+    sei.cbSize = sizeof(sei);
+    sei.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC;
+    sei.lpVerb = L"runas";
+    sei.lpFile = wexe.c_str();
+    sei.lpParameters = wargs.empty() ? nullptr : wargs.c_str();
+    sei.nShow = SW_HIDE;
+    if (!ShellExecuteExW(&sei) || !sei.hProcess) {
+        logWarn(fmt("spawnElevated failed %lu (UAC refused?): %s", GetLastError(), exe.c_str()));
+        return s;
+    }
+    s.ok = true;
+    s.pid = (uint32_t)GetProcessId(sei.hProcess);
+    if (wait) {
+        DWORD code = 1;
+        if (WaitForSingleObject(sei.hProcess, (DWORD)waitMs) == WAIT_OBJECT_0) GetExitCodeProcess(sei.hProcess, &code);
+        if (exitCode) *exitCode = code;
+        CloseHandle(sei.hProcess);
+    } else {
+        s.process = sei.hProcess;
     }
     return s;
 }

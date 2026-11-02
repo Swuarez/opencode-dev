@@ -920,5 +920,21 @@
   "  Running instance: PID %LK_PID%  \"%LK_BAT%\"": "  Instância em execução: PID %LK_PID%  \"%LK_BAT%\"",
   "  [1] Close it and continue   [2] Open anyway (own copy of the settings)   [3] Exit": "  [1] Fechar e continuar   [2] Abrir mesmo assim (cópia própria das configurações)   [3] Sair",
   "  The other instance was closed and its lock removed. Starting.": "  A outra instância foi fechada e o bloqueio dela foi removido. Iniciando.",
-  "  Instance lock cleared.": "  Bloqueio da instância removido."
+  "  Instance lock cleared.": "  Bloqueio da instância removido.",
+  "Home": "Início",
+  "downloading wireproxy {0}...": "a transferir o wireproxy {0}...",
+  "[vpn] changing the {0} tunnel...": "[vpn] a mudar o túnel {0}...",
+  "[vpn] wireproxy is missing and could not be downloaded and verified. Log: {0}": "[vpn] o wireproxy não existe e não foi possível transferi-lo nem verificá-lo. Registo: {0}",
+  "[vpn] the WireGuard config \"{0}\" was skipped: it needs an [Interface] with a PrivateKey and a [Peer].": "[vpn] a configuração WireGuard \"{0}\" foi ignorada: precisa de um [Interface] com PrivateKey e de um [Peer].",
+  "[vpn] there are no .conf files in \"{0}\". Copy your WireGuard configs there.": "[vpn] não há ficheiros .conf em \"{0}\". Copie para lá as suas configurações WireGuard.",
+  "[vpn] nothing left to try: every .conf failed in this session.": "[vpn] não resta nada para tentar: todos os .conf falharam nesta sessão.",
+  "[vpn] tunnel \"{0}\" is up. Exit IP {1} (country {2}).": "[vpn] o túnel \"{0}\" está ativo. IP de saída {1} (país {2}).",
+  "[vpn] no tunnel gave a new IP ({0} tried). Log: {1}": "[vpn] nenhum túnel deu um IP novo ({0} testados). Registo: {1}",
+  "[vpn] OpenVPN is missing, installing it with winget (administrator prompt)...": "[vpn] o OpenVPN não existe, a instalar com o winget (pedido de administrador)...",
+  "[vpn] OpenVPN is missing and winget could not install it. Install OpenVPN from openvpn.net, then try again.": "[vpn] o OpenVPN não existe e o winget não o conseguiu instalar. Instale o OpenVPN a partir de openvpn.net e tente de novo.",
+  "[vpn] could not resolve the OpenCode hosts (opencode.ai, models.opencode.ai, opentunnel.xyz). Check the internet connection.": "[vpn] não foi possível resolver os anfitriões do OpenCode (opencode.ai, models.opencode.ai, opentunnel.xyz). Verifique a ligação à internet.",
+  "[vpn] the VPN Gate list could not be downloaded and there is no saved copy.": "[vpn] não foi possível transferir a lista do VPN Gate e não há cópia guardada.",
+  "[vpn] no VPN Gate server matches the country \"{0}\". Clear the country to use any.": "[vpn] nenhum servidor VPN Gate corresponde ao país \"{0}\". Limpe o país para usar qualquer um.",
+  "[vpn] nothing left to try: every VPN Gate server failed in this session.": "[vpn] não resta nada para tentar: todos os servidores VPN Gate falharam nesta sessão.",
+  "Your WireGuard .conf files through wireproxy, a local proxy that only opencode uses. No administrator prompt.": "Os seus ficheiros .conf do WireGuard através do wireproxy, um proxy local que só o opencode usa. Sem pedido de administrador."
 }

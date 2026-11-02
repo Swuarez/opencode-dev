@@ -248,7 +248,7 @@ static void Badge(const char* text, const ImVec4& col) {
 static const float kTitleBarH    = 38.0f;
 static const float kTitleButtonW = 44.0f;
 
-static bool titleBarButton(const char* id, const ImVec2& pos, const ImVec2& size, bool isClose) {
+static bool titleBarButton(const char* id, const ImVec2& pos, const ImVec2& size, bool isClose, bool isMax = false) {
     ImGui::SetCursorScreenPos(pos);
     bool pressed = ImGui::InvisibleButton(id, size);
     bool hovered = ImGui::IsItemHovered();
@@ -266,6 +266,10 @@ static bool titleBarButton(const char* id, const ImVec2& pos, const ImVec2& size
         ImVec2 b(pos.x + size.x * (1.0f - m), pos.y + size.y * (1.0f - m));
         dl->AddLine(a, b, col, 1.5f);
         dl->AddLine(ImVec2(b.x, a.y), ImVec2(a.x, b.y), col, 1.5f);
+    } else if (isMax) {
+        ImVec2 a(pos.x + size.x * 0.36f, pos.y + size.y * 0.33f);
+        ImVec2 b(pos.x + size.x * 0.64f, pos.y + size.y * 0.67f);
+        dl->AddRect(a, b, col, 0.0f, 0, 1.3f);
     } else {
         float cy = pos.y + size.y * 0.5f;
         dl->AddLine(ImVec2(pos.x + size.x * 0.32f, cy), ImVec2(pos.x + size.x * 0.68f, cy), col, 1.5f);
@@ -290,10 +294,12 @@ static void drawTitleBar() {
     dl->AddText(ImVec2(wp.x + 44, cy - ImGui::GetFontSize() * 0.5f), IM_COL32(226, 231, 240, 255),
                 "OpenCode Infinite");
 
-    float bx = wp.x + w - kTitleButtonW * 2.0f;
+    float bx = wp.x + w - kTitleButtonW * 3.0f;
     if (titleBarButton("##title_min", ImVec2(bx, wp.y), ImVec2(kTitleButtonW, kTitleBarH), false))
         hostMinimize();
-    if (titleBarButton("##title_close", ImVec2(bx + kTitleButtonW, wp.y), ImVec2(kTitleButtonW, kTitleBarH), true))
+    if (titleBarButton("##title_max", ImVec2(bx + kTitleButtonW, wp.y), ImVec2(kTitleButtonW, kTitleBarH), false, true))
+        hostMaximize();
+    if (titleBarButton("##title_close", ImVec2(bx + kTitleButtonW * 2.0f, wp.y), ImVec2(kTitleButtonW, kTitleBarH), true))
         hostClose();
     dl->PopClipRect();
 
@@ -302,6 +308,7 @@ static void drawTitleBar() {
 
 // ----------------------------------------------------------- settings rows
 
+static std::string g_group;   // settings section picked in the sidebar
 static std::string g_textEditKey;
 static std::string g_textEditVal;
 static bool        g_textEditRequest = false;
@@ -398,6 +405,49 @@ static void drawSetting(App& app, const SettingDef& d) {
     ImGui::PopID();
 }
 
+// ------------------------------------------------------------------ sidebar
+
+static const float kSideW = 210.0f;
+
+static bool sideItem(const char* label, bool selected, float indent) {
+    ImGui::PushID(label);
+    ImVec2 pos = ImGui::GetCursorScreenPos();
+    ImVec2 sz(ImGui::GetContentRegionAvail().x, 32.0f);
+    bool pressed = ImGui::InvisibleButton("##s", sz);
+    bool hov = ImGui::IsItemHovered();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImVec2 b(pos.x + sz.x, pos.y + sz.y);
+    if (selected) {
+        dl->AddRectFilled(pos, b, ImGui::GetColorU32(mul(g_accent, 0.22f)), 3.0f);
+        dl->AddRectFilled(pos, ImVec2(pos.x + 3, b.y), ImGui::GetColorU32(g_accent), 1.0f);
+    } else if (hov) {
+        dl->AddRectFilled(pos, b, kSurf3, 3.0f);
+    }
+    dl->AddText(ImVec2(pos.x + 14 + indent, pos.y + (sz.y - ImGui::GetTextLineHeight()) * 0.5f),
+                selected ? kText : (hov ? kText : IM_COL32(170, 180, 198, 255)), label);
+    ImGui::PopID();
+    return pressed;
+}
+
+static void drawSidebar(App& app) {
+    Screen cur = app.screen();
+    if (sideItem(T("Home"), cur == Screen::Home || cur == Screen::ModePicker || cur == Screen::Menu, 0))
+        app.setScreen(Screen::Home);
+    if (sideItem(T("Settings"), cur == Screen::Settings, 0)) app.setScreen(Screen::Settings);
+    if (cur == Screen::Settings) {
+        for (const auto& g : Config::groups())
+            if (sideItem(T(g.c_str()), g == g_group, 14.0f)) g_group = g;
+    }
+    if (sideItem(T("Chats"), cur == Screen::Chats, 0)) { app.refreshArchives(); app.setScreen(Screen::Chats); }
+    if (sideItem(T("Renew session"), cur == Screen::Renew, 0)) app.setScreen(Screen::Renew);
+    if (sideItem(T("Support"), cur == Screen::Support, 0)) app.setScreen(Screen::Support);
+    if (sideItem(T("Uninstall"), cur == Screen::Uninstall, 0)) app.setScreen(Screen::Uninstall);
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+    if (sideItem(T("Exit"), false, 0)) app.requestQuit();
+}
+
 // ------------------------------------------------------------------ screens
 
 static void drawLogPanel(App& app) {
@@ -464,6 +514,8 @@ static std::string estModeName(App& app) {
         case Egress::Warp:  return "WARP";
         case Egress::Tor:   return "TOR";
         case Egress::Proxy: return "PROXY";
+        case Egress::Wireproxy: return "WIREGUARD";
+        case Egress::VpnGate:   return "VPNGATE";
         case Egress::None:  return "NONE";
     }
     return "";
@@ -495,23 +547,6 @@ static void drawHome(App& app) {
         Badge(T("Configured"), g_accent);
     }
 
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
-
-    // Secondary pages as one full-width row of ghost buttons (visible targets, no dead text).
-    const float navW = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 5.0f) / 6.0f;
-    if (GhostButton(T("Settings"), ImVec2(navW, 32))) app.setScreen(Screen::Settings);
-    ImGui::SameLine();
-    if (GhostButton(T("Chats"), ImVec2(navW, 32))) { app.refreshArchives(); app.setScreen(Screen::Chats); }
-    ImGui::SameLine();
-    if (GhostButton(T("Renew session"), ImVec2(navW, 32))) app.setScreen(Screen::Renew);
-    ImGui::SameLine();
-    if (GhostButton(T("Support"), ImVec2(navW, 32))) app.setScreen(Screen::Support);
-    ImGui::SameLine();
-    if (GhostButton(T("Uninstall"), ImVec2(navW, 32))) app.setScreen(Screen::Uninstall);
-    ImGui::SameLine();
-    if (GhostButton(T("Exit"), ImVec2(navW, 32))) app.requestQuit();
 }
 
 static void drawModePicker(App& app) {
@@ -527,6 +562,8 @@ static void drawModePicker(App& app) {
         {"WARP",  "WARP",  "Cloudflare WARP in local proxy mode. Every rotation registers again, which gives a new exit IP."},
         {"TOR",   "Tor",   "Tor with an HTTP bridge on 127.0.0.1. A Tor already running is reused and never closed."},
         {"PROXY", "PROXY", "Free HTTP proxies from the list. Dead ones are skipped."},
+        {"WIREGUARD", "WireGuard", "Your WireGuard .conf files through wireproxy, a local proxy that only opencode uses. No administrator prompt."},
+        {"VPNGATE",   "VPN Gate",  "VPN Gate servers through OpenVPN. Only OpenCode's hosts go through the tunnel. Administrator prompt on start, switch and stop."},
         {"NONE",  "NONE",  "Direct connection, no proxy."},
     };
     for (const M& m : modes) {
@@ -582,9 +619,12 @@ static void drawSettings(App& app) {
 
     ImGui::BeginChild("##cfgscroll", ImVec2(0, 0));
     std::vector<std::string> groups = Config::groups();
+    if (g_group.empty() || std::find(groups.begin(), groups.end(), g_group) == groups.end())
+        g_group = groups.empty() ? std::string() : groups[0];
     for (const auto& g : groups) {
-        bool open = (g == "Connection");
-        if (ImGui::CollapsingHeader(T(g.c_str()), open ? ImGuiTreeNodeFlags_DefaultOpen : 0)) {
+        if (g == g_group) {
+            SectionHeader(T(g.c_str()));
+            ImGui::Spacing();
             ImGui::Spacing();
             ImGui::Indent(14.0f);
             for (const auto& d : Config::defs()) {
@@ -790,6 +830,10 @@ void uiDraw(App& app) {
     drawHeader(app);
 
     float logH = 118.0f + ImGui::GetStyle().ItemSpacing.y * 2;
+    ImGui::BeginChild("##side", ImVec2(kSideW, -logH), false);
+    drawSidebar(app);
+    ImGui::EndChild();
+    ImGui::SameLine();
     ImGui::BeginChild("##body", ImVec2(0, -logH), false);
     switch (app.screen()) {
         case Screen::Home:       drawHome(app);       break;

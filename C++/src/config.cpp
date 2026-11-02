@@ -25,7 +25,7 @@ const std::vector<SettingDef>& Config::defs() {
         // Connection -------------------------------------------------------
         S("OC_EGRESS_DEFAULT", "Connection", "Connection method",
           "Egress used for opencode. ASK shows the picker at every start.",
-          SettingKind::EnumK, "ASK", {"ASK", "WARP", "TOR", "PROXY", "NONE"}),
+          SettingKind::EnumK, "ASK", {"ASK", "WARP", "TOR", "PROXY", "WIREGUARD", "VPNGATE", "NONE"}),
         S("PROXY_PORT", "Connection", "WARP proxy port",
           "Local port of the WARP proxy.", SettingKind::NumK, "40000", {}, 1, 65535),
         S("WARP_WAIT", "Connection", "WARP wait (s)",
@@ -41,6 +41,18 @@ const std::vector<SettingDef>& Config::defs() {
           "Download the portable Tor bundle when nothing answers.", SettingKind::BoolK, "1"),
         S("TOR_BOOTSTRAP_WAIT", "Tor", "Tor bootstrap wait (s)",
           "Seconds to wait for Tor to finish bootstrapping.", SettingKind::NumK, "120", {}, 30, 900),
+        // WireGuard / VPN Gate (same keys as the .bat) ---------------------
+        S("WG_DIR", "Egress", "WireGuard folder",
+          "Folder with the WireGuard .conf files. Type - to use the default folder inside the launcher state folder.",
+          SettingKind::TextK, ""),
+        S("VPN_TIMEOUT", "Egress", "Seconds per attempt",
+          "Seconds a tunnel gets to show a new exit IP before the next one is tried.", SettingKind::NumK, "45", {}, 10, 300),
+        S("VPNGATE_COUNTRY", "Egress", "VPN Gate country",
+          "Two-letter country code of the VPN Gate servers, for example JP. Type - for any country.",
+          SettingKind::TextK, ""),
+        S("VPNGATE_MAX", "Egress", "VPN Gate servers per start",
+          "How many VPN Gate servers are tried, best score first, before the start gives up.",
+          SettingKind::NumK, "8", {}, 1, 30),
         // Proxy list -------------------------------------------------------
         S("PROXY_LIST_URL", "Proxy list", "Proxy list source",
           "URL or local file, any format (plain, CSV, JSON, XML, HTML).",

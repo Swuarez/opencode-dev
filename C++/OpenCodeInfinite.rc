@@ -1,5 +1,8 @@
 #include <winver.h>
 
+#define IDI_ICON1 101
+IDI_ICON1 ICON "res\\opencode.ico"
+
 VS_VERSION_INFO VERSIONINFO
  FILEVERSION 3,2,2,0
  PRODUCTVERSION 3,2,2,0
@@ -15,11 +18,11 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "jekooo"
             VALUE "FileDescription", "OpenCode Infinite: launcher for OpenCode with WARP, Tor and IP rotation"
-            VALUE "FileVersion", "3.2.2.0"
+            VALUE "FileVersion", "3.3.0.0"
             VALUE "InternalName", "OpenCodeInfinite"
             VALUE "OriginalFilename", "OpenCodeInfinite.exe"
             VALUE "ProductName", "OpenCode Infinite"
-            VALUE "ProductVersion", "3.2.2"
+            VALUE "ProductVersion", "3.3.0"
         END
     END
     BLOCK "VarFileInfo"

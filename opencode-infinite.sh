@@ -2,7 +2,7 @@
 # OpenCode Infinite for Linux: the Windows launcher's flow in bash.
 # Egress WARP / TOR / PROXY / NONE, target IP hunt, probe, resume when a limit stops the chat.
 # Needs: bash 4.3+, curl, node + opencode. Optional: warp-cli, tor, privoxy, jq (menus in other languages).
-VERSION="linux-0.3.3"
+VERSION="linux-0.4.0"
 REPO="https://gitlab.com/jekooo/opencode-infinite"
 REPO_RAW="https://gitlab.com/jekooo/opencode-infinite/-/raw/main"
 
@@ -34,6 +34,9 @@ mkdir -p "$STATE_DIR"
 # key|group|type|default|label|help|options: enum a,b / num min:max / bool and text leave it empty
 SETDEF=(
 'OC_EGRESS_DEFAULT|Connection|enum|ASK|Egress|ASK = pick at each start. WARP, TOR, PROXY or NONE = used for OpenCode. System traffic stays direct.|ASK,WARP,TOR,PROXY,NONE'
+# same keys as the Windows launcher; an OC_APP environment variable is the default of the path setting
+'OC_MODE_DEFAULT|Connection|enum|CLI|Run mode|CLI = OpenCode in this terminal. DESKTOP = the OpenCode desktop app, closed and started again at each new IP. The probe and the opencode command always use the CLI.|CLI,DESKTOP'
+"OC_APP|Connection|text|${OC_APP:-}|Desktop app path|Empty = /opt/OpenCode/ai.opencode.desktop, then ai.opencode.desktop on the PATH. Type - to clear.|"
 'PROXY_PORT|Connection|num|40000|WARP proxy port|Local port of the WARP proxy.|1:65535'
 'WARP_WAIT|Connection|num|20|WARP wait (s)|Seconds to wait after (re)connecting WARP.|1:120'
 'WARP_CALL_TIMEOUT|Connection|num|15|warp-cli timeout (s)|Seconds a single warp-cli call may take.|5:300'
@@ -693,17 +696,46 @@ oc_runner(){ # the command line that runs the real OpenCode (node for the npm bu
   case $OC_REAL in *.js|*.mjs|*.cjs) RUNNER=(node "$OC_REAL");; *) RUNNER=("$OC_REAL");; esac
 }
 # v0.3.3: only the PIDs this launcher started (OC_PIDS, written by run_session) are stopped, never every opencode of the machine.
-# The cmdline check keeps a reused PID safe.
+# The cmdline check keeps a reused PID safe. A desktop app line is "pid starttime" (app_run).
 stop_opencode(){
-  local p sig
+  local p st now sig rows
   [ -s "$OC_PIDS" ] || return 0
+  mapfile -t rows < "$OC_PIDS"  # read once: run_session empties the file as soon as the app exits, the KILL pass still needs it
   for sig in TERM KILL; do
-    while read -r p; do
-      [[ $p =~ ^[0-9]+$ ]] && grep -qaF "$OC_REAL" "/proc/$p/cmdline" 2>/dev/null && kill -"$sig" "$p" 2>/dev/null
-    done < "$OC_PIDS"
+    while read -r p st; do
+      [[ $p =~ ^[0-9]+$ ]] || continue
+      if [ -n "$st" ]; then
+        # desktop app, leader of its own group (setsid). Alive with another start time = reused PID, left alone.
+        # Leader gone: a group number is not reused while members live, so -p reaches only what is left of ours
+        now=$(pid_start "$p"); { [ -z "$now" ] || [ "$now" = "$st" ]; } && kill -"$sig" -- "-$p" 2>/dev/null
+      else
+        grep -qaF "$OC_REAL" "/proc/$p/cmdline" 2>/dev/null && kill -"$sig" "$p" 2>/dev/null
+      fi
+    done < <(printf '%s\n' "${rows[@]}")
     [ "$sig" = TERM ] && sleep 1
   done
   : > "$OC_PIDS"; return 0
+}
+pid_start(){ local s f; read -r s 2>/dev/null < "/proc/$1/stat" || return 1; read -ra f <<< "${s##*) }"; printf '%s' "${f[19]}"; } # field 22, after "pid (comm) "
+# ---------------------------------------------------------------- desktop mode
+app_find(){ # the desktop app: Desktop app path (OC_APP), the .deb install, then the PATH
+  local p
+  for p in "$OC_APP" /opt/OpenCode/ai.opencode.desktop "$(command -v ai.opencode.desktop)"; do
+    [ -n "$p" ] && [ -f "$p" ] && [ -x "$p" ] && { printf '%s' "$p"; return 0; }
+  done
+  return 1
+}
+# app_run <folder> <app>: starts the app detached with the proxy env (export_proxy, called by run_session), records it in OC_PIDS, waits for it
+app_run(){
+  local pid out="$STATE_DIR/desktop.log"
+  pgrep -f -- "$2" >/dev/null 2>&1 && say warn "$(tx 'An OpenCode opened outside the launcher is running. Close it so OpenCode uses the new route.')"
+  mv -f "$out" "$out.1" 2>/dev/null
+  # setsid does not fork here (a job of a non-interactive bash is no group leader), so $! is the app and its group id
+  ( cd "$1" && exec setsid "$2" ) </dev/null >"$out" 2>&1 & pid=$!
+  printf '%s %s\n' "$pid" "$(pid_start "$pid")" > "$OC_PIDS"
+  log "desktop: started pid $pid: $2 proxy=$(printf '%s' "${PROXY_URL:-direct}" | sed -E 's|//[^/@ ]*@|//***@|')"
+  say ok "$(tx 'The OpenCode desktop app is running. Close it to come back here.')"
+  wait "$pid"
 }
 # v0.3.3: line_class <log line>: prints noop (checked first), rotate or ask; nothing when no list matches
 line_class(){
@@ -745,12 +777,14 @@ rot_gate(){
 }
 watch_log(){ # background: on a limit line, flags LIMIT_FLAG and stops the TUI
   local start=$1 cur="" pos=0 f size hit
+  # sizes at start: a log that only grows (the desktop app appends to opencode.log) is read from there, not from its old limit lines
+  local -A base; for f in "$DATA_DIR"/log/*.log; do [ -f "$f" ] && base[$f]=$(stat -c%s "$f"); done
   while sleep 2; do
     f=$(ls -t "$DATA_DIR"/log/*.log 2>/dev/null | head -n1)
     [ -n "$f" ] || continue
     if [ "$f" != "$cur" ]; then
       cur=$f
-      if [ "$(stat -c%Y "$f")" -ge "$start" ]; then pos=0; else pos=$(stat -c%s "$f"); fi
+      if [ "$(stat -c%Y "$f")" -ge "$start" ]; then pos=${base[$f]:-0}; else pos=$(stat -c%s "$f"); fi
     fi
     size=$(stat -c%s "$f")
     if [ "$size" -gt "$pos" ]; then
@@ -770,6 +804,8 @@ watch_log(){ # background: on a limit line, flags LIMIT_FLAG and stops the TUI
 }
 resume_run(){ # sends RESUME_MSG to the chat, bounded by RESUME_TIMEOUT. 2 = the new IP is limited too
   local folder=$1 out="$STATE_DIR/resume.out" err="$STATE_DIR/resume.err" rc
+  # desktop app: restarted, not resumed (as on Windows); "run -c" in this folder could continue a chat that is not the app's
+  [ -n "${APP_EXE:-}" ] && return 0
   local auto=(); [ "$RESUME_AUTO" = 1 ] && auto=(--auto)
   oc_runner; export_proxy
   local msg=$RESUME_MSG
@@ -786,6 +822,11 @@ run_session(){ # run_session <folder> [opencode args...]
   [ "${START_CONTINUE:-0}" = 1 ] && cont=1; START_CONTINUE=0
   [ -d "$folder" ] || { say err "folder not found: $folder"; return 1; }
   [ -x "$OC_REAL" ] || { say err 'opencode is not set up. Run "Connect with opencode" first.'; return 1; }
+  APP_EXE=""  # set = desktop mode for this session; the CLI is still needed for the probe
+  if [ "$OC_MODE_DEFAULT" = DESKTOP ] && ! APP_EXE=$(app_find); then
+    log "desktop app not found (OC_APP=${OC_APP:-empty}, /opt/OpenCode, PATH)"
+    confirm "$(tx 'Desktop app not found. Start OpenCode in this terminal instead?')" || return 1
+  fi
   if [ "${ROUTE_READY:-0}" != 1 ] && ! egress_up; then
     say err "$EGRESS did not come up. Check the egress, then try again."
     log "egress $EGRESS failed to start"; return 1
@@ -796,11 +837,12 @@ run_session(){ # run_session <folder> [opencode args...]
     token_guard
     export_proxy
     start=$(date +%s); wpid=""
-    [ -n "$cont" ] && log_resume "${RUNNER[*]} -c" "$@"  # v0.3.3
+    [ -n "$cont" ] && [ -z "$APP_EXE" ] && log_resume "${RUNNER[*]} -c" "$@"  # v0.3.3
     rm -f "$STATE_DIR/watch.stopped"
     if [ "$WATCH" = 1 ]; then watch_log "$start" & wpid=$!; fi
+    if [ -n "$APP_EXE" ]; then app_run "$folder" "$APP_EXE"; rc=$?
     # v0.3.3: exec keeps the PID, saved so stop_opencode kills only this one
-    ( cd "$folder" && echo $BASHPID > "$OC_PIDS" && exec "${RUNNER[@]}" ${cont:+-c} "$@" ); rc=$?
+    else ( cd "$folder" && echo $BASHPID > "$OC_PIDS" && exec "${RUNNER[@]}" ${cont:+-c} "$@" ); rc=$?; fi
     : > "$OC_PIDS"
     [ -n "$wpid" ] && kill "$wpid" 2>/dev/null
     [ -f "$STATE_DIR/watch.stopped" ] && { say warn 'Watcher stopped: 5 rotations in 30 minutes. Not rotating again by itself; use New IP from the menu.'; rm -f "$STATE_DIR/watch.stopped"; }
@@ -1225,7 +1267,7 @@ if [ -z "${OCI_NO_MAIN:-}" ]; then
   printf '\e[?25l'
   SEL=0; MRES=0; QUIT=0; ROUTE_READY=0
   case ${1:-} in
-    --run) shift; ensure_deps; run_session "$PWD" "$@"; exit $?;;
+    --run) shift; ensure_deps; OC_MODE_DEFAULT=CLI; run_session "$PWD" "$@"; exit $?;;  # the opencode command takes CLI arguments: always the CLI
     *)     home;;
   esac
 fi

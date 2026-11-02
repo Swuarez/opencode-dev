@@ -1,15 +1,17 @@
 #pragma once
-// egress.h - exit-route control: WARP, Tor, free proxy lists, direct.
+// egress.h - exit-route control: WARP, Tor, free proxy lists, WireGuard (wireproxy), VPN Gate (OpenVPN), direct.
 #include <string>
 #include <functional>
 #include <memory>
+#include <set>
+#include <vector>
 
 #include "config.h"
 #include "torbridge.h"
 
 namespace oi {
 
-enum class Egress { None, Warp, Tor, Proxy };
+enum class Egress { None, Warp, Tor, Proxy, Wireproxy, VpnGate };
 
 const char* egressName(Egress e);
 Egress      egressFromName(const std::string& s);
@@ -23,6 +25,7 @@ struct EgressState {
     bool warpFound = false;
     bool torFound = false;
     bool ourTor = false;       // this launcher started Tor
+    std::string nodeOptions;   // VPNGATE: IPv4-first for Node children (the .bat sets NODE_OPTIONS)
 };
 
 // kind: 0 info, 1 ok, 2 warn, 3 error
@@ -43,7 +46,7 @@ public:
 
     void detectTools();
 
-    bool setMode(const std::string& name, ProgressFn log);   // WARP/TOR/PROXY/NONE
+    bool setMode(const std::string& name, ProgressFn log);   // WARP/TOR/PROXY/WIREGUARD/VPNGATE/NONE
     bool up(ProgressFn log);                                  // bring the mode up
     bool rotate(ProgressFn log);                              // one new route
 
@@ -81,6 +84,20 @@ private:
     bool proxyPick(ProgressFn log);
     static bool parseProxies(const std::string& text, std::vector<std::string>& out);
 
+    // WireGuard through wireproxy (.bat: OC_VPN_PS). A local HTTP proxy, no adapter, no administrator prompt.
+    bool wgSwitch(ProgressFn log);
+    void wgStop();
+    std::string wpExe(ProgressFn log);
+    bool wpStart(const std::string& exe, const std::string& confPath, int port);
+
+    // VPN Gate through OpenVPN (.bat: OC_VGATE_PS). Only OpenCode's hosts are routed into the tunnel.
+    bool vgSwitch(ProgressFn log);
+    void vgStop();
+    std::string ovpnExe(ProgressFn log);
+    bool vgTunStart(const std::string& exe, const std::string& cfg, int secs);
+    TraceInfo vgTrace() const;
+    std::vector<std::string> ocIps() const;
+
     bool portOpen(uint16_t port, int timeoutMs) const;
     static bool probeClassifyLimit(const std::string& text);
 
@@ -88,6 +105,13 @@ private:
     EgressState* st_;
     std::unique_ptr<SocksBridge> bridge_;
     uint32_t torPid_ = 0;
+
+    // VPN state. Failures count for this launcher session only (the .bat keeps them in vpn_failed.txt per session).
+    std::set<std::string> failedWg_, failedVg_;
+    std::string curName_;          // active .conf / VPN Gate host
+    uint32_t wpPid_ = 0;  void* wpProc_ = nullptr;  int wpPort_ = 0;
+    uint32_t ovPid_ = 0;  void* ovProc_ = nullptr;
+    bool vgRoutesSet_ = false;
 };
 
 } // namespace oi

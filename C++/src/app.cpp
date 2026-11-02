@@ -18,7 +18,7 @@
 
 namespace oi {
 
-const char* kLauncherVersion = "3.2.2";
+const char* kLauncherVersion = "3.3.0";
 
 App::App() {}
 App::~App() { shutdown(); }
@@ -523,7 +523,7 @@ bool App::startDesktop() {
     if (desktopRunning())
         log(2, tx("An OpenCode opened outside the launcher is running. Close it so OpenCode uses the new route."));
     void* proc = nullptr;
-    if (!launchDesktop(appExe_, est_.proxyUrl, &appPid_, &proc)) return false;
+    if (!launchDesktop(appExe_, est_.proxyUrl, est_.nodeOptions, &appPid_, &proc)) return false;
     {
         std::lock_guard<std::mutex> lk(mtx_);
         appProc_ = proc;

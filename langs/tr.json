@@ -920,5 +920,21 @@
   "  Running instance: PID %LK_PID%  \"%LK_BAT%\"": "  Çalışan örnek: PID %LK_PID%  \"%LK_BAT%\"",
   "  [1] Close it and continue   [2] Open anyway (own copy of the settings)   [3] Exit": "  [1] Kapatıp devam et   [2] Yine de aç (ayarların kendi kopyası)   [3] Çık",
   "  The other instance was closed and its lock removed. Starting.": "  Diğer örnek kapatıldı ve kilidi kaldırıldı. Başlatılıyor.",
-  "  Instance lock cleared.": "  Örnek kilidi temizlendi."
+  "  Instance lock cleared.": "  Örnek kilidi temizlendi.",
+  "Home": "Ana sayfa",
+  "downloading wireproxy {0}...": "wireproxy {0} indiriliyor...",
+  "[vpn] changing the {0} tunnel...": "[vpn] {0} tüneli değiştiriliyor...",
+  "[vpn] wireproxy is missing and could not be downloaded and verified. Log: {0}": "[vpn] wireproxy yok ve indirilip doğrulanamadı. Günlük: {0}",
+  "[vpn] the WireGuard config \"{0}\" was skipped: it needs an [Interface] with a PrivateKey and a [Peer].": "[vpn] \"{0}\" WireGuard yapılandırması atlandı: PrivateKey içeren bir [Interface] ve bir [Peer] gerekir.",
+  "[vpn] there are no .conf files in \"{0}\". Copy your WireGuard configs there.": "[vpn] \"{0}\" içinde .conf dosyası yok. WireGuard yapılandırmalarınızı oraya kopyalayın.",
+  "[vpn] nothing left to try: every .conf failed in this session.": "[vpn] denenecek bir şey kalmadı: bu oturumda tüm .conf dosyaları başarısız oldu.",
+  "[vpn] tunnel \"{0}\" is up. Exit IP {1} (country {2}).": "[vpn] \"{0}\" tüneli açık. Çıkış IP'si {1} (ülke {2}).",
+  "[vpn] no tunnel gave a new IP ({0} tried). Log: {1}": "[vpn] hiçbir tünel yeni bir IP vermedi ({0} denendi). Günlük: {1}",
+  "[vpn] OpenVPN is missing, installing it with winget (administrator prompt)...": "[vpn] OpenVPN yok, winget ile kuruluyor (yönetici onayı istenecek)...",
+  "[vpn] OpenVPN is missing and winget could not install it. Install OpenVPN from openvpn.net, then try again.": "[vpn] OpenVPN yok ve winget kuramadı. OpenVPN'i openvpn.net adresinden kurup yeniden deneyin.",
+  "[vpn] could not resolve the OpenCode hosts (opencode.ai, models.opencode.ai, opentunnel.xyz). Check the internet connection.": "[vpn] OpenCode sunucuları (opencode.ai, models.opencode.ai, opentunnel.xyz) çözümlenemedi. İnternet bağlantısını kontrol edin.",
+  "[vpn] the VPN Gate list could not be downloaded and there is no saved copy.": "[vpn] VPN Gate listesi indirilemedi ve kayıtlı bir kopya yok.",
+  "[vpn] no VPN Gate server matches the country \"{0}\". Clear the country to use any.": "[vpn] \"{0}\" ülkesiyle eşleşen VPN Gate sunucusu yok. Herhangi birini kullanmak için ülkeyi boşaltın.",
+  "[vpn] nothing left to try: every VPN Gate server failed in this session.": "[vpn] denenecek bir şey kalmadı: bu oturumda tüm VPN Gate sunucuları başarısız oldu.",
+  "Your WireGuard .conf files through wireproxy, a local proxy that only opencode uses. No administrator prompt.": "WireGuard .conf dosyalarınız, yalnızca opencode'un kullandığı yerel bir vekil olan wireproxy üzerinden. Yönetici onayı yok."
 }

@@ -12,6 +12,7 @@ void uiDraw(App& app);
 
 // Provided by the Win32 host (main.cpp). Used by the custom title bar.
 void hostMinimize();
+void hostMaximize();
 void hostClose();
 
 } // namespace oi

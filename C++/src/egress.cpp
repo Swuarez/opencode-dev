@@ -5,6 +5,8 @@
 #include "util.h"
 #include "log.h"
 #include "json.h"
+#include "vpn.h"
+#include "lang.h"
 #include "updates.h"
 
 #include <windows.h>
@@ -27,6 +29,8 @@ const char* egressName(Egress e) {
         case Egress::Warp: return "WARP";
         case Egress::Tor: return "TOR";
         case Egress::Proxy: return "PROXY";
+        case Egress::Wireproxy: return "WIREGUARD";
+        case Egress::VpnGate: return "VPNGATE";
         default: return "NONE";
     }
 }
@@ -36,6 +40,8 @@ Egress egressFromName(const std::string& s) {
     if (v == "WARP") return Egress::Warp;
     if (v == "TOR") return Egress::Tor;
     if (v == "PROXY") return Egress::Proxy;
+    if (v == "WIREGUARD") return Egress::Wireproxy;
+    if (v == "VPNGATE") return Egress::VpnGate;
     return Egress::None;
 }
 
@@ -44,7 +50,15 @@ EgressEngine::~EgressEngine() { shutdown(); }
 
 // ---------------------------------------------------------------- helpers
 
+static void wsaOnce() {
+    static bool done = false;
+    if (done) return;
+    WSADATA d;
+    done = WSAStartup(MAKEWORD(2, 2), &d) == 0;
+}
+
 bool EgressEngine::portOpen(uint16_t port, int timeoutMs) const {
+    wsaOnce();
     SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (s == INVALID_SOCKET) return false;
     u_long nb = 1;
@@ -405,6 +419,380 @@ bool EgressEngine::proxyPick(ProgressFn log) {
     return false;
 }
 
+// ---------------------------------------------------------------- VPN modes (WireGuard through wireproxy, VPN Gate through OpenVPN)
+// Port of the .bat blocks OC_VPN_PS and OC_VGATE_PS. Parsing lives in vpn.cpp.
+
+// the pinned wireproxy release, checked by SHA-256 before it is unpacked (same pin as the .bat)
+static const char* kWpVer = "1.1.3";
+static const char* kWpSha = "bce041ea9fe0f8a3351301dcbe29cdf6a523bb25cf9c62f17ebb5699a8051d0f";
+static const char* kVgApi = "https://www.vpngate.net/api/iphone/";
+// checked through a routed host, so a request that leaves by the physical route shows the old IP
+static const char* kOcTraceUrl = "https://opencode.ai/cdn-cgi/trace";
+
+static TraceInfo parseTrace(const std::string& body) {
+    TraceInfo t;
+    t.raw = body;
+    for (const auto& line : split(body, '\n')) {
+        std::string l = trim(line);
+        if (startsWith(l, "ip=")) t.ip = l.substr(3);
+        else if (startsWith(l, "loc=")) t.loc = l.substr(4);
+        else if (startsWith(l, "warp=")) t.warp = l.substr(5);
+    }
+    t.ok = !t.ip.empty();
+    return t;
+}
+
+static TraceInfo traceVia(const std::string& proxyUrl, int timeoutSec) {
+    HttpResult r = httpGet(kTraceUrl, proxyUrl, timeoutSec);
+    return r.ok ? parseTrace(r.body) : TraceInfo();
+}
+
+static bool portFree(int port) {
+    wsaOnce();
+    SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (s == INVALID_SOCKET) return false;
+    sockaddr_in sa{};
+    sa.sin_family = AF_INET;
+    sa.sin_port = htons((u_short)port);
+    inet_pton(AF_INET, "127.0.0.1", &sa.sin_addr);
+    bool ok = bind(s, (sockaddr*)&sa, sizeof(sa)) == 0;
+    closesocket(s);
+    return ok;
+}
+
+// every address a host resolves to (IPv4, and IPv6 unless link-local)
+static std::vector<std::string> resolveAll(const std::string& host) {
+    wsaOnce();
+    std::vector<std::string> out;
+    addrinfo hints{}, *res = nullptr;
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    if (getaddrinfo(host.c_str(), nullptr, &hints, &res) != 0) { logWarn(fmt("[vpn] resolve failed: %s", host.c_str())); return out; }
+    for (addrinfo* p = res; p; p = p->ai_next) {
+        char buf[INET6_ADDRSTRLEN] = {};
+        if (p->ai_family == AF_INET) inet_ntop(AF_INET, &((sockaddr_in*)p->ai_addr)->sin_addr, buf, sizeof(buf));
+        else if (p->ai_family == AF_INET6) {
+            const in6_addr& a = ((sockaddr_in6*)p->ai_addr)->sin6_addr;
+            if (IN6_IS_ADDR_LINKLOCAL(&a)) continue;
+            inet_ntop(AF_INET6, &a, buf, sizeof(buf));
+        }
+        if (buf[0]) out.push_back(buf);
+    }
+    freeaddrinfo(res);
+    return out;
+}
+
+// polls until the exit IP differs from prev. 0 = new IP, 1 = answered but unchanged, 2 = no answer
+static int waitNewIp(const std::string& prev, int secs, const std::function<TraceInfo()>& tr, TraceInfo* out) {
+    int64_t end = nowSeconds() + secs;
+    bool any = false;
+    for (;;) {
+        TraceInfo t = tr();
+        if (t.ok) { any = true; *out = t; if (t.ip != prev) return 0; }
+        if (nowSeconds() >= end) break;
+        Sleep(3000);
+    }
+    return any ? 1 : 2;
+}
+
+static std::string logPathOf(const Config* c) { return joinPath(c->dir(), "launcher.log"); }
+
+// ---- WireGuard (wireproxy): a user-mode client that serves a local HTTP proxy only OpenCode uses
+
+std::string EgressEngine::wpExe(ProgressFn log) {
+    std::string bin = joinPath(cfg_->dir(), "bin");
+    std::string exe = joinPath(bin, "wireproxy.exe");
+    if (fileExists(exe)) return exe;
+    makeDirs(bin);
+    std::string tgz = joinPath(bin, "wireproxy.tar.gz");
+    removeFile(tgz);
+    say(log, 0, tx("downloading wireproxy {0}...", kWpVer));
+    std::string url = fmt("https://github.com/windtf/wireproxy/releases/download/v%s/wireproxy_windows_amd64.tar.gz", kWpVer);
+    uint64_t size = 0;
+    if (!httpDownload(url, tgz, "", 120, &size)) { logWarn("[vpn] wireproxy download failed"); removeFile(tgz); return ""; }
+    std::string h = lower(sha256File(tgz));
+    if (h != kWpSha) {
+        logWarn(fmt("[vpn] wireproxy archive hash %s is not %s", h.c_str(), kWpSha));
+        removeFile(tgz);
+        return "";
+    }
+    std::string tar = joinPath(envVar("SystemRoot"), "System32\\tar.exe");
+    if (!fileExists(tar)) tar = "tar.exe";
+    RunResult r = runCapture(tar, fmt("-xzf %s -C %s wireproxy.exe", quoteArg(tgz).c_str(), quoteArg(bin).c_str()), {}, 120000);
+    removeFile(tgz);
+    if (r.exitCode != 0 || !fileExists(exe)) { logWarn("[vpn] tar could not unpack wireproxy"); return ""; }
+    logInfo(fmt("[vpn] wireproxy %s installed", kWpVer));
+    return exe;
+}
+
+void EgressEngine::wgStop() {
+    if (wpProc_) {
+        bool ex = false;
+        handleExitCode(wpProc_, &ex);
+        if (!ex) killTree(wpPid_);      // the handle is still ours, so the pid cannot have been reused
+        closeProcHandle(wpProc_);
+    }
+    wpProc_ = nullptr; wpPid_ = 0; wpPort_ = 0;
+}
+
+bool EgressEngine::wpStart(const std::string& exe, const std::string& confPath, int port) {
+    std::string runDir = joinPath(cfg_->dir(), "wireproxy");
+    makeDirs(runDir);
+    std::string run = joinPath(runDir, "run.conf");
+    writeFileText(run, wgRunConf(readFileText(confPath), port));
+    Spawned sp = spawnDetached(exe, "-s -c " + quoteArg(run), {}, runDir, true, true);
+    if (!sp.ok) { removeFile(run); return false; }
+    wpPid_ = sp.pid; wpProc_ = sp.process; wpPort_ = port;
+    bool up = false;
+    for (int i = 0; i < 33 && !up; ++i) {          // ~10 s, like the .bat
+        bool ex = false;
+        uint32_t code = handleExitCode(wpProc_, &ex);
+        if (ex) { logWarn(fmt("[vpn] wireproxy exited at start, code %u", code)); break; }
+        if (portOpen((uint16_t)port, 300)) up = true; else Sleep(300);
+    }
+    removeFile(run);                                // the private key does not stay in a second file
+    return up;
+}
+
+bool EgressEngine::wgSwitch(ProgressFn log) {
+    say(log, 0, tx("[vpn] changing the {0} tunnel...", "WIREGUARD"));
+    std::string exe = wpExe(log);
+    if (exe.empty()) {
+        say(log, 3, tx("[vpn] wireproxy is missing and could not be downloaded and verified. Log: {0}", logPathOf(cfg_)));
+        return false;
+    }
+    std::string dir = trim(cfg_->s("WG_DIR"));
+    if (dir.empty() || dir == "-") dir = joinPath(cfg_->dir(), "wireguard");
+    makeDirs(dir);
+    struct Conf { std::string name, path; };
+    std::vector<Conf> confs;
+    for (const auto& f : listDir(dir, false)) {
+        if (f.size() < 6 || !iequals(f.substr(f.size() - 5), ".conf")) continue;
+        std::string base = f.substr(0, f.size() - 5), path = joinPath(dir, f);
+        if (!wgNameOk(base) || fileSizeOf(path) == 0) continue;
+        if (!wgConfValid(readFileText(path))) {      // never prints the file: it holds the private key
+            say(log, 2, tx("[vpn] the WireGuard config \"{0}\" was skipped: it needs an [Interface] with a PrivateKey and a [Peer].", base));
+            continue;
+        }
+        confs.push_back({base, path});
+    }
+    std::sort(confs.begin(), confs.end(), [](const Conf& a, const Conf& b) { return lower(a.name) < lower(b.name); });
+    if (confs.empty()) {
+        say(log, 3, tx("[vpn] there are no .conf files in \"{0}\". Copy your WireGuard configs there.", dir));
+        return false;
+    }
+    // the exit IP to beat: the current proxy's if it runs, else this PC's own
+    TraceInfo prevT;
+    if (!curName_.empty() && wpProc_ && wpPort_ > 0) prevT = traceVia(fmt("http://127.0.0.1:%d", wpPort_), 8);
+    if (!prevT.ok) prevT = traceVia("", 8);
+    std::string prev = prevT.ok ? prevT.ip : "";
+    // next file after the active one, wrapping around; the active one and the failed ones are skipped
+    size_t start = 0;
+    for (size_t i = 0; i < confs.size(); ++i) if (confs[i].name == curName_) start = i + 1;
+    std::vector<Conf> cands;
+    for (size_t i = 0; i < confs.size(); ++i) {
+        const Conf& c = confs[(start + i) % confs.size()];
+        if (!failedWg_.count(c.name) && c.name != curName_) cands.push_back(c);
+    }
+    if (cands.empty()) {
+        wgStop(); curName_.clear();
+        say(log, 3, tx("[vpn] nothing left to try: every .conf failed in this session."));
+        return false;
+    }
+    int timeout = cfg_->i("VPN_TIMEOUT"), tried = 0;
+    for (const Conf& c : cands) {
+        ++tried;
+        say(log, 0, tx("[vpn] trying {0} ...", c.name));
+        wgStop();
+        int port = 0;
+        for (int p = 25345; p < 25355 && !port; ++p) if (portFree(p)) port = p;
+        if (!port) break;
+        if (!wpStart(exe, c.path, port)) { failedWg_.insert(c.name); logWarn("[vpn] failed " + c.name + ": proxy did not start"); wgStop(); continue; }
+        curName_ = c.name;
+        std::string proxy = fmt("http://127.0.0.1:%d", port);
+        TraceInfo t;
+        int w = waitNewIp(prev, timeout, [&] { return traceVia(proxy, 8); }, &t);
+        if (w == 0) {
+            st_->proxyUrl = proxy;
+            say(log, 1, tx("[vpn] tunnel \"{0}\" is up. Exit IP {1} (country {2}).", {c.name, t.ip, t.loc}));
+            return true;
+        }
+        failedWg_.insert(c.name);
+        if (w == 1) say(log, 2, tx("[vpn] {0} left the same exit IP, next one.", c.name));
+        else say(log, 2, tx("[vpn] {0} gave no answer in {1}s, next one.", c.name, std::to_string(timeout)));
+        logWarn("[vpn] failed " + c.name + (w == 1 ? ": same exit IP" : ": no answer"));
+        wgStop();
+    }
+    wgStop(); curName_.clear();
+    say(log, 3, tx("[vpn] no tunnel gave a new IP ({0} tried). Log: {1}", std::to_string(tried), logPathOf(cfg_)));
+    return false;
+}
+
+// ---- VPN Gate (OpenVPN, elevated): only OpenCode's hosts are routed into the tunnel
+
+std::string EgressEngine::ovpnExe(ProgressFn log) {
+    for (const char* v : {"ProgramFiles", "ProgramFiles(x86)"}) {
+        std::string b = envVar(v);
+        if (b.empty()) continue;
+        std::string p = joinPath(b, "OpenVPN\\bin\\openvpn.exe");
+        if (fileExists(p)) return p;
+    }
+    std::string w = findOnPath("winget.exe");
+    if (w.empty()) { logWarn("[vpn] winget is missing, OpenVPN cannot be installed"); return ""; }
+    say(log, 0, tx("[vpn] OpenVPN is missing, installing it with winget (administrator prompt)..."));
+    uint32_t code = 0;
+    spawnElevated(w, "install --id OpenVPNTechnologies.OpenVPN -e --silent --accept-package-agreements --accept-source-agreements", true, &code);
+    logInfo(fmt("[vpn] winget install exit %u", code));
+    std::string p = joinPath(envVar("ProgramFiles"), "OpenVPN\\bin\\openvpn.exe");
+    return fileExists(p) ? p : "";
+}
+
+std::vector<std::string> EgressEngine::ocIps() const {
+    std::vector<std::string> v;
+    for (const char* h : {"opencode.ai", "models.opencode.ai", "opentunnel.xyz"})
+        for (const auto& ip : resolveAll(h)) v.push_back(ip);
+    std::sort(v.begin(), v.end());
+    v.erase(std::unique(v.begin(), v.end()), v.end());
+    return v;
+}
+
+// the exit IP as OpenCode's own host sees it (through the tunnel when it is up). IPv4 first: an IPv6 request
+// leaves by the physical route and would report the old IP for a working tunnel.
+TraceInfo EgressEngine::vgTrace() const {
+    std::string curl = joinPath(envVar("SystemRoot"), "System32\\curl.exe");
+    if (!fileExists(curl)) curl = "curl.exe";
+    RunResult r = runCapture(curl, std::string("-4 -s --max-time 8 --noproxy \"*\" ") + kOcTraceUrl, {}, 15000);
+    TraceInfo t = parseTrace(r.out);
+    if (t.ok) return t;
+    HttpResult h = httpGet(kOcTraceUrl, "", 8);
+    return h.ok ? parseTrace(h.body) : TraceInfo();
+}
+
+// A hard kill would leave OpenCode's routes on the TAP adapter, so the elevated script also removes them.
+// Passed as -EncodedCommand: no script file in a user-writable folder runs with administrator rights.
+void EgressEngine::vgStop() {
+    std::string rt = joinPath(cfg_->dir(), "vpn_routes.txt");
+    if (!ovProc_ && !fileExists(rt)) return;
+    uint32_t id = 0;
+    if (ovProc_) { bool ex = false; handleExitCode(ovProc_, &ex); if (!ex) id = ovPid_; }
+    std::string ps = fmt("$TunPid = %u; $Routes = '%s'\n", id, replaceAll(rt, "'", "''").c_str()) +
+        "if ($TunPid -gt 0) { & taskkill.exe /PID $TunPid /F | Out-Null }\n"
+        "if ($Routes -and (Test-Path -LiteralPath $Routes)) {\n"
+        "  foreach ($ip in @(Get-Content -LiteralPath $Routes)) {\n"
+        "    if ($ip) { Get-NetRoute -DestinationPrefix ($ip + $(if ($ip -like '*:*') { '/128' } else { '/32' })) -ErrorAction SilentlyContinue | Where-Object { $_.InterfaceAlias -like 'OpenVPN*' } | Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue }\n"
+        "  }\n}\n";
+    std::wstring w = utf8ToWide(ps);
+    std::string bytes((const char*)w.data(), w.size() * sizeof(wchar_t));
+    std::string exe = joinPath(envVar("SystemRoot"), "System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+    spawnElevated(exe, "-NoProfile -ExecutionPolicy Bypass -EncodedCommand " + base64Encode(bytes), true, nullptr, 120000);
+    removeFile(rt);
+    if (ovProc_) closeProcHandle(ovProc_);
+    ovProc_ = nullptr; ovPid_ = 0;
+}
+
+// starts openvpn elevated and waits for "Initialization Sequence Completed" in its log
+bool EgressEngine::vgTunStart(const std::string& exe, const std::string& cfg, int secs) {
+    std::string logf = joinPath(joinPath(cfg_->dir(), "vgate"), "openvpn.log");
+    removeFile(logf);
+    Spawned sp = spawnElevated(exe, fmt("--config %s --log %s --verb 3 --connect-retry-max 2 --auth-nocache",
+                                         quoteArg(cfg).c_str(), quoteArg(logf).c_str()), false);
+    if (!sp.ok) return false;
+    ovPid_ = sp.pid; ovProc_ = sp.process;
+    int64_t end = nowSeconds() + secs;
+    while (nowSeconds() < end) {
+        int st = ovpnLogState(readFileText(logf));
+        if (st > 0) return true;
+        if (st < 0) { logWarn("[vpn] openvpn reported a failure"); return false; }
+        bool ex = false;
+        uint32_t code = handleExitCode(ovProc_, &ex);
+        if (ex) { logWarn(fmt("[vpn] openvpn exited, code %u", code)); return false; }
+        Sleep(500);
+    }
+    return false;
+}
+
+// the VPN Gate list: fresh from the API, else the last saved copy (the API is slow and sometimes down)
+static bool vgServers(const std::string& stateDir, std::vector<VgServer>& out) {
+    std::string cache = joinPath(stateDir, "vgate.csv");
+    HttpResult r = httpGet(kVgApi, "", 60);
+    if (r.ok && parseVpnGateCsv(r.body, out)) { writeFileText(cache, r.body); return true; }
+    logWarn("[vpn] VPN Gate list download failed");
+    return parseVpnGateCsv(readFileText(cache), out);
+}
+
+bool EgressEngine::vgSwitch(ProgressFn log) {
+    say(log, 0, tx("[vpn] changing the {0} tunnel...", "VPNGATE"));
+    std::string exe = ovpnExe(log);
+    if (exe.empty()) {
+        say(log, 3, tx("[vpn] OpenVPN is missing and winget could not install it. Install OpenVPN from openvpn.net, then try again."));
+        return false;
+    }
+    std::vector<std::string> ips = ocIps();
+    if (ips.empty()) {
+        say(log, 3, tx("[vpn] could not resolve the OpenCode hosts (opencode.ai, models.opencode.ai, opentunnel.xyz). Check the internet connection."));
+        return false;
+    }
+    logInfo("[vpn] opencode hosts resolve to " + std::to_string(ips.size()) + " addresses");
+    std::string cc = upper(trim(cfg_->s("VPNGATE_COUNTRY")));
+    if (cc == "-") cc.clear();
+    int max = cfg_->i("VPNGATE_MAX"), timeout = cfg_->i("VPN_TIMEOUT");
+    std::string cfgDir = joinPath(cfg_->dir(), "vgate");
+    makeDirs(cfgDir);
+    std::vector<VgServer> all;
+    if (!vgServers(cfg_->dir(), all)) {
+        say(log, 3, tx("[vpn] the VPN Gate list could not be downloaded and there is no saved copy."));
+        return false;
+    }
+    std::vector<VgServer> cands = vgPick(all, failedVg_, cc, max);
+    if (cands.empty()) {
+        if (!cc.empty()) say(log, 3, tx("[vpn] no VPN Gate server matches the country \"{0}\". Clear the country to use any.", cc));
+        else say(log, 3, tx("[vpn] nothing left to try: every VPN Gate server failed in this session."));
+        return false;
+    }
+    cands.erase(std::remove_if(cands.begin(), cands.end(), [&](const VgServer& s) { return s.host == curName_; }), cands.end());
+    if (cands.empty()) {
+        vgStop(); curName_.clear();
+        say(log, 3, tx("[vpn] nothing left to try: every VPN Gate server failed in this session."));
+        return false;
+    }
+    // the exit IP to beat: OpenCode's host as seen from this PC right now (the old tunnel is still up until the switch)
+    TraceInfo p0 = vgTrace();
+    std::string prev = p0.ok ? p0.ip : "";
+    std::string rt = joinPath(cfg_->dir(), "vpn_routes.txt");
+    std::string routeList;
+    for (const auto& ip : ips) routeList += ip + "\r\n";
+    int tried = 0;
+    for (const VgServer& s : cands) {
+        ++tried;
+        say(log, 0, tx("[vpn] trying {0} ...", s.host));
+        vgStop();
+        std::string raw = vgHostOk(s.host) ? base64Decode(s.b64) : "";   // the host names a file: only plain names
+        if (raw.empty()) { failedVg_.insert(s.host); logWarn("[vpn] skipped a server with an unusable name or config"); continue; }
+        OvpnBuilt built = buildOvpn(raw, ips, resolveAll);
+        std::string cfg = joinPath(cfgDir, s.host + ".ovpn");
+        writeFileText(cfg, built.text);
+        logInfo(fmt("[vpn] config %s: %d opencode routes", s.host.c_str(), built.routes));
+        writeFileText(rt, routeList);
+        if (!vgTunStart(exe, cfg, timeout)) { failedVg_.insert(s.host); logWarn("[vpn] failed " + s.host + ": tunnel did not start"); vgStop(); continue; }
+        curName_ = s.host;
+        TraceInfo t;
+        int w = waitNewIp(prev, timeout, [&] { return vgTrace(); }, &t);
+        if (w == 0) {
+            st_->nodeOptions = "--no-network-family-autoselection --dns-result-order=ipv4first";
+            say(log, 1, tx("[vpn] tunnel \"{0}\" is up. Exit IP {1} (country {2}).", {s.host, t.ip, t.loc}));
+            return true;
+        }
+        failedVg_.insert(s.host);
+        if (w == 1) say(log, 2, tx("[vpn] {0} left the same exit IP, next one.", s.host));
+        else say(log, 2, tx("[vpn] {0} gave no answer in {1}s, next one.", s.host, std::to_string(timeout)));
+        logWarn("[vpn] failed " + s.host + (w == 1 ? ": same exit IP" : ": no answer"));
+        vgStop();
+    }
+    vgStop(); curName_.clear();
+    say(log, 3, tx("[vpn] no tunnel gave a new IP ({0} tried). Log: {1}", std::to_string(tried), logPathOf(cfg_)));
+    return false;
+}
+
 // ---------------------------------------------------------------- routes
 
 bool EgressEngine::setMode(const std::string& name, ProgressFn log) {
@@ -413,7 +801,10 @@ bool EgressEngine::setMode(const std::string& name, ProgressFn log) {
     if (e != st_->mode) {
         // leaving a mode: stop what we own there
         if (st_->mode == Egress::Tor) torStop();
+        if (st_->mode == Egress::Wireproxy) { wgStop(); curName_.clear(); }
+        if (st_->mode == Egress::VpnGate) { vgStop(); curName_.clear(); }
     }
+    st_->nodeOptions.clear();
     st_->mode = e;
     st_->proxyUrl.clear();
     st_->activeProxy.clear();
@@ -433,6 +824,12 @@ bool EgressEngine::up(ProgressFn log) {
             return true;
         case Egress::Proxy:
             return proxyPick(log);
+        case Egress::Wireproxy:
+            if (!wgSwitch(log)) return false;      // a fresh start always switches to the next .conf
+            st_->proxyUrl = fmt("http://127.0.0.1:%d", wpPort_);
+            return true;
+        case Egress::VpnGate:
+            return vgSwitch(log);                  // no proxy: the OS routes OpenCode's hosts into the tunnel
         default:
             return true;
     }
@@ -484,24 +881,20 @@ bool EgressEngine::rotateRoute(ProgressFn log) {
             return true;
         case Egress::Proxy:
             return proxyPick(log);
+        case Egress::Wireproxy:
+            if (!wgSwitch(log)) return false;
+            st_->proxyUrl = fmt("http://127.0.0.1:%d", wpPort_);
+            return true;
+        case Egress::VpnGate:
+            return vgSwitch(log);
         default:
             return false;
     }
 }
 
 TraceInfo EgressEngine::trace(int timeoutSec) const {
-    TraceInfo t;
-    HttpResult r = httpGet(kTraceUrl, st_->proxyUrl, timeoutSec);
-    if (!r.ok) return t;
-    t.raw = r.body;
-    for (const auto& line : split(r.body, '\n')) {
-        std::string l = trim(line);
-        if (startsWith(l, "ip=")) t.ip = l.substr(3);
-        else if (startsWith(l, "loc=")) t.loc = l.substr(4);
-        else if (startsWith(l, "warp=")) t.warp = l.substr(5);
-    }
-    t.ok = !t.ip.empty();
-    return t;
+    if (st_->mode == Egress::VpnGate) return vgTrace();   // only OpenCode's hosts are routed: ask one of them
+    return traceVia(st_->proxyUrl, timeoutSec);
 }
 
 bool EgressEngine::routeOk(const TraceInfo& t) const {
@@ -642,6 +1035,8 @@ bool EgressEngine::hunt(ProgressFn log, const std::string& cli) {
 
 void EgressEngine::shutdown() {
     if (st_->mode == Egress::Tor || st_->ourTor) torStop();
+    wgStop();
+    vgStop();
     if (bridge_) { bridge_->stop(); bridge_.reset(); }
 }
 

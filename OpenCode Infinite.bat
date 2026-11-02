@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 title OpenCode-Infinite
 REM ============================================================
-REM  OpenCode launcher  (v2.49)
+REM  OpenCode launcher  (v2.50)
 REM  Multi-egress (WARP / TOR / free HTTP) + dependency bootstrap
 REM  + auto-resume.
 REM  v2.22 - v2.29: every fixed bug carries an inline "REM v2.2x:"
@@ -849,7 +849,7 @@ set "LOG_ARGS=%*"
 if defined LOG_ARGS set "LOG_ARGS=%LOG_ARGS:"='%"
 set "LOG_OSV="
 for /f "tokens=*" %%v in ('ver') do if not defined LOG_OSV set "LOG_OSV=%%v"
-call :log "start v2.49 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
+call :log "start v2.50 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
 REM v2.30: one official copy. Setup copies this file to STATE_DIR\app and the opencode
 REM command runs that copy. A duplicate (a second download, "(1)") hands over to it, or
 REM replaces it when it is the newer one.
@@ -865,7 +865,7 @@ if not "%VGT%"=="1" goto :official_hand
 REM v2.40: cmd re-reads a running .bat by byte offset, so never overwrite the official copy while a live lock owner or a cmd started on it runs.
 set "OC_LOCK=%STATE_DIR%\lock"
 set "OC_OFF=%OFFICIAL%"
-"%PSX%" -NoProfile -Command "$a=$false; try{ $me=(Get-CimInstance Win32_Process -Filter ('ProcessId='+$PID)).ParentProcessId; $of=Join-Path $env:OC_LOCK 'owner'; if(Test-Path -LiteralPath $of){ $o=[int](@((Get-Content -LiteralPath $of -TotalCount 1) -split '\|')[0]); $p=Get-Process -Id $o -ErrorAction SilentlyContinue; if($p -and $o -ne $me -and $p.ProcessName -eq 'cmd'){ $a=$true } }; foreach($c in @(Get-CimInstance Win32_Process -Filter \"Name='cmd.exe'\")){ if($c.ProcessId -ne $me -and $c.CommandLine -and $c.CommandLine.ToLower().Contains($env:OC_OFF.ToLower())){ $a=$true } } }catch{}; if($a){ exit 1 }; exit 0" >nul 2>&1
+"%PSX%" -NoProfile -Command "$a=$false; try{ $me=(Get-CimInstance Win32_Process -Filter ('ProcessId='+$PID)).ParentProcessId; $of=Join-Path $env:OC_LOCK 'owner'; if(Test-Path -LiteralPath $of){ $o=[int](@((Get-Content -LiteralPath $of -TotalCount 1) -split '\|')[0]); $p=Get-Process -Id $o -ErrorAction SilentlyContinue; if($p -and $o -ne $me -and $p.ProcessName -eq 'cmd'){ $a=$true } }; $id=Join-Path (Split-Path -Parent $env:OC_LOCK) 'instances'; foreach($f2 in @(Get-ChildItem -LiteralPath $id -Filter owner -Recurse -File -ErrorAction SilentlyContinue)){ try{ $v=@((Get-Content -LiteralPath $f2.FullName -TotalCount 1) -split '\|'); $q=Get-Process -Id ([int]$v[0]) -ErrorAction SilentlyContinue; if($q -and $v.Count -gt 3 -and $q.Id -ne $me -and [string]$q.StartTime.Ticks -eq $v[1] -and $q.Path -eq $v[2]){ $a=$true } }catch{} }; foreach($c in @(Get-CimInstance Win32_Process -Filter \"Name='cmd.exe'\")){ if($c.ProcessId -ne $me -and $c.CommandLine -and $c.CommandLine.ToLower().Contains($env:OC_OFF.ToLower())){ $a=$true } } }catch{}; if($a){ exit 1 }; exit 0" >nul 2>&1
 if errorlevel 1 goto :official_inuse
 copy /y "%~f0" "%OFFICIAL%" >nul 2>&1
 call :log "official copy replaced by this newer launcher" boot
@@ -2906,6 +2906,9 @@ REM the pid, watcher and probe files. Tor, WARP and the opencode data stay share
 set "BASE_STATE=%STATE_DIR%"
 set "STATE_DIR=%BASE_STATE%\instances\%OC_SID%"
 md "%STATE_DIR%" >nul 2>&1
+REM v2.49: owner file (PID|ticks|exe|launcher) like lock\owner, so a newer copy started later sees this window and does not overwrite the official .bat under it.
+set "OC_LOCK=%STATE_DIR%"
+"%PSX%" -NoProfile -Command "try{ $pp=(Get-CimInstance Win32_Process -Filter ('ProcessId='+$PID)).ParentProcessId; $p=Get-Process -Id $pp -ErrorAction Stop; [IO.File]::WriteAllText((Join-Path $env:OC_LOCK 'owner'),([string]$pp+'|'+$p.StartTime.Ticks+'|'+$p.Path+'|'+$env:OCI_SELF)) }catch{}" >nul 2>&1
 for %%F in (config.json config.env ui.env lang.chosen) do if exist "%BASE_STATE%\%%F" copy /y "%BASE_STATE%\%%F" "%STATE_DIR%\%%F" >nul 2>&1
 if exist "%BASE_STATE%\lang\" robocopy "%BASE_STATE%\lang" "%STATE_DIR%\lang" /e /r:1 /w:1 /nfl /ndl /njh /njs /np >nul 2>&1
 call :log "second window: private state %STATE_DIR%" boot
@@ -7309,7 +7312,7 @@ function New-Report {
   $total = 6
   & $A 'OpenCode Infinite - support report'
   & $A ('Generated   ' + (Get-Date).ToString('o'))
-  & $A 'Launcher    v2.49'
+  & $A 'Launcher    v2.50'
   & $A ('File        ' + $Self)
   try { $fi = Get-Item -LiteralPath $Self; & $A ('Size/date   ' + $fi.Length + ' bytes, ' + $fi.LastWriteTime.ToString('s')); & $A ('SHA-256     ' + (Get-FileHash -LiteralPath $Self -Algorithm SHA256).Hash) } catch { }
   & $A 'Personal data (user name, PC name, e-mails, tokens, passwords, and by default public IPs) is removed from this file. Read it before sharing.'
@@ -7504,7 +7507,7 @@ function Menu-Main {
     @{ L = ($script:I.back + ' Back'); C = 10; H = 'Return to the home screen.' },
     @{ L = ($script:I.err + ' Exit'); C = 6; H = 'Close the launcher.' })
   $head = Header-Lines
-  $r = Show-Menu 'OpenCode' $items ('v2.49   ' + $Repo) $head 0
+  $r = Show-Menu 'OpenCode' $items ('v2.50   ' + $Repo) $head 0
   if ($r -eq -1) { exit 10 }
   exit $items[$r].C
 }
@@ -7679,7 +7682,7 @@ function Home-Loop {
       $head += ''
     }
     if ($script:Notice) { $head += (P (Style $script:Notice[0]) ($script:I.warn + ' ' + (T $script:Notice[1]))); $head += ''; $script:Notice = $null }
-    $r = Show-Menu 'Main menu' $items ('v2.49   ' + $Self) $head $pos $true
+    $r = Show-Menu 'Main menu' $items ('v2.50   ' + $Self) $head $pos $true
     if ($r -eq -1) { continue }
     $pos = $r
     Log ('home -> ' + $acts[$r])
