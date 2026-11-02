@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 title OpenCode-Infinite
 REM ============================================================
-REM  OpenCode launcher  (v2.51)
+REM  OpenCode launcher  (v2.52)
 REM  Multi-egress (WARP / TOR / free HTTP) + dependency bootstrap
 REM  + auto-resume.
 REM  v2.22 - v2.29: every fixed bug carries an inline "REM v2.2x:"
@@ -465,8 +465,8 @@ set "T_75=  This closes opencode, clears the saved tokens and opens a"
 set "T_76=  brand new session. Your chats are NOT moved."
 set "T_77=  auth.json is copied to a private backup folder first, then removed."
 set "T_78=    egress: %%EGRESS%%"
-set "T_79=%%C_WARN%%  [*] WARP proxy is not answering - rotation has no effect.%%C_RST%%"
-set "T_80=      Going direct would run opencode on your real IP."
+set "T_79=%%C_WARN%%  [*] WARP is not usable - OpenCode was not started.%%C_RST%%"
+set "T_80=      Going direct would run OpenCode on your real IP. --allow-direct is needed for that."
 set "T_81=%%C_WARN%%  [*] Tor did not get ready.%%C_RST%%"
 set "T_82=%%C_WARN%%  [*] no working free proxy found.%%C_RST%%"
 set "T_83=%%C_WARN%%  [*] the egress proxy stopped answering while OpenCode was open:%%C_RST%%"
@@ -633,8 +633,12 @@ set "T_243=  auth.json archived in "%%AUTH_BAK%%"."
 set "T_244=  [*] the auth.json copy did not verify - tokens are left in place."
 set "T_245=  [*] could not copy auth.json - tokens are left in place."
 set "T_246=  [*] no archive folder for this reset - auth.json is left in place."
-set "T_247=  [*] the WARP port answers SOCKS5 only, and OpenCode cannot use SOCKS."
-set "T_248=      WARP is up, but no usable HTTP proxy can be handed to it."
+set "T_WP_FAIL=%%C_WARN%%  [warp] WARP does not answer on 127.0.0.1:%%PROXY_PORT%%. Checked: HTTP through the port with curl, and SOCKS5 with socks5h. Next: warp-cli status, then warp-cli connect.%%C_RST%%"
+set "T_WB_START=  [warp] port %%PROXY_PORT%% speaks SOCKS5 only: starting the HTTP bridge on 127.0.0.1:%%PROXY_BR_PORT%% ^> SOCKS5 127.0.0.1:%%PROXY_PORT%%."
+set "T_WB_FAIL=%%C_WARN%%  [warp] the HTTP bridge did not start on 127.0.0.1:%%PROXY_BR_PORT%%. Its log: %%STATE_DIR%%\warp_bridge.log%%C_RST%%"
+set "T_WV_OK=%%C_OK%%  [warp] tunnel verified through %%PROXY%%: warp=%%WV_FLAG%%, exit IP %%WV_IP%%.%%C_RST%%"
+set "T_WV_FAIL=%%C_WARN%%  [warp] the trace through %%PROXY%% did not report warp=on - got warp=%%WV_FLAG%% and ip=%%WV_IP%%. Checked twice. Next: warp-cli status, then restart the WARP service.%%C_RST%%"
+set "T_WB_REFUSE=%%C_WARN%%  [warp] not starting OpenCode on the real IP. Start the launcher with --allow-direct to allow it.%%C_RST%%"
 set "T_249=  [proxy] process-only: %%ACTIVE_PROXY%%"
 set "T_250=  [proxy] reading the proxy list..."
 set "T_251=  [proxy] %%PCOUNT%% proxies in the list"
@@ -849,7 +853,7 @@ set "LOG_ARGS=%*"
 if defined LOG_ARGS set "LOG_ARGS=%LOG_ARGS:"='%"
 set "LOG_OSV="
 for /f "tokens=*" %%v in ('ver') do if not defined LOG_OSV set "LOG_OSV=%%v"
-call :log "start v2.51 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
+call :log "start v2.52 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
 REM v2.30: one official copy. Setup copies this file to STATE_DIR\app and the opencode
 REM command runs that copy. A duplicate (a second download, "(1)") hands over to it, or
 REM replaces it when it is the newer one.
@@ -882,6 +886,9 @@ if defined OC_OLDCP chcp %OC_OLDCP% >nul 2>&1
 call "%OFFICIAL%" %*
 exit /b %errorlevel%
 :official_ok
+REM --allow-direct: the only way to run OpenCode on the real IP when WARP is not usable.
+set "ALLOW_DIRECT="
+echo %*| findstr /i /c:"--allow-direct" >nul && set "ALLOW_DIRECT=1"
 if /i "%~1"=="--verify" goto :verify_mode
 if /i "%~1"=="--renew" goto :renew_mode
 call :lock_check
@@ -1757,8 +1764,14 @@ if /i "%EGRESS%"=="WARP" (
   if errorlevel 1 (
     call echo %T_79%
     call echo %T_80%
+    REM Default is No (the TUI confirm opens on No). Yes runs on the real IP only with --allow-direct.
     call :yn "   Continue without WARP? [Y/N]: "
     if errorlevel 2 goto :menu_loop
+    if not defined ALLOW_DIRECT (
+      call echo %T_WB_REFUSE%
+      call :pause_key
+      goto :menu_loop
+    )
     goto :run_noproxy
   )
   if "%COLD%"=="1" call :ensure_new_ip
@@ -2946,6 +2959,10 @@ set "OC_FLAGS="
 call :stop_launched desktop-relaunch
 timeout /t 2 /nobreak >nul 2>&1
 :launch_go
+REM v2.52: Electron prints "Most NODE_OPTIONs are not supported in packaged apps" when NODE_OPTIONS is set (VPN Gate sets it).
+REM The desktop app gets none; the value is restored when it exits.
+if /i "%APP_MODE%"=="DESKTOP" if defined NODE_OPTIONS set "OC_NODE_OPTS=%NODE_OPTIONS%"
+if /i "%APP_MODE%"=="DESKTOP" if defined NODE_OPTIONS set "NODE_OPTIONS="
 set "OC_PIDF=%STATE_DIR%\tui.pid"
 set "OC_LPIDF=%STATE_DIR%\oc_launched.pid"
 set "OC_LAUNCHLOG=%STATE_DIR%\launcher.log"
@@ -2962,6 +2979,8 @@ REM "C:\Users\John" and died. The whole line is now one string, wrapped in
 REM the extra quote pair that /s strips, with the exe quoted inside it.
 "%PSX%" -NoProfile -Command "$exe=$env:OC_EXE; if(-not $exe -or -not (Test-Path -LiteralPath $exe)){ exit 9009 }; $a=@(); if($env:OC_FLAGS){ $a=([string]$env:OC_FLAGS) -split [char]32; $a=@($a | Where-Object { $_ }) }; if($env:OC_PROMPT){ $a+=@('--prompt',([char]34+$env:OC_PROMPT+[char]34)) }; $p=$null; if($exe -match '[.](cmd|bat)$'){ $q=[char]34; $cl='/s /c '+$q+$q+$exe+$q; foreach($x in $a){ $cl+=' '+$x }; $cl+=$q; $p=Start-Process cmd.exe -ArgumentList $cl -NoNewWindow -PassThru } elseif($a.Count){ $p=Start-Process $exe -ArgumentList @($a) -NoNewWindow -PassThru } else { $p=Start-Process $exe -NoNewWindow -PassThru }; if(-not $p){ exit 1 }; $null=$p.Handle; Set-Content -LiteralPath $env:OC_PIDF -Value $p.Id; try{ Set-Content -LiteralPath $env:OC_LPIDF -Value ([string]$p.Id + ' ' + $p.StartTime.Ticks); if($env:LOG_ENABLED -ne '0'){ Add-Content -LiteralPath $env:OC_LAUNCHLOG -Encoding OEM -Value ('[' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '] [' + $env:OC_SID + '] [proc] start pid=' + $p.Id + ' exe=' + (Split-Path -Leaf $exe)) } }catch{}; [void]$p.WaitForExit(); if($p.ExitCode -ne $null){ exit $p.ExitCode }; exit 1"
 set "EC=%errorlevel%"
+if defined OC_NODE_OPTS set "NODE_OPTIONS=%OC_NODE_OPTS%"
+set "OC_NODE_OPTS="
 if defined C_ACC <nul set /p "=%C_ACC%"
 if "%EC%"=="9009" echo   OpenCode no encontrado: la ruta esta vacia o no existe.
 goto :eof
@@ -4666,6 +4685,7 @@ if not exist "%STATE_DIR%\config.env" goto :eof
 for /f "usebackq tokens=1* delims==" %%a in ("%STATE_DIR%\config.env") do set "%%a=%%b"
 set "PROXY=http://127.0.0.1:%PROXY_PORT%"
 set "SOCKS_PROXY=socks5h://127.0.0.1:%PROXY_PORT%"
+if defined PROXY_BR set "PROXY=%PROXY_BR%"
 goto :eof
 
 REM - --verify: does the saved connection work? exit 0 = yes. Run hidden by setup.
@@ -5038,20 +5058,30 @@ REM Returns errorlevel 1 when the proxy is dead; the caller decides.
 REM Sets HTTP_PROXY, HTTPS_PROXY and no_proxy so that child processes use the proxy.
 :export_proxy
 if not defined WARP goto :eof
+REM The tunnel can need a few seconds after a (re)connect: poll the proxy for WARP_WAIT seconds before failing.
+set /a EP_T0=0
+:ep_probe
 call :proxy_ok
-if errorlevel 1 exit /b 1
-REM v2.23: OpenCode (Bun) does not speak SOCKS. When only the SOCKS5 side
-REM of the WARP port answers there is no proxy that can carry opencode, and
-REM exporting socks5h:// just made every request fail while looking fine.
-REM Report it and return 1 so the caller asks whether to go direct.
+if not errorlevel 1 goto :ep_probed
+if %EP_T0% GEQ %WARP_WAIT% (call echo %T_WP_FAIL% & exit /b 1)
+set /a EP_T0+=1
+timeout /t 1 /nobreak >nul 2>&1
+goto :ep_probe
+:ep_probed
+REM OpenCode (Bun) speaks HTTP only. A SOCKS5-only WARP port gets the launcher's own
+REM HTTP-to-SOCKS5 bridge in front of it (the same code Tor uses), so DNS is resolved by WARP.
 if /i not "%PROXY_KIND%"=="socks" goto :ep_http
-call echo %T_247%
-call echo %T_248%
-exit /b 1
+call :warp_bridge_up
+if errorlevel 1 exit /b 1
+set "PROXY=%PROXY_BR%"
 :ep_http
 set "HTTP_PROXY=%PROXY%"
 set "HTTPS_PROXY=%PROXY%"
 set "no_proxy=%OC_NOPROXY_LIST%"
+REM Fail closed: the exit must be WARP (warp=on) through the same proxy OpenCode gets.
+call :warp_verify
+if errorlevel 1 (call :restore_env & exit /b 1)
+set "ACTIVE_PROXY=%PROXY%"
 exit /b 0
 
 REM - hand ACTIVE_PROXY (TOR / free HTTP) to the child process only
@@ -5063,6 +5093,82 @@ set "no_proxy=%OC_NOPROXY_LIST%"
 call echo %T_249%
 exit /b 0
 
+REM - WARP bridge: WARP's port is SOCKS5 only and OpenCode needs HTTP. The HTTP-to-SOCKS5
+REM bridge is the one Tor uses (#>>>OC_TORBRIDGE_PS). It listens on 127.0.0.1 at the first free
+REM port from 8119 and forwards to PROXY_PORT. Sets PROXY_BR, PROXY_BR_PORT and OURWBRIDGE=1.
+:warp_bridge_up
+if not defined WARP exit /b 1
+if defined OURWBRIDGE call :port_up %PROXY_BR_PORT%
+if defined OURWBRIDGE if not errorlevel 1 exit /b 0
+call :warp_bridge_stop
+set "PROXY_BR_PORT="
+call :wb_free 8119
+call :wb_free 8120
+call :wb_free 8121
+if not defined PROXY_BR_PORT goto :wbu_fail
+if not exist "%STATE_DIR%" mkdir "%STATE_DIR%" >nul 2>&1
+set "OC_BRPORT=%PROXY_BR_PORT%"
+set "OC_BRSOCKS=%PROXY_PORT%"
+set "OC_BRLOG=%STATE_DIR%\warp_bridge.log"
+set "OC_BRPIDF=%STATE_DIR%\warp_bridge.pid"
+if exist "%OC_BRLOG%" del /f /q "%OC_BRLOG%" >nul 2>&1
+call echo %T_WB_START%
+start "" /b "%PSX%" -NoProfile -Command "$l=Get-Content -LiteralPath $env:OCI_SELF; $i=[Array]::IndexOf($l,'#>>>OC_TORBRIDGE_PS'); $e=[Array]::IndexOf($l,'#>>>OC_ENDTORBRIDGE'); if(($i -ge 0) -and ($e -gt $i)){ $BRTEXT=(($l[($i+1)..($e-1)]) -join [Environment]::NewLine); Invoke-Expression $BRTEXT }"
+set "OURWBRIDGE=1"
+set /a WB_TRY=0
+:wbu_wait
+timeout /t 1 /nobreak >nul 2>&1
+call :port_up %PROXY_BR_PORT%
+if not errorlevel 1 goto :wbu_ok
+set /a WB_TRY+=1
+if %WB_TRY% GEQ 6 goto :wbu_fail
+goto :wbu_wait
+:wbu_ok
+set "PROXY_BR=http://127.0.0.1:%PROXY_BR_PORT%"
+exit /b 0
+:wbu_fail
+call echo %T_WB_FAIL%
+call :warp_bridge_stop
+exit /b 1
+:wb_free
+if defined PROXY_BR_PORT exit /b 0
+call :port_up %1
+if errorlevel 1 set "PROXY_BR_PORT=%1"
+exit /b 0
+REM Stops only the bridge this launcher started (pid file + command line marker).
+:warp_bridge_stop
+set "OC_WBPIDF=%STATE_DIR%\warp_bridge.pid"
+if exist "%OC_WBPIDF%" "%PSX%" -NoProfile -Command "$t=Get-Content -LiteralPath $env:OC_WBPIDF -ErrorAction SilentlyContinue | Select-Object -First 1; if($t){ try{ $p=Get-Process -Id ([int]$t) -ErrorAction Stop }catch{ $p=$null }; if($p -and ($p.ProcessName -eq 'powershell' -or $p.ProcessName -eq 'pwsh')){ $ok=$false; try{ $cl=(Get-CimInstance Win32_Process -Filter ('ProcessId=' + [string]$p.Id)).CommandLine; if($cl -and $cl.Contains('OC_TORBRIDGE_PS')){ $ok=$true } }catch{}; if($ok){ try{ Stop-Process -Id $p.Id -Force }catch{} } } }" >nul 2>&1
+if exist "%OC_WBPIDF%" del /f /q "%OC_WBPIDF%" >nul 2>&1
+set "OURWBRIDGE="
+set "PROXY_BR="
+exit /b 0
+REM Fail-closed check: a trace through the proxy OpenCode gets must say warp=on (plus counts).
+REM Two tries. Sets WV_FLAG and WV_IP for the messages.
+:warp_verify
+set /a WV_TRY=0
+:wv_try
+set /a WV_TRY+=1
+set "WV_FLAG="
+set "WV_IP="
+set "WV_FILE=%TEMP%\oc_wv_%RANDOM%%RANDOM%.txt"
+if "%HAVE_CURL%"=="1" curl.exe -4 -s -f --max-time 10 -x "%PROXY%" -o "%WV_FILE%" "%TRACE_URL%" >nul 2>&1
+if not "%HAVE_CURL%"=="1" "%PSX%" -NoProfile -Command "try{[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; (Invoke-RestMethod -Uri $env:TRACE_URL -Proxy $env:PROXY -TimeoutSec 10) -replace [char]13,[char]10 | Out-File -LiteralPath $env:WV_FILE -Encoding ascii}catch{}" >nul 2>&1
+if exist "%WV_FILE%" for /f "tokens=2 delims==" %%i in ('findstr /b "ip=" "%WV_FILE%"') do set "WV_IP=%%i"
+if exist "%WV_FILE%" for /f "tokens=2 delims==" %%w in ('findstr /b "warp=" "%WV_FILE%"') do set "WV_FLAG=%%w"
+del /f /q "%WV_FILE%" >nul 2>&1
+if /i "%WV_FLAG%"=="plus" set "WV_FLAG=on"
+if /i "%WV_FLAG%"=="on" goto :wv_ok
+if %WV_TRY% GEQ 2 goto :wv_fail
+timeout /t 2 /nobreak >nul 2>&1
+goto :wv_try
+:wv_ok
+call echo %T_WV_OK%
+exit /b 0
+:wv_fail
+call echo %T_WV_FAIL%
+exit /b 1
+REM -- end of WARP bridge --
 REM - put the user's own proxy variables back (v2.22)
 REM The launcher overwrites HTTP_PROXY / HTTPS_PROXY / no_proxy for the
 REM child tree. Before v2.22 it then emptied them, which deleted values
@@ -5516,7 +5622,8 @@ REM v2.42: the helper used to start deleting at once while the parent cmd still 
 >>"%SU_HELP%" echo if errorlevel 1 goto u_fail
 >>"%SU_HELP%" echo start "" "%%UP_DST%%"
 >>"%SU_HELP%" echo del /f /q "%%UP_NEW%%" ^>nul 2^>^&1
->>"%SU_HELP%" echo del /f /q "%%~f0" ^>nul 2^>^&1
+REM The helper deletes itself with (goto) first: a plain del of the running .cmd made cmd print "The batch file cannot be found." in the update window.
+>>"%SU_HELP%" echo (goto) 2^>nul ^& del /f /q "%%~f0" ^>nul 2^>^&1
 >>"%SU_HELP%" echo exit /b 0
 >>"%SU_HELP%" echo :u_nofile
 >>"%SU_HELP%" echo echo   [upd] The downloaded copy is missing. Nothing was replaced.
@@ -5598,7 +5705,7 @@ REM and the foreign lock is left alone as well.
 if defined LOCK_FOREIGN goto :quit_nolock
 call :tor_stop
 if /i "%EGRESS%"=="WIREGUARD" call :vpn_stop
-if /i "%EGRESS%"=="VPNGATE" call :vpn_stop
+if /i "%EGRESS%"=="VPNGATE" call :vpn_stop & if defined OURWBRIDGE call :warp_bridge_stop
 REM v2.22: never delete a lock that belongs to another instance the user
 REM chose not to interrupt.
 if exist "%STATE_DIR%\lock\" rmdir /s /q "%STATE_DIR%\lock" >nul 2>&1
@@ -7331,7 +7438,7 @@ function New-Report {
   $total = 6
   & $A 'OpenCode Infinite - support report'
   & $A ('Generated   ' + (Get-Date).ToString('o'))
-  & $A 'Launcher    v2.51'
+  & $A 'Launcher    v2.52'
   & $A ('File        ' + $Self)
   try { $fi = Get-Item -LiteralPath $Self; & $A ('Size/date   ' + $fi.Length + ' bytes, ' + $fi.LastWriteTime.ToString('s')); & $A ('SHA-256     ' + (Get-FileHash -LiteralPath $Self -Algorithm SHA256).Hash) } catch { }
   & $A 'Personal data (user name, PC name, e-mails, tokens, passwords, and by default public IPs) is removed from this file. Read it before sharing.'
@@ -7526,7 +7633,7 @@ function Menu-Main {
     @{ L = ($script:I.back + ' Back'); C = 10; H = 'Return to the home screen.' },
     @{ L = ($script:I.err + ' Exit'); C = 6; H = 'Close the launcher.' })
   $head = Header-Lines
-  $r = Show-Menu 'OpenCode' $items ('v2.51   ' + $Repo) $head 0
+  $r = Show-Menu 'OpenCode' $items ('v2.52   ' + $Repo) $head 0
   if ($r -eq -1) { exit 10 }
   exit $items[$r].C
 }
@@ -7701,7 +7808,7 @@ function Home-Loop {
       $head += ''
     }
     if ($script:Notice) { $head += (P (Style $script:Notice[0]) ($script:I.warn + ' ' + (T $script:Notice[1]))); $head += ''; $script:Notice = $null }
-    $r = Show-Menu 'Main menu' $items ('v2.51   ' + $Self) $head $pos $true
+    $r = Show-Menu 'Main menu' $items ('v2.52   ' + $Self) $head $pos $true
     if ($r -eq -1) { continue }
     $pos = $r
     Log ('home -> ' + $acts[$r])
