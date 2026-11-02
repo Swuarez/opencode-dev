@@ -916,5 +916,9 @@
   "%C_WARN%  [!] OpenCode crashed %CRASH_STREAK% times in 10 minutes. Stopped so it is not restarted in a loop. Details in launcher.log.%C_RST%": "%C_WARN%  [!] OpenCode a planté %CRASH_STREAK% fois en 10 minutes. Arrêté pour ne pas le relancer en boucle. Détails dans launcher.log.%C_RST%",
   "  [!] OpenCode stopped with code %EC%. Retry %CRASH_STREAK% of 2 on the same connection in %CRASH_WAIT% s; the chat resumes.": "  [!] OpenCode s'est arrêté avec le code %EC%. Nouvel essai %CRASH_STREAK% sur 2 avec la même connexion dans %CRASH_WAIT% s ; le chat reprend.",
   "  [tokens] auth.json had disappeared; it was restored from the launcher copy. No login needed.": "  [tokens] auth.json avait disparu ; il a été restauré depuis la copie du lanceur. Aucune connexion nécessaire.",
-  "%C_WARN%  [upd] the downloaded copy is missing; nothing was replaced.%C_RST%": "%C_WARN%  [upd] la copie téléchargée est absente ; rien n'a été remplacé.%C_RST%"
+  "%C_WARN%  [upd] the downloaded copy is missing; nothing was replaced.%C_RST%": "%C_WARN%  [upd] la copie téléchargée est absente ; rien n'a été remplacé.%C_RST%",
+  "  Running instance: PID %LK_PID%  \"%LK_BAT%\"": "  Instance en cours : PID %LK_PID%  \"%LK_BAT%\"",
+  "  [1] Close it and continue   [2] Open anyway (own copy of the settings)   [3] Exit": "  [1] La fermer et continuer   [2] Ouvrir quand même (copie propre des paramètres)   [3] Quitter",
+  "  The other instance was closed and its lock removed. Starting.": "  L'autre instance a été fermée et son verrou supprimé. Démarrage.",
+  "  Instance lock cleared.": "  Verrou de l'instance supprimé."
 }

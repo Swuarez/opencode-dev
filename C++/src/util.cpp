@@ -6,6 +6,7 @@
 #include <windows.h>
 #include <shlobj.h>
 #include <cstdarg>
+#include <filesystem>
 #include <cstdio>
 #include <ctime>
 #include <random>
@@ -187,18 +188,19 @@ bool copyTree(const std::string& from, const std::string& to) {
 
 bool moveTree(const std::string& from, const std::string& to) {
     if (!dirExists(from)) return false;
+    // never delete a drive root or a top-level folder: need an absolute path at least two levels below the drive
+    {
+        std::filesystem::path fp(utf8ToWide(from));
+        size_t depth = 0;
+        for (const auto& part : fp.relative_path()) { (void)part; ++depth; }
+        if (!fp.is_absolute() || depth < 2) return false;
+    }
     makeDirs(dirName(to));
     if (MoveFileW(utf8ToWide(from).c_str(), utf8ToWide(to).c_str())) return true;
     if (!copyTree(from, to)) return false;
-    // remove source tree
-    std::string cmd = "cmd.exe /c rmdir /s /q \"" + from + "\"";
-    STARTUPINFOA si{}; si.cb = sizeof(si);
-    PROCESS_INFORMATION pi{};
-    std::string c = cmd;
-    if (CreateProcessA(nullptr, &c[0], nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
-        WaitForSingleObject(pi.hProcess, 120000);
-        CloseHandle(pi.hProcess); CloseHandle(pi.hThread);
-    }
+    // remove source tree; remove_all does not follow symlinks/junctions
+    std::error_code ec;
+    std::filesystem::remove_all(std::filesystem::path(utf8ToWide(from)), ec);
     return true;
 }
 

@@ -116,43 +116,4 @@ LauncherUpdate checkLauncherUpdate(const std::string& url, const std::string& cu
     return lu;
 }
 
-bool installDesktopFromRelease(const ReleaseInfo& rel, const std::string& fileName, std::string* errOut) {
-    auto it = rel.files.find(fileName);
-    if (it == rel.files.end()) {
-        if (errOut) *errOut = fmt("the release does not list %s", fileName.c_str());
-        return false;
-    }
-    const ReleaseFile& f = it->second;
-    std::string setup = joinPath(tempDir(), "opencode-desktop-setup.exe");
-    removeFile(setup);
-
-    uint64_t got = 0;
-    if (!httpDownload(f.url, setup, "", 900, &got)) {
-        if (errOut) *errOut = "the installer download failed.";
-        return false;
-    }
-    if (f.size > 0 && got < f.size / 2) {
-        removeFile(setup);
-        if (errOut) *errOut = "the installer download is far smaller than announced.";
-        return false;
-    }
-    if (!f.sha256.empty()) {
-        std::string have = sha256File(setup);
-        if (!iequals(have, f.sha256)) {
-            removeFile(setup);
-            if (errOut) *errOut = "the installer checksum does not match the published one.";
-            return false;
-        }
-    }
-    // the caller stops its own OpenCode first (App::stopApp); one opened by hand is not killed here
-    RunResult r = runCapture(setup, "/S", {}, 600000);
-    removeFile(setup);
-    if (!r.started) {
-        if (errOut) *errOut = "the installer could not be started.";
-        return false;
-    }
-    logInfo(fmt("desktop installer exit code %d", r.exitCode));
-    return true;
-}
-
 } // namespace oi

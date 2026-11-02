@@ -1,5 +1,5 @@
 #pragma once
-// updates.h - release metadata, version compare, hash check, silent install.
+// updates.h - release metadata, version compare, hash check.
 #include <string>
 #include <map>
 #include <functional>
@@ -34,9 +34,5 @@ struct LauncherUpdate {
 
 // Reads { "version": "...", "url": "..." } from LAUNCHER_UPDATE_URL.
 LauncherUpdate checkLauncherUpdate(const std::string& url, const std::string& currentVersion);
-
-// Downloads the desktop installer, verifies size and SHA-256, then runs it silently.
-bool installDesktopFromRelease(const ReleaseInfo& rel, const std::string& fileName,
-                               std::string* errOut);
 
 } // namespace oi

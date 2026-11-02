@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 title OpenCode-Infinite
 REM ============================================================
-REM  OpenCode launcher  (v2.48)
+REM  OpenCode launcher  (v2.49)
 REM  Multi-egress (WARP / TOR / free HTTP) + dependency bootstrap
 REM  + auto-resume.
 REM  v2.22 - v2.29: every fixed bug carries an inline "REM v2.2x:"
@@ -733,6 +733,10 @@ set "T_349=%%C_WARN%%  [!] OpenCode crashed %%CRASH_STREAK%% times in 10 minutes
 set "T_350=  [!] OpenCode stopped with code %%EC%%. Retry %%CRASH_STREAK%% of 2 on the same connection in %%CRASH_WAIT%% s; the chat resumes."
 set "T_351=  [tokens] auth.json had disappeared; it was restored from the launcher copy. No login needed."
 set "T_352=%%C_WARN%%  [upd] the downloaded copy is missing; nothing was replaced.%%C_RST%%"
+set "T_353=  Running instance: PID %%LK_PID%%  "%%LK_BAT%%""
+set "T_354=  [1] Close it and continue   [2] Open anyway (own copy of the settings)   [3] Exit"
+set "T_355=  The other instance was closed and its lock removed. Starting."
+set "T_356=  Instance lock cleared."
 set "T_346=--- continue ------------------------------------------------"
 REM Batch messages are translated from lang\<code>.json; the UI writes lang\messages.txt (data only).
 set "OC_TUI=mki18n"
@@ -845,7 +849,7 @@ set "LOG_ARGS=%*"
 if defined LOG_ARGS set "LOG_ARGS=%LOG_ARGS:"='%"
 set "LOG_OSV="
 for /f "tokens=*" %%v in ('ver') do if not defined LOG_OSV set "LOG_OSV=%%v"
-call :log "start v2.48 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
+call :log "start v2.49 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
 REM v2.30: one official copy. Setup copies this file to STATE_DIR\app and the opencode
 REM command runs that copy. A duplicate (a second download, "(1)") hands over to it, or
 REM replaces it when it is the newer one.
@@ -861,7 +865,7 @@ if not "%VGT%"=="1" goto :official_hand
 REM v2.40: cmd re-reads a running .bat by byte offset, so never overwrite the official copy while a live lock owner or a cmd started on it runs.
 set "OC_LOCK=%STATE_DIR%\lock"
 set "OC_OFF=%OFFICIAL%"
-"%PSX%" -NoProfile -Command "$a=$false; try{ $me=(Get-CimInstance Win32_Process -Filter ('ProcessId='+$PID)).ParentProcessId; $of=Join-Path $env:OC_LOCK 'owner'; if(Test-Path -LiteralPath $of){ $o=[int](Get-Content -LiteralPath $of | Select-Object -First 1); $p=Get-Process -Id $o -ErrorAction SilentlyContinue; if($p -and $o -ne $me -and $p.ProcessName -eq 'cmd'){ $a=$true } }; foreach($c in @(Get-CimInstance Win32_Process -Filter \"Name='cmd.exe'\")){ if($c.ProcessId -ne $me -and $c.CommandLine -and $c.CommandLine.ToLower().Contains($env:OC_OFF.ToLower())){ $a=$true } } }catch{}; if($a){ exit 1 }; exit 0" >nul 2>&1
+"%PSX%" -NoProfile -Command "$a=$false; try{ $me=(Get-CimInstance Win32_Process -Filter ('ProcessId='+$PID)).ParentProcessId; $of=Join-Path $env:OC_LOCK 'owner'; if(Test-Path -LiteralPath $of){ $o=[int](@((Get-Content -LiteralPath $of -TotalCount 1) -split '\|')[0]); $p=Get-Process -Id $o -ErrorAction SilentlyContinue; if($p -and $o -ne $me -and $p.ProcessName -eq 'cmd'){ $a=$true } }; foreach($c in @(Get-CimInstance Win32_Process -Filter \"Name='cmd.exe'\")){ if($c.ProcessId -ne $me -and $c.CommandLine -and $c.CommandLine.ToLower().Contains($env:OC_OFF.ToLower())){ $a=$true } } }catch{}; if($a){ exit 1 }; exit 0" >nul 2>&1
 if errorlevel 1 goto :official_inuse
 copy /y "%~f0" "%OFFICIAL%" >nul 2>&1
 call :log "official copy replaced by this newer launcher" boot
@@ -871,7 +875,7 @@ call :log "official copy in use by another window: not replaced" boot
 goto :official_ok
 :official_hand
 call echo %T_1%
-echo   %OFFICIAL%
+echo   "%OFFICIAL%"
 REM v2.40: give the console its original code page back first, or the official copy saves 65001 as the "original" and never undoes it.
 if defined OC_OLDCP chcp %OC_OLDCP% >nul 2>&1
 call "%OFFICIAL%" %*
@@ -1580,9 +1584,21 @@ call :tui deep
 set "DRC=%errorlevel%"
 if "%DRC%"=="1" goto :run_deep
 if "%DRC%"=="2" goto :restore_chats
+if "%DRC%"=="4" goto :menu_clear_lock
 if not "%DRC%"=="3" goto :menu_loop
 REM v2.44: "Clear cache" on its own: the cache folder only, never auth.json or the chats.
 call :clear_cache menu
+call :pause_key
+goto :menu_loop
+
+REM v2.49 (bug 11): "Clear instance lock" removes the single-instance lock; when this window owned it, it takes it again with its own PID.
+:menu_clear_lock
+set "CL_DIR=%STATE_DIR%"
+if defined BASE_STATE set "CL_DIR=%BASE_STATE%"
+if exist "%CL_DIR%\lock\" rmdir /s /q "%CL_DIR%\lock" >nul 2>&1
+call :log "lock %CL_DIR%\lock cleared from the menu" lock
+if not defined LOCK_FOREIGN if defined LOCKDIR call :lk_take
+call echo %T_356%
 call :pause_key
 goto :menu_loop
 
@@ -5219,26 +5235,43 @@ exit /b 0
 
 REM - one launcher at a time
 REM The lock is a folder: creating it succeeds only for the first launcher.
-REM A lock older than 2 hours is treated as stale and removed. A newer lock
-REM triggers a question: continue anyway, or exit.
-REM v2.22: staleness now reads the newest of the folder timestamp, the
-REM stamp file inside it, and a live TUI pid. Rewriting a file inside a
-REM folder does not bump the folder mtime on NTFS, and nothing refreshed
-REM it while the TUI ran, so a live launcher looked 2 h old mid-session.
+REM v2.49 (bug 11): the file "owner" holds PID|start ticks|exe|launcher path of the cmd that took
+REM the lock. It counts only when PID, start time and exe all match a running process that is not
+REM this window or its parent (the unofficial copy hands over in this same cmd). Anything else is an
+REM orphan (crash, kill, closed window, reused PID): removed, logged, and the start goes on. The
+REM lock age and tui.pid are no longer read: a stale tui.pid on a reused PID blocked every start.
 :lock_check
 set "LOCKDIR=%STATE_DIR%\lock"
+set "OC_LOCK=%LOCKDIR%"
 md "%LOCKDIR%" >nul 2>&1
 if not errorlevel 1 goto :lk_take
-set "OC_LOCK=%LOCKDIR%"
-set "OC_LTPID=%STATE_DIR%\tui.pid"
-REM v2.25: closing the window with X skips :quit and used to leave a lock
-REM that blocked the next start with "Another launcher seems to be running"
-REM for up to 2 hours. The lock now records the cmd.exe that took it (file
-REM "owner"); an owner that is gone is a stale lock whatever its age.
-"%PSX%" -NoProfile -Command "try{ $of=Join-Path $env:OC_LOCK 'owner'; if(Test-Path -LiteralPath $of){ $o=(Get-Content -LiteralPath $of -ErrorAction SilentlyContinue | Select-Object -First 1); $alive=$false; if($o){ $pr=Get-Process -Id ([int]$o) -ErrorAction SilentlyContinue; if($pr -and $pr.ProcessName -eq 'cmd' -and ((Get-CimInstance Win32_Process -Filter ('ProcessId='+$pr.Id)).CommandLine -match '\.bat')){ $alive=$true } }; if(-not $alive){ Remove-Item -LiteralPath $env:OC_LOCK -Recurse -Force; exit 0 } }; $d=Get-Item -LiteralPath $env:OC_LOCK -Force; $t=$d.LastWriteTime; $sf=Join-Path $env:OC_LOCK 'stamp'; if(Test-Path -LiteralPath $sf){ $s=(Get-Item -LiteralPath $sf -Force).LastWriteTime; if($s -gt $t){ $t=$s } }; $live=$false; $dead=$false; if(Test-Path -LiteralPath $env:OC_LTPID){ $c=(Get-Content -LiteralPath $env:OC_LTPID -ErrorAction SilentlyContinue | Select-Object -First 1); if($c){ if(Get-Process -Id ([int]$c) -ErrorAction SilentlyContinue){ $live=$true } else { $dead=$true } } }; if($live){ exit 1 }; $h=((Get-Date)-$t).TotalHours; if((-not $dead -or $h -lt 0.0167) -and $h -le 2){ exit 1 }; Remove-Item -LiteralPath $env:OC_LOCK -Recurse -Force; exit 0 }catch{ exit 0 }" >nul 2>&1
-if not errorlevel 1 goto :lk_take
+set "OC_LKINFO=%STATE_DIR%\lock_check.txt"
+if exist "%OC_LKINFO%" del /f /q "%OC_LKINFO%" >nul 2>&1
+"%PSX%" -NoProfile -Command "$f=$env:OC_LKINFO; $L=$env:OC_LOCK; $of=Join-Path $L 'owner'; $saved='none'; $ex='no'; $proc='none'; $why=''; $rc=0; $opid='-'; $obat='-'; try{ $me=(Get-CimInstance Win32_Process -Filter ('ProcessId='+$PID)).ParentProcessId; $up=(Get-CimInstance Win32_Process -Filter ('ProcessId='+$me)).ParentProcessId; if(Test-Path -LiteralPath $of){ $saved=[string](Get-Content -LiteralPath $of -TotalCount 1); $v=@($saved -split '\|'); if($v[0]){ $opid=$v[0] }; if($v.Count -gt 3 -and $v[3]){ $obat=$v[3] }; $p=$null; try{ $p=Get-Process -Id ([int]$v[0]) -ErrorAction Stop }catch{}; if(-not $p){ $why='orphan: saved PID is not running' } else { $ex='yes'; $proc=$p.ProcessName+' pid '+$p.Id+' started '+$p.StartTime.ToString('s')+' exe '+$p.Path; if($p.Id -eq $me -or $p.Id -eq $up){ $why='orphan: saved PID is this window or its parent' } elseif($v.Count -lt 3){ $cl=(Get-CimInstance Win32_Process -Filter ('ProcessId='+$p.Id)).CommandLine; if($p.ProcessName -eq 'cmd' -and $cl -match '\.bat'){ $why='valid: old-format lock held by a cmd running a .bat'; $rc=1 } else { $why='orphan: old-format lock, PID is not a launcher' } } elseif([string]$p.StartTime.Ticks -ne $v[1]){ $why='orphan: PID reused by another process, start time differs' } elseif($p.Path -ne $v[2]){ $why='orphan: PID reused by another program, exe differs' } else { $why='valid: owner launcher is running'; $rc=1 } } } else { $age=((Get-Date)-(Get-Item -LiteralPath $L -Force).CreationTime).TotalSeconds; if($age -lt 20){ $why='valid: lock is '+[int]$age+' s old, owner not written yet'; $rc=1 } else { $why='orphan: lock has no owner file' } } }catch{ $why='orphan: check failed: '+$_.Exception.Message; $rc=0 }; $act='kept, start stopped'; if($rc -eq 0){ try{ Remove-Item -LiteralPath $L -Recurse -Force -ErrorAction Stop; $act='removed, start continues' }catch{ $act='remove failed, start continues' } }; $m='lock '+$L+' saved='+$saved+' pid exists='+$ex+' process='+$proc+' reason='+$why+' action='+$act; foreach($c in 34,37,33){ $m=$m.Replace([string][char]$c,'') }; [IO.File]::WriteAllLines($f,[string[]]@($m,$opid,$obat)); exit $rc" >nul 2>&1
+set "LKRC=%errorlevel%"
+set "LK_MSG=lock %LOCKDIR%: the check wrote no report"
+set "LK_PID="
+set "LK_BAT="
+if exist "%OC_LKINFO%" <"%OC_LKINFO%" set /p "LK_MSG="
+if exist "%OC_LKINFO%" for /f "usebackq skip=1 delims=" %%a in ("%OC_LKINFO%") do if not defined LK_PID (set "LK_PID=%%a") else if not defined LK_BAT set "LK_BAT=%%a"
+call :log "%LK_MSG%" lock
+if not "%LKRC%"=="1" goto :lk_take
 if "%MULTI_INSTANCE%"=="1" goto :lk_multi
 call echo %T_256%
+call echo %T_353%
+call echo %T_354%
+call :pick 123 "Pick: " 60 3
+if errorlevel 100 goto :lk_exit
+if not errorlevel 1 goto :lk_exit
+if errorlevel 3 goto :lk_exit
+if errorlevel 2 goto :lk_multi
+REM [1] close it: its whole tree, and only while PID and start time still match the lock.
+"%PSX%" -NoProfile -Command "try{ $v=@((Get-Content -LiteralPath (Join-Path $env:OC_LOCK 'owner') -TotalCount 1) -split '\|'); $p=Get-Process -Id ([int]$v[0]) -ErrorAction Stop; if($v.Count -lt 3 -or [string]$p.StartTime.Ticks -eq $v[1]){ & taskkill.exe /PID $p.Id /T /F | Out-Null } }catch{}" >nul 2>&1
+rmdir /s /q "%LOCKDIR%" >nul 2>&1
+call :log "lock: user closed instance PID %LK_PID%, lock removed" lock
+call echo %T_355%
+goto :lk_take
+:lk_exit
 set "FO_TRY=0"
 :lk_focus
 call :focus_owner
@@ -5263,7 +5296,8 @@ goto :eof
 md "%LOCKDIR%" >nul 2>&1
 call :lock_touch
 set "OC_LOCK=%LOCKDIR%"
-"%PSX%" -NoProfile -Command "try{ $pp=(Get-CimInstance Win32_Process -Filter ('ProcessId='+$PID)).ParentProcessId; [IO.File]::WriteAllText((Join-Path $env:OC_LOCK 'owner'),[string]$pp) }catch{}" >nul 2>&1
+"%PSX%" -NoProfile -Command "try{ $pp=(Get-CimInstance Win32_Process -Filter ('ProcessId='+$PID)).ParentProcessId; $p=Get-Process -Id $pp -ErrorAction Stop; [IO.File]::WriteAllText((Join-Path $env:OC_LOCK 'owner'),([string]$pp+'|'+$p.StartTime.Ticks+'|'+$p.Path+'|'+$env:OCI_SELF)) }catch{}" >nul 2>&1
+call :log "lock taken: %LOCKDIR%" lock
 goto :eof
 REM User chose not to continue.
 REM v2.22: this used to "goto :quit" from inside a called subroutine, so
@@ -5284,7 +5318,7 @@ REM hidden, so the WindowsTerminal window above the owner is used instead. Exit 
 REM Limit: Windows Terminal has one window for all tabs, so the right tab is not picked.
 :focus_owner
 set "OC_LOCK=%LOCKDIR%"
-"%PSX%" -NoProfile -Command "try{ $o=[int](Get-Content -LiteralPath (Join-Path $env:OC_LOCK 'owner') | Select-Object -First 1); Add-Type -Namespace OcFocus -Name W -MemberDefinition '[DllImport(\"user32.dll\")] public static extern bool ShowWindow(IntPtr h, int c); [DllImport(\"user32.dll\")] public static extern bool SetForegroundWindow(IntPtr h); [DllImport(\"user32.dll\")] public static extern bool IsWindowVisible(IntPtr h); [DllImport(\"user32.dll\")] public static extern void keybd_event(byte k, byte s, uint f, UIntPtr e); [DllImport(\"kernel32.dll\")] public static extern bool FreeConsole(); [DllImport(\"kernel32.dll\")] public static extern bool AttachConsole(uint p); [DllImport(\"kernel32.dll\")] public static extern IntPtr GetConsoleWindow();'; $hw=[IntPtr]::Zero; [void][OcFocus.W]::FreeConsole(); if([OcFocus.W]::AttachConsole([uint32]$o)){ $hw=[OcFocus.W]::GetConsoleWindow(); [void][OcFocus.W]::FreeConsole() }; if($hw -eq [IntPtr]::Zero -or -not [OcFocus.W]::IsWindowVisible($hw)){ $hw=[IntPtr]::Zero; $cur=$o; for($i=0; $i -lt 6 -and $cur; $i++){ $pr=Get-Process -Id $cur -ErrorAction SilentlyContinue; if($pr -and $pr.ProcessName -eq 'WindowsTerminal' -and $pr.MainWindowHandle -ne 0){ $hw=$pr.MainWindowHandle; break }; $cur=(Get-CimInstance Win32_Process -Filter ('ProcessId='+$cur)).ParentProcessId } }; if($hw -eq [IntPtr]::Zero){ exit 1 }; [void][OcFocus.W]::ShowWindow($hw, 9); [OcFocus.W]::keybd_event(18, 0, 0, [UIntPtr]::Zero); [OcFocus.W]::keybd_event(18, 0, 2, [UIntPtr]::Zero); if([OcFocus.W]::SetForegroundWindow($hw)){ exit 0 }; exit 1 }catch{ exit 1 }" >nul 2>&1
+"%PSX%" -NoProfile -Command "try{ $o=[int](@((Get-Content -LiteralPath (Join-Path $env:OC_LOCK 'owner') -TotalCount 1) -split '\|')[0]); Add-Type -Namespace OcFocus -Name W -MemberDefinition '[DllImport(\"user32.dll\")] public static extern bool ShowWindow(IntPtr h, int c); [DllImport(\"user32.dll\")] public static extern bool SetForegroundWindow(IntPtr h); [DllImport(\"user32.dll\")] public static extern bool IsWindowVisible(IntPtr h); [DllImport(\"user32.dll\")] public static extern void keybd_event(byte k, byte s, uint f, UIntPtr e); [DllImport(\"kernel32.dll\")] public static extern bool FreeConsole(); [DllImport(\"kernel32.dll\")] public static extern bool AttachConsole(uint p); [DllImport(\"kernel32.dll\")] public static extern IntPtr GetConsoleWindow();'; $hw=[IntPtr]::Zero; [void][OcFocus.W]::FreeConsole(); if([OcFocus.W]::AttachConsole([uint32]$o)){ $hw=[OcFocus.W]::GetConsoleWindow(); [void][OcFocus.W]::FreeConsole() }; if($hw -eq [IntPtr]::Zero -or -not [OcFocus.W]::IsWindowVisible($hw)){ $hw=[IntPtr]::Zero; $cur=$o; for($i=0; $i -lt 6 -and $cur; $i++){ $pr=Get-Process -Id $cur -ErrorAction SilentlyContinue; if($pr -and $pr.ProcessName -eq 'WindowsTerminal' -and $pr.MainWindowHandle -ne 0){ $hw=$pr.MainWindowHandle; break }; $cur=(Get-CimInstance Win32_Process -Filter ('ProcessId='+$cur)).ParentProcessId } }; if($hw -eq [IntPtr]::Zero){ exit 1 }; [void][OcFocus.W]::ShowWindow($hw, 9); [OcFocus.W]::keybd_event(18, 0, 0, [UIntPtr]::Zero); [OcFocus.W]::keybd_event(18, 0, 2, [UIntPtr]::Zero); if([OcFocus.W]::SetForegroundWindow($hw)){ exit 0 }; exit 1 }catch{ exit 1 }" >nul 2>&1
 exit /b
 
 REM - refresh the lock timestamp (v2.22)
@@ -7275,7 +7309,7 @@ function New-Report {
   $total = 6
   & $A 'OpenCode Infinite - support report'
   & $A ('Generated   ' + (Get-Date).ToString('o'))
-  & $A 'Launcher    v2.48'
+  & $A 'Launcher    v2.49'
   & $A ('File        ' + $Self)
   try { $fi = Get-Item -LiteralPath $Self; & $A ('Size/date   ' + $fi.Length + ' bytes, ' + $fi.LastWriteTime.ToString('s')); & $A ('SHA-256     ' + (Get-FileHash -LiteralPath $Self -Algorithm SHA256).Hash) } catch { }
   & $A 'Personal data (user name, PC name, e-mails, tokens, passwords, and by default public IPs) is removed from this file. Read it before sharing.'
@@ -7470,7 +7504,7 @@ function Menu-Main {
     @{ L = ($script:I.back + ' Back'); C = 10; H = 'Return to the home screen.' },
     @{ L = ($script:I.err + ' Exit'); C = 6; H = 'Close the launcher.' })
   $head = Header-Lines
-  $r = Show-Menu 'OpenCode' $items ('v2.48   ' + $Repo) $head 0
+  $r = Show-Menu 'OpenCode' $items ('v2.49   ' + $Repo) $head 0
   if ($r -eq -1) { exit 10 }
   exit $items[$r].C
 }
@@ -7480,11 +7514,13 @@ function Menu-Deep {
     @{ L = 'Deep reset'; V = 'asks first'; S = 'err'; H = 'Move your chats to the Desktop archive, clear tokens and cache, then start fresh.' },
     @{ L = 'Restore chats'; V = 'from the Desktop'; H = 'Bring chats back from an earlier deep reset.' },
     @{ L = 'Clear cache'; V = 'keeps tokens'; H = 'Delete the opencode cache folder only. The login file (auth.json) and the chats are not touched.' },
+    @{ L = 'Clear instance lock'; V = 'if a start says already open'; H = 'Remove the single-instance lock left by a window that crashed or was closed.' },
     @{ L = ($script:I.back + ' Back'); H = 'Return to the main menu.' })
   $r = Show-Menu 'Deep reset or restore chats' $items $null (Header-Lines) 0
   if ($r -eq 0) { exit 1 }
   if ($r -eq 1) { exit 2 }
   if ($r -eq 2) { exit 3 }
+  if ($r -eq 3) { exit 4 }
   exit 10
 }
 # Pick an archived backup (one folder per deep reset). Exit 1 = picked, its path is in restore_pick.txt; 10 = back.
@@ -7643,7 +7679,7 @@ function Home-Loop {
       $head += ''
     }
     if ($script:Notice) { $head += (P (Style $script:Notice[0]) ($script:I.warn + ' ' + (T $script:Notice[1]))); $head += ''; $script:Notice = $null }
-    $r = Show-Menu 'Main menu' $items ('v2.48   ' + $Self) $head $pos $true
+    $r = Show-Menu 'Main menu' $items ('v2.49   ' + $Self) $head $pos $true
     if ($r -eq -1) { continue }
     $pos = $r
     Log ('home -> ' + $acts[$r])

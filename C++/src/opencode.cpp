@@ -7,6 +7,7 @@
 #include <windows.h>
 #include <wincrypt.h>
 #include <algorithm>
+#include <filesystem>
 
 #pragma comment(lib, "crypt32.lib")
 
@@ -224,7 +225,14 @@ bool clearTokens(const std::string& reason, std::string* backupOut, std::string*
 bool clearCache(const std::string& reason) {
     std::string cache = opencodeCacheDir();   // %USERPROFILE%\.cache\opencode; auth.json lives elsewhere
     if (!dirExists(cache)) return false;
-    runShell(fmt("rmdir /s /q %s", quoteArg(cache).c_str()), 60000);
+    // only ever delete the fixed %USERPROFILE%\.cache\opencode, never anything else
+    std::filesystem::path cp(utf8ToWide(cache));
+    if (!cp.is_absolute() || cp.filename() != L"opencode" || cp.parent_path().filename() != L".cache") {
+        logError("cache: refusing to delete unexpected path " + cache);
+        return false;
+    }
+    std::error_code ec;
+    std::filesystem::remove_all(cp, ec);
     bool gone = !dirExists(cache);
     logInfo("cache: deleted " + cache + (gone ? "" : " (partly: some files in use)") + ", reason: " + reason);
     return gone;

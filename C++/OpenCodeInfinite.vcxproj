@@ -118,5 +118,8 @@
     <ClInclude Include="src\util.h" />
     <ClInclude Include="src\watcher.h" />
   </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="OpenCodeInfinite.rc" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>
