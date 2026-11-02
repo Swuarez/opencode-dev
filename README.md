@@ -9,8 +9,8 @@ resumes the same chat.
 | File | Platform | What it is | Latest release |
 |---|---|---|---|
 | `OpenCode Infinite.bat` | Windows 10 / 11 (x64, ARM64, x86 limited) | Full launcher: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages; single-instance lock that checks PID, start time, executable and .bat path | v2.49 |
-| `OpenCode Infinite.exe` | Windows 10 / 11 (x64) | Native C++ app: WARP, Tor, proxies and direct connection; retries OpenCode after a crash; 7 languages. No WireGuard or VPN Gate yet. See [section 14](#14-c-app-opencode-infiniteexe) | 3.2.2 in v2.49 |
-| `opencode-infinite.sh` | Linux (bash; tested on Ubuntu 24.04 with apt; command paths checked for dnf, pacman, zypper) | Full except the desktop app and the Windows-only items. See [Linux: what is different](#linux-what-is-different) | linux-0.3.3 in v2.48 |
+| `OpenCode Infinite.exe` | Windows 10 / 11 (x64) | Native C++ app: WARP, Tor, proxies and direct connection; retries OpenCode after a crash; 7 languages. No WireGuard or VPN Gate yet. See [section 14](#14-c-app-opencode-infiniteexe) | 3.2.2, unchanged in v2.53 |
+| `opencode-infinite.sh` | Linux (bash; tested on Ubuntu 24.04 with apt; command paths checked for dnf, pacman, zypper) | Full, including the desktop app (checked with a fake app, not the real one yet), except the Windows-only items. See [Linux: what is different](#linux-what-is-different) | linux-0.4.1 in v2.53 |
 
 The sections marked **Windows only** below are not on Linux.
 
@@ -101,7 +101,7 @@ setup, and the commands it creates run that copy.
 
 1. Double-click `OpenCode Infinite.bat`.
 2. Pick a language (section 9). `Automatic` follows Windows.
-3. Choose **Connect with opencode** on the home screen. It asks for a connection method (section 4: WARP, TOR, PROXY, NONE, and on Windows also WIREGUARD and VPNGATE) and a run mode, then creates the `opencode` command and the shortcuts (section 10).
+3. Choose **Connect with opencode** on the home screen. It asks for a connection method (section 4: WARP, TOR, PROXY, NONE, and on Windows also WIREGUARD and VPNGATE) and a run mode, then creates the `opencodeinf` and `opencodeoc` commands and the shortcuts (section 10). `opencode` is not changed: it stays the real OpenCode.
 4. Choose **Launch OpenCode**, pick a folder and a connection, and start.
 
 If WARP, Tor or OpenCode is missing, the launcher offers to install it. Nothing is installed without asking, and UAC is shown to you.
@@ -111,7 +111,7 @@ If WARP, Tor or OpenCode is missing, the launcher offers to install it. Nothing 
 **Linux**
 
 1. Run the script (section 1b).
-2. Choose **Connect with opencode** and pick WARP, TOR, PROXY or NONE. Setup creates the `opencode`, `opencodeinf` and `opencodeoc` commands in `~/.local/bin`, and adds that folder to your `PATH` in `~/.bashrc` if needed.
+2. Choose **Connect with opencode** and pick WARP, TOR, PROXY or NONE. Setup creates the `opencodeinf` and `opencodeoc` commands in `~/.local/bin` and never replaces `opencode`, which stays the real OpenCode. It adds that folder to your `PATH` in `~/.bashrc` if needed.
 3. Open a new terminal, then run `opencode` inside a project folder.
 
 The screens and keys are the same as on Windows. Colors and the box drawing depend on your terminal.
@@ -125,7 +125,7 @@ The screens and keys are the same as on Windows. Colors and the box drawing depe
 | Option | What it does |
 |---|---|
 | Launch OpenCode | Picks a folder and a connection, then starts the CLI or the desktop app *(desktop app: Windows only)* |
-| Connect with opencode | Guided setup. Creates the `opencode` command and the shortcuts. Shows `Configured` when done |
+| Connect with opencode | Guided setup. Creates the `opencodeinf` and `opencodeoc` commands and the shortcuts. Shows `Configured` when done |
 | Renew session | Closes OpenCode, backs up `auth.json` (section 6), clears the saved tokens and gets a new IP (section 6) |
 | Uninstall | Removes only what setup added and restores the settings it changed. Asks first |
 | Settings | Every launcher option (section 8) |
@@ -174,7 +174,7 @@ WIREGUARD was tested only with fake tools and a local proxy: a real WireGuard se
 
 ![Setup: connection method](images/03-setup-connection.png)
 
-**Run mode** is chosen the same way: **CLI** (terminal), **Desktop** (the OpenCode app), or **Ask every time**. On Linux it is the setting Settings > Connection > Run mode (CLI or DESKTOP, no Ask every time), and the `opencode` command always runs the CLI.
+**Run mode** is chosen the same way: **CLI** (terminal), **Desktop** (the OpenCode app), or **Ask every time**. On Linux it is the setting Settings > Connection > Run mode (CLI or DESKTOP, no Ask every time), and the quick start (`bash opencode-infinite.sh --run`) always runs the CLI.
 
 ![Setup: run mode](images/05-setup-run-mode.png)
 
@@ -334,17 +334,15 @@ The commands created by **Connect with opencode** work in any terminal:
 
 | Command | What it does |
 |---|---|
-| `opencode` | Starts OpenCode through the saved connection |
-| `opencodeinf` | Opens the launcher menu |
-| `opencodeoc` | Starts the OpenCode you had before the launcher, with no connection. Use it when the launcher breaks |
+| `opencode` | Starts OpenCode as it was before the launcher, with no connection. The launcher does not change it |
+| `opencodeinf` | Opens the launcher menu. Start OpenCode from there to use the saved connection (the shortcut opens it too) |
+| `opencodeoc` | The same as `opencode`, with no connection. Kept as a fallback name |
 
 **Windows:** to start the launcher in a folder, drag the folder onto the `.bat`, or run
 `OpenCode Infinite.bat "D:\work\project"`. UNC paths work too.
 `OpenCode Infinite.bat --run` does a quick start with the saved connection.
 
-**Linux:** `opencode` with no arguments starts OpenCode in the current folder through
-the saved connection. `opencodeinf` opens the menu. The script can also be run
-directly: `bash opencode-infinite.sh --run`.
+**Linux:** `opencode` starts OpenCode in the current folder with no connection. `opencodeinf` opens the menu, which starts it through the saved connection. The script can also be run directly: `bash opencode-infinite.sh --run`.
 
 ---
 
@@ -379,7 +377,7 @@ The launcher only reads the latest release's tag and checks the file against `SH
 |---|---|
 | `%USERPROFILE%\.local\share\opencode\` | OpenCode data: chats and database. Owned by OpenCode |
 | `%LOCALAPPDATA%\opencode-infinite\` | Launcher state folder |
-| `...\opencode-infinite\app\` | The launcher copy that the `opencode` commands run |
+| `...\opencode-infinite\app\` | The launcher copy that `opencodeinf` runs |
 | `...\opencode-infinite\config.json` | Your settings |
 | `...\opencode-infinite\lang\` | Language files you picked, and `messages.txt` for the batch messages |
 | `...\opencode-infinite\launcher.log` | Launcher log |
@@ -403,7 +401,7 @@ The C++ app uses this same folder and `config.json`, unless `OCIN_STATE` points 
 | `~/.config/opencode-infinite/reports/` | Support reports |
 | `~/.config/opencode-infinite/tor/`, `tor.log`, `privoxy.conf` | Tor data and the HTTP bridge config (TOR mode only) |
 | `~/.config/opencode-infinite/wcli.log` | `warp-cli` output, for WARP problems |
-| `~/.local/bin/opencode`, `opencodeinf`, `opencodeoc` | The commands created by setup |
+| `~/.local/bin/opencodeinf`, `opencodeoc` | The commands created by setup. `opencode` is the real OpenCode and is not touched |
 
 ---
 
@@ -421,6 +419,7 @@ The C++ app uses this same folder and `config.json`, unless `OCIN_STATE` points 
 | `opencode is not set up` on Linux | Run **Connect with opencode** first. The launcher reads the real OpenCode path from `config.env` |
 | `opencode was not found` on Linux | Install it: `npm i -g opencode-ai`, then run Connect again |
 | OpenCode does not open | Run `opencodeoc` to reach OpenCode, then create a support report from the home screen |
+| `opencode` fails or shows the launcher's message after v2.52 | Update to v2.53 and start `opencodeinf` once. The launcher puts the real `opencode` back at each start |
 | The update says a new version is available, but the file cannot be found | Known issue, not reproduced yet. Run the install command in section 1a: it puts a fresh copy on the Desktop. Then create a support report and attach it to an issue |
 | The font does not change | *Windows.* Reopen the tab. Windows Terminal keeps its font in its own `settings.json`. VS Code keeps it in `terminal.integrated.fontFamily` |
 
@@ -480,9 +479,11 @@ A native Windows app with the same job as the `.bat`: a new exit IP, then OpenCo
 
 ### Current state
 
-v2.49 is the latest release, 2026-11-01; v2.48 is the previous release.
+v2.53 is the latest release, 2026-11-02; v2.52 is the previous release.
 
-**Windows (`OpenCode Infinite.bat`):** v2.49 is the latest release. It rewrites the single-instance lock (a user reported "OpenCode-Infinite is already open in another window" with no window open). Before, the lock counted as valid with only the saved PID and a process named `cmd` with `.bat` in its command line, so it could be a lock left by the same window, a reused PID or an orphan `tui.pid`. Now the lock stores PID + start time + executable + the path of the .bat, and all four are checked. An orphan lock is deleted and the deletion is written to the log. If the lock is valid, the launcher shows the PID and the path and offers [1] close the other instance and continue, [2] open anyway (with its own copy of the configuration) or [3] exit; with no answer in 60 s it exits. A new "Clear instance lock" option is in the Deep reset submenu, and the path of the official copy is now quoted. It was tested in an isolated harness (a lock with a PID that does not exist, a reused PID, a valid lock from a real launcher, and a forced close followed by a reopen). NOT tested: the real menu (it needs an interactive console) and option [2] with the real state. v2.48 is the previous release; it has not been run end to end (the menu and the rotation TUI were not tested; real WARP rotation was tested with a copy of v2.47). It changed: if the downloaded file is missing or its SHA-256 does not match, the updater shows a warning and replaces nothing (before, it could fail without explanation); the updater helper also checks the SHA; the unused variable `OC_FATPAT` was removed; the new warning text T_352 was added to all 7 languages (`langs/*.json`). v2.47 is the previous release; it changed: a rate limit asks before rotating (a usage limit still rotates, with a cap of 5 in 30 minutes); the Desktop app is searched again on request and can be set by hand; only the processes the launcher started are stopped; a single-instance lock; at most 3 automatic restarts in 10 minutes; "Clear cache" no longer deletes tokens, and tokens are copied before they are deleted. v2.46 shipped `OpenCode Infinite.exe` (the C++ app) and `opencode-infinite.sh`; the launcher offers to replace an `.exe` that sits next to it (section 11). v2.45 fixes the watcher closing the window with "3 was unexpected at this time." after a fatal error when the chat was resumed (the rotation now starts with a defined quota counter), and logs the fatal line that triggered the rotation. v2.44 fixed the repeated "Review" lines on the rainbow theme in short windows. v2.43 keeps the tokens across restarts, retries a crashed OpenCode on the same IP (stops after 3 crashes in 10 minutes), and searches for the Desktop app again on request. Updates now come only from GitLab releases, checked with SHA-256 (section 11).
+**v2.53 (2026-11-02):** `opencode` is the real OpenCode again. v2.52 sent it through the launcher, so a launcher failure broke the plain command too. `opencodeinf` opens the launcher menu, and the shortcut opens it too. At each start the launcher repairs installs made by v2.52 and older. Linux (`linux-0.4.1`): renew keeps `auth.json` out of the Desktop. Tested with the sandbox and the test suites; not yet on a real console or with the real OpenCode desktop app.
+
+**Windows (`OpenCode Infinite.bat`), v2.49:** it rewrote the single-instance lock (a user reported "OpenCode-Infinite is already open in another window" with no window open). Before, the lock counted as valid with only the saved PID and a process named `cmd` with `.bat` in its command line, so it could be a lock left by the same window, a reused PID or an orphan `tui.pid`. Now the lock stores PID + start time + executable + the path of the .bat, and all four are checked. An orphan lock is deleted and the deletion is written to the log. If the lock is valid, the launcher shows the PID and the path and offers [1] close the other instance and continue, [2] open anyway (with its own copy of the configuration) or [3] exit; with no answer in 60 s it exits. A new "Clear instance lock" option is in the Deep reset submenu, and the path of the official copy is now quoted. It was tested in an isolated harness (a lock with a PID that does not exist, a reused PID, a valid lock from a real launcher, and a forced close followed by a reopen). NOT tested: the real menu (it needs an interactive console) and option [2] with the real state. v2.48 is the previous release; it has not been run end to end (the menu and the rotation TUI were not tested; real WARP rotation was tested with a copy of v2.47). It changed: if the downloaded file is missing or its SHA-256 does not match, the updater shows a warning and replaces nothing (before, it could fail without explanation); the updater helper also checks the SHA; the unused variable `OC_FATPAT` was removed; the new warning text T_352 was added to all 7 languages (`langs/*.json`). v2.47 is the previous release; it changed: a rate limit asks before rotating (a usage limit still rotates, with a cap of 5 in 30 minutes); the Desktop app is searched again on request and can be set by hand; only the processes the launcher started are stopped; a single-instance lock; at most 3 automatic restarts in 10 minutes; "Clear cache" no longer deletes tokens, and tokens are copied before they are deleted. v2.46 shipped `OpenCode Infinite.exe` (the C++ app) and `opencode-infinite.sh`; the launcher offers to replace an `.exe` that sits next to it (section 11). v2.45 fixes the watcher closing the window with "3 was unexpected at this time." after a fatal error when the chat was resumed (the rotation now starts with a defined quota counter), and logs the fatal line that triggered the rotation. v2.44 fixed the repeated "Review" lines on the rainbow theme in short windows. v2.43 keeps the tokens across restarts, retries a crashed OpenCode on the same IP (stops after 3 crashes in 10 minutes), and searches for the Desktop app again on request. Updates now come only from GitLab releases, checked with SHA-256 (section 11).
 
 ### Windows C++ app
 
