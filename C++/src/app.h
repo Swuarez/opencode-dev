@@ -53,7 +53,7 @@ public:
     EgressState&  egress()    { return est_; }
 
     Screen screen() const { return screen_; }
-    void   setScreen(Screen s) { screen_ = s; }
+    void   setScreen(Screen s);   // entering Settings starts the IP pool worker, leaving it stops the worker
 
     std::vector<LogLine> logLines() const;
     void  clearLogs();
@@ -145,6 +145,15 @@ private:
     std::atomic<bool> quit_{false};
 
     std::thread              worker_;
+    // IP pool worker (runs while Settings is open): its own route state and engine, see egress.h poolFillOne
+    void startPool();
+    void stopPool();
+    void poolLoop();
+    std::thread                   poolThread_;
+    std::unique_ptr<EgressEngine> poolEng_;
+    EgressState                   poolSt_;
+    std::string                   poolIp_;      // exit IP when the worker started (a snapshot: no shared reads)
+    std::atomic<bool>             poolStop_{false};
     std::queue<std::function<void()>> tasks_;
     std::mutex               taskMtx_;
     std::condition_variable  taskCv_;

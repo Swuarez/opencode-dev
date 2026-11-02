@@ -8,18 +8,18 @@ resumes the same chat.
 
 | File | Platform | What it is | Latest release |
 |---|---|---|---|
-| `OpenCode Infinite.bat` | Windows 10 / 11 (x64, ARM64, x86 limited) | Full launcher: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages; single-instance lock that checks PID, start time, executable and .bat path | v2.49 |
-| `OpenCode Infinite.exe` | Windows 10 / 11 (x64) | Native C++ app: WARP, Tor, proxies and direct connection; retries OpenCode after a crash; 7 languages. No WireGuard or VPN Gate yet. See [section 14](#14-c-app-opencode-infiniteexe) | 3.2.2, unchanged in v2.53 |
-| `opencode-infinite.sh` | Linux (bash; tested on Ubuntu 24.04 with apt; command paths checked for dnf, pacman, zypper) | Full, including the desktop app (checked with a fake app, not the real one yet), except the Windows-only items. See [Linux: what is different](#linux-what-is-different) | linux-0.4.1 in v2.53 |
+| `OpenCode Infinite.bat` | Windows 10 / 11 (x64, ARM64, x86 limited) | Full launcher: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages; single-instance lock that checks PID, start time, executable and .bat path | v2.54 |
+| `OpenCode Infinite.exe` | Windows 10 / 11 (x64) | Native C++ app: WARP, Tor, proxies, WireGuard, VPN Gate and direct connection; retries OpenCode after a crash; 7 languages. WireGuard and VPN Gate are in the code but not yet run against real servers. See [section 14](#14-c-app-opencode-infiniteexe) | 3.4.0 (v2.54) |
+| `opencode-infinite.sh` | Linux (bash; tested on Ubuntu 24.04 with apt; command paths checked for dnf, pacman, zypper) | Full, including the desktop app (checked with a fake app, not the real one yet), except the Windows-only items. See [Linux: what is different](#linux-what-is-different) | linux-0.4.1 (unchanged in v2.54) |
 
 The sections marked **Windows only** below are not on Linux.
 
-- **Windows:** one file, no installer, no services. Admin (UAC) for the optional WARP install and for VPN Gate (OpenVPN: one prompt on start, switch and stop). WireGuard never asks for administrator.
+- **Windows:** one file, no installer, no services. Admin (UAC) for the optional WARP install and for VPN Gate (OpenVPN: one prompt per launcher session; the helper that runs OpenVPN stays until the launcher closes or sits idle for 10 minutes). WireGuard never asks for administrator.
 - **Linux:** one script. No root needed for the launcher itself. WARP and Tor need their packages installed (section 1b).
 
 ### Windows: .bat or .exe?
 
-- The `.bat` has VPN Gate and WireGuard; the `.exe` does not yet (section 14).
+- The `.bat` has VPN Gate and WireGuard. The `.exe` (3.4.0) has the same modes in its code, not yet run against real servers (section 14).
 - The `.exe` and the `.bat` share the state folder and `config.json` (section 14).
 - An `OpenCode Infinite.exe` that sits next to the `.bat` is offered for update by the launcher (section 11).
 
@@ -163,7 +163,7 @@ The egress default is set during setup and in Settings, Connection (`OC_EGRESS_D
 | **PROXY** | Free HTTP proxies from a list (default: ProxyScrape). Dead ones are skipped. Use your own list with `PROXY_LIST_URL`: a URL or a local file. In PROXY mode, after `PROXY_ROT_MAX` burned proxies the launcher asks whether to switch the hunt to Tor |
 | **NONE** | Direct connection, no proxy |
 | **WIREGUARD** | **Windows only.** Your WireGuard `.conf` files from `WG_DIR` (default `...\opencode-infinite\wireguard`), run through [wireproxy](https://github.com/windtf/wireproxy), a local proxy that only OpenCode uses. Each switch takes the next file. Needs no WireGuard install and no administrator prompt |
-| **VPNGATE** | **Windows only.** Public servers from [vpngate.net](https://www.vpngate.net) through the normal OpenVPN client (`openvpn.exe`). Installed with winget when it is missing. OpenVPN creates a system tunnel, but the launcher adds routes only for the IPs of `opencode.ai`, `models.opencode.ai` and `opentunnel.xyz` as they resolve on your PC at start (`route-nopull`). Everything else stays direct. Filter by `VPNGATE_COUNTRY`, `VPNGATE_MAX` servers tried per start. A server that fails is skipped for the session |
+| **VPNGATE** | **Windows only.** Public servers from [vpngate.net](https://www.vpngate.net) through the normal OpenVPN client (`openvpn.exe`). Installed with winget when it is missing. OpenVPN creates a system tunnel, but the launcher adds routes only for the IPs of `opencode.ai`, `models.opencode.ai` and `opentunnel.xyz` as they resolve on your PC at start (`route-nopull`). Everything else stays direct. Filter by `VPNGATE_COUNTRY`, `VPNGATE_MAX` servers tried per start. A server that fails is skipped for the session. The administrator prompt comes once per launcher session, not on each start or switch |
 
 The proxy applies only to the OpenCode process. Your browser and other apps
 stay direct. WIREGUARD makes no system tunnel. VPNGATE adds routes to the system
@@ -192,6 +192,7 @@ When a chat hits a limit, the launcher hunts for a new IP.
 - Each attempt prints its number, the IP, the country and whether it matches. The hunt ends with a summary: target reached, or which cap stopped it.
 - `Esc` or `Q` during the wait stops the hunt and returns to the menu.
 - With `AUTO_ROTATE` off, the menu decides. The `R` key at the closed prompt always rotates.
+- **IP pool (`.bat`, `POOL_ENABLE` on by default).** While **Settings** is open, the launcher tests IPs for the PROXY, VPNGATE and WIREGUARD modes in the background and keeps up to `POOL_MAX` per mode, one search every `POOL_INTERVAL` seconds. A rotation takes a saved IP first; if that one fails, it searches as before. The search stops when you leave Settings. VPN Gate is tested only when its helper already runs, so the pool never asks for administrator. The proxy list is downloaded again at most every 30 minutes. Set `POOL_ENABLE` to 0 to turn it off.
 
 ---
 
@@ -266,6 +267,7 @@ Setting names are the same on Windows (`config.json`) and Linux (`config.env`). 
 | `IP_FIND_MAX` | `0` | Burned IPs a hunt may reject (`0` = no limit) | both |
 | `TARGET_COUNTRY` / `TARGET_PREFIX` | empty | Country (e.g. `DE`) and IP start (e.g. `104.28.`) to hunt for | both |
 | `TARGET_TRIES` / `TARGET_MINUTES` / `TARGET_INTERVAL` | `5` / `15` / `15` | Attempts, minutes and seconds between attempts of one hunt | both |
+| `POOL_ENABLE` / `POOL_MAX` / `POOL_INTERVAL` | `1` / `5` / `60` | IP pool: on or off, saved IPs per mode (1-50), seconds between searches (5-3600). Section 5 | Windows only |
 | `ON_CLOSE` | `ask` | After OpenCode closes: `ask` (R new IP and resume, M menu, Q quit) or `quit` | both |
 | `WATCH` | `1` | Watch the OpenCode log for limit errors | both |
 | `RESUME_MSG` | `continue` | Message sent when a chat is resumed | both |
@@ -294,7 +296,7 @@ Setting names are the same on Windows (`config.json`) and Linux (`config.env`). 
 | `TYPE_AHEAD` | `1` | Text typed during a renewal is sent as the first message of the resume | Windows only |
 | `RESUME_MODE` / `RESUME_TEXT` | `continue` / empty | What the resume sends: `continue`, `last` (your last message again) or `custom` (`RESUME_TEXT`) | Windows only |
 | `OC_MODEL` | empty | Model for the resume (`-m`), for example `opencode/deepseek-v4.1-flash-free` | Windows only |
-| `LIMIT_ROT_MAX` / `LIMIT_ACTION` / `LIMIT_MODEL` | `3` / `rotate` / empty | Limits in a row before the launcher stops. Then `rotate` (new IP), `provider` (switch to `LIMIT_MODEL` once) or `ask` | Windows only |
+| `LIMIT_ROT_MAX` / `LIMIT_ACTION` / `LIMIT_MODEL` | `3` / `rotate` / empty | Limits in a row before the launcher stops (`0` = never stop). Then `rotate` (new IP), `provider` (switch to `LIMIT_MODEL` once) or `ask` | Windows only |
 | `WHERE_TIMEOUT` | `5` | Seconds a Windows `where` lookup may take | Windows only |
 | `OCUI_FONT` / `OCUI_FONT_SIZE` | empty / `16` | Terminal font and size (Windows console) | Windows only |
 
@@ -479,7 +481,9 @@ A native Windows app with the same job as the `.bat`: a new exit IP, then OpenCo
 
 ### Current state
 
-v2.53 is the latest release, 2026-11-02; v2.52 is the previous release.
+v2.54 is the latest release, 2026-11-02; v2.53 is the previous release.
+
+**v2.54 (2026-11-02):** VPN Gate asks for administrator once per launcher session; before, every start, switch and stop asked. The `.bat` and the C++ app keep an IP pool (section 5) and cap each hunt with `TARGET_TRIES` (default 5) and `TARGET_MINUTES` (default 15). The C++ app is 3.4.0 and adds WireGuard and VPN Gate. Tested in the sandbox: the helper with a fake OpenVPN (switch, stop, quit), the pool with local proxies, the settings self-test (69 checks) and the regression harness (30 checks). Not tested yet: a real UAC prompt, a real OpenVPN server through the helper, a real proxy list through the pool, and the C++ app's WireGuard, VPN Gate and pool with a real OpenCode.
 
 **v2.53 (2026-11-02):** `opencode` is the real OpenCode again. v2.52 sent it through the launcher, so a launcher failure broke the plain command too. `opencodeinf` opens the launcher menu, and the shortcut opens it too. At each start the launcher repairs installs made by v2.52 and older. Linux (`linux-0.4.1`): renew keeps `auth.json` out of the Desktop. Tested with the sandbox and the test suites; not yet on a real console or with the real OpenCode desktop app.
 
@@ -487,7 +491,7 @@ v2.53 is the latest release, 2026-11-02; v2.52 is the previous release.
 
 ### Windows C++ app
 
-**Windows C++ app (`OpenCode Infinite.exe`, 3.2.2):** part of the v2.49 release (v2.48 had 3.2.1). 3.2.2 adds version metadata to the exe (VERSIONINFO in `OpenCodeInfinite.rc`: ProductName, FileDescription, CompanyName "jekooo", FileVersion 3.2.2.0), because VirusTotal flags the exe as a false positive and an exe with no metadata is a signal that usually hurts the heuristics. It also removes code nobody called (the download and silent run with `/S` of the OpenCode Desktop installer, whose SHA-256 check let the file pass if the hash was missing), and cache and folder deletion no longer use `cmd /c rmdir`: they use `std::filesystem::remove_all`, with a path check before deleting. The exe is not signed (there is no code-signing certificate yet). 3.2.1 (v2.48) no longer rotates the IP on "failed to drain session" (the `.bat` and the `.sh` already treated it as a no-op). The built exe is in the repo at `C++/bin/Release/OpenCodeInfinite.exe`, and it builds with Visual Studio (section 14). It has not been run against a real OpenCode install yet.
+**Windows C++ app (`OpenCode Infinite.exe`, 3.4.0):** part of the v2.54 release. 3.4.0 adds WireGuard and VPN Gate modes (the same helper as the `.bat`), the IP pool and the hunt caps. They are compiled but not yet run against real servers. Before it, 3.2.2 (v2.49; v2.48 had 3.2.1). 3.2.2 adds version metadata to the exe (VERSIONINFO in `OpenCodeInfinite.rc`: ProductName, FileDescription, CompanyName "jekooo", FileVersion 3.2.2.0), because VirusTotal flags the exe as a false positive and an exe with no metadata is a signal that usually hurts the heuristics. It also removes code nobody called (the download and silent run with `/S` of the OpenCode Desktop installer, whose SHA-256 check let the file pass if the hash was missing), and cache and folder deletion no longer use `cmd /c rmdir`: they use `std::filesystem::remove_all`, with a path check before deleting. The exe is not signed (there is no code-signing certificate yet). 3.2.1 (v2.48) no longer rotates the IP on "failed to drain session" (the `.bat` and the `.sh` already treated it as a no-op). The built exe is in the repo at `C++/bin/Release/OpenCodeInfinite.exe`, and it builds with Visual Studio (section 14). It has not been run against a real OpenCode install yet.
 
 ### Verified on a real Windows 11 PC
 
@@ -514,7 +518,8 @@ Checked on a real Windows 11 PC:
 
 ### Version history
 
-- **v2.49** (latest release, 2026-11-01). It changes: the single-instance lock is rewritten (bug 11): it stores PID + start time + executable + .bat path and checks all four; an orphan lock is deleted and logged; a valid lock shows the PID and path and offers [1] close the other instance and continue, [2] open anyway (own copy of the configuration) or [3] exit (exit after 60 s with no answer); new "Clear instance lock" option in the Deep reset submenu; the path of the official copy is quoted. Tested in an isolated harness; the real menu and option [2] with the real state were not tested. The same release ships `OpenCode Infinite.exe` 3.2.2 (version metadata, dead installer code removed, native deletion with `std::filesystem::remove_all`; still unsigned).
+- **v2.54** (latest release, 2026-11-02). VPN Gate asks for administrator once per launcher session. The `.bat` and the C++ app add an IP pool and the hunt caps (`TARGET_TRIES`, `TARGET_MINUTES`). The C++ app is 3.4.0 and adds WireGuard and VPN Gate modes. Not run against real servers yet (see Current state).
+- **v2.49** (2026-11-01). It changes: the single-instance lock is rewritten (bug 11): it stores PID + start time + executable + .bat path and checks all four; an orphan lock is deleted and logged; a valid lock shows the PID and path and offers [1] close the other instance and continue, [2] open anyway (own copy of the configuration) or [3] exit (exit after 60 s with no answer); new "Clear instance lock" option in the Deep reset submenu; the path of the official copy is quoted. Tested in an isolated harness; the real menu and option [2] with the real state were not tested. The same release ships `OpenCode Infinite.exe` 3.2.2 (version metadata, dead installer code removed, native deletion with `std::filesystem::remove_all`; still unsigned).
 - **v2.48** (previous release, 2026-11-01; not run end to end). It changed: if the downloaded file is missing or its SHA-256 does not match, the updater shows a warning and replaces nothing (before, it could fail without explanation); the updater helper also checks the SHA; the unused variable `OC_FATPAT` was removed; the new warning text T_352 was added to all 7 languages (`langs/*.json`). The same release ships `OpenCode Infinite.exe` 3.2.1 and `opencode-infinite.sh`. The menu and the rotation TUI were not tested; real WARP rotation was tested with a copy of v2.47.
 - **v2.47**. It changed: a rate limit asks before rotating (a usage limit still rotates, with a cap of 5 in 30 minutes); the Desktop app is searched again on request and can be set by hand; only the processes the launcher started are stopped; a single-instance lock; at most 3 automatic restarts in 10 minutes; "Clear cache" no longer deletes tokens, and tokens are copied before they are deleted.
 - **v2.46** (2026-11-01). The same release ships `OpenCode Infinite.exe` (the C++ app) and `opencode-infinite.sh`; the launcher offers to replace an `.exe` that sits next to it (section 11). Updates now come only from GitLab releases, checked with SHA-256 (section 11).

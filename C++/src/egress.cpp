@@ -14,8 +14,11 @@
 #include <ws2tcpip.h>
 #include <algorithm>
 #include <random>
+#include <mutex>
 #include <cctype>
 #include <thread>
+#include <sddl.h>
+#include "vgate_helper.inc"
 
 #pragma comment(lib, "ws2_32.lib")
 
@@ -46,7 +49,7 @@ Egress egressFromName(const std::string& s) {
 }
 
 EgressEngine::EgressEngine(Config* cfg, EgressState* st) : cfg_(cfg), st_(st) {}
-EgressEngine::~EgressEngine() { shutdown(); }
+EgressEngine::~EgressEngine() { if (runTag_.empty()) shutdown(); else wgStop(); }
 
 // ---------------------------------------------------------------- helpers
 
@@ -536,7 +539,7 @@ void EgressEngine::wgStop() {
 }
 
 bool EgressEngine::wpStart(const std::string& exe, const std::string& confPath, int port) {
-    std::string runDir = joinPath(cfg_->dir(), "wireproxy");
+    std::string runDir = joinPath(cfg_->dir(), std::string(runTag_.empty() ? "wireproxy" : "wireproxy-") + runTag_);
     makeDirs(runDir);
     std::string run = joinPath(runDir, "run.conf");
     writeFileText(run, wgRunConf(readFileText(confPath), port));
@@ -668,47 +671,98 @@ TraceInfo EgressEngine::vgTrace() const {
     return h.ok ? parseTrace(h.body) : TraceInfo();
 }
 
-// A hard kill would leave OpenCode's routes on the TAP adapter, so the elevated script also removes them.
-// Passed as -EncodedCommand: no script file in a user-writable folder runs with administrator rights.
-void EgressEngine::vgStop() {
-    std::string rt = joinPath(cfg_->dir(), "vpn_routes.txt");
-    if (!ovProc_ && !fileExists(rt)) return;
-    uint32_t id = 0;
-    if (ovProc_) { bool ex = false; handleExitCode(ovProc_, &ex); if (!ex) id = ovPid_; }
-    std::string ps = fmt("$TunPid = %u; $Routes = '%s'\n", id, replaceAll(rt, "'", "''").c_str()) +
-        "if ($TunPid -gt 0) { & taskkill.exe /PID $TunPid /F | Out-Null }\n"
-        "if ($Routes -and (Test-Path -LiteralPath $Routes)) {\n"
-        "  foreach ($ip in @(Get-Content -LiteralPath $Routes)) {\n"
-        "    if ($ip) { Get-NetRoute -DestinationPrefix ($ip + $(if ($ip -like '*:*') { '/128' } else { '/32' })) -ErrorAction SilentlyContinue | Where-Object { $_.InterfaceAlias -like 'OpenVPN*' } | Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue }\n"
-        "  }\n}\n";
-    std::wstring w = utf8ToWide(ps);
-    std::string bytes((const char*)w.data(), w.size() * sizeof(wchar_t));
-    std::string exe = joinPath(envVar("SystemRoot"), "System32\\WindowsPowerShell\\v1.0\\powershell.exe");
-    spawnElevated(exe, "-NoProfile -ExecutionPolicy Bypass -EncodedCommand " + base64Encode(bytes), true, nullptr, 120000);
-    removeFile(rt);
-    if (ovProc_) closeProcHandle(ovProc_);
-    ovProc_ = nullptr; ovPid_ = 0;
+// ---- VPN Gate helper: one elevated process per session (vgate_helper.inc), reached through a named pipe.
+// The helper only accepts this user's SID, checks each config against an allow-list and runs OpenVPN itself.
+
+static const wchar_t* kVgPipe = L"\\\\.\\pipe\\opencode-infinite-vgate";
+static std::atomic<bool> gVgStarted{false};   // this process started the helper (the pool engine shares it)
+static std::mutex gVgMtx;                     // the helper serves one pipe instance: one request at a time
+
+// one request, one answer line; "" = nothing answered within ms
+static std::string vgRequest(const std::string& req, int ms) {
+    std::lock_guard<std::mutex> lk(gVgMtx);
+    ULONGLONG end = GetTickCount64() + ms;
+    HANDLE h;
+    while ((h = CreateFileW(kVgPipe, GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr)) == INVALID_HANDLE_VALUE) {
+        if (GetTickCount64() >= end) return "";
+        Sleep(100);
+    }
+    std::string line = req + "\n", out;
+    DWORD n = 0;
+    if (WriteFile(h, line.data(), (DWORD)line.size(), &n, nullptr)) {
+        char c = 0;
+        DWORD got = 0;
+        while (ReadFile(h, &c, 1, &got, nullptr) && got == 1 && c != '\n') out += c;
+    }
+    CloseHandle(h);
+    if (!out.empty() && out.back() == '\r') out.pop_back();
+    return out;
 }
 
-// starts openvpn elevated and waits for "Initialization Sequence Completed" in its log
-bool EgressEngine::vgTunStart(const std::string& exe, const std::string& cfg, int secs) {
-    std::string logf = joinPath(joinPath(cfg_->dir(), "vgate"), "openvpn.log");
-    removeFile(logf);
-    Spawned sp = spawnElevated(exe, fmt("--config %s --log %s --verb 3 --connect-retry-max 2 --auth-nocache",
-                                         quoteArg(cfg).c_str(), quoteArg(logf).c_str()), false);
-    if (!sp.ok) return false;
-    ovPid_ = sp.pid; ovProc_ = sp.process;
-    int64_t end = nowSeconds() + secs;
-    while (nowSeconds() < end) {
-        int st = ovpnLogState(readFileText(logf));
-        if (st > 0) return true;
-        if (st < 0) { logWarn("[vpn] openvpn reported a failure"); return false; }
-        bool ex = false;
-        uint32_t code = handleExitCode(ovProc_, &ex);
-        if (ex) { logWarn(fmt("[vpn] openvpn exited, code %u", code)); return false; }
-        Sleep(500);
+// the SID of this user: the only account the helper's pipe accepts
+static std::string currentUserSid() {
+    std::string sid;
+    HANDLE tok = nullptr;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &tok)) return sid;
+    DWORD n = 0;
+    GetTokenInformation(tok, TokenUser, nullptr, 0, &n);
+    std::vector<BYTE> buf(n);
+    if (n && GetTokenInformation(tok, TokenUser, buf.data(), n, &n)) {
+        LPSTR s = nullptr;
+        if (ConvertSidToStringSidA(reinterpret_cast<TOKEN_USER*>(buf.data())->User.Sid, &s)) { sid = s; LocalFree(s); }
     }
+    CloseHandle(tok);
+    return sid;
+}
+
+bool vgHelperAlive() { return !vgRequest("STATUS", 400).empty(); }
+
+// starts the helper when it is not running: the administrator prompt of the session (OpenVPN is installed first if missing)
+bool EgressEngine::vgEnsure(ProgressFn log) {
+    if (vgHelperAlive()) { gVgStarted = true; return true; }
+    std::string exe = ovpnExe(log);
+    if (exe.empty()) {
+        say(log, 3, tx("[vpn] OpenVPN is missing and winget could not install it. Install OpenVPN from openvpn.net, then try again."));
+        return false;
+    }
+    std::string sid = currentUserSid();
+    if (sid.empty()) { logWarn("[vpn] could not read the user SID"); return false; }
+    std::string script = "$Pipe = 'opencode-infinite-vgate'; $ClientSid = '" + sid + "'; $IdleSec = 600\r\n" + vgHelperScript();
+    std::wstring w = utf8ToWide(script);
+    std::string bytes((const char*)w.data(), w.size() * sizeof(wchar_t));
+    std::string ps = joinPath(envVar("SystemRoot"), "System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+    say(log, 0, tx("[vpn] VPN Gate needs administrator once for this session. Windows asks now..."));
+    Spawned sp = spawnElevated(ps, "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand " + base64Encode(bytes), false);
+    if (!sp.ok) { say(log, 3, tx("[vpn] the administrator prompt was refused.")); return false; }
+    closeProcHandle(sp.process);
+    ULONGLONG end = GetTickCount64() + 90000;
+    while (GetTickCount64() < end) {
+        if (vgHelperAlive()) { gVgStarted = true; return true; }
+        Sleep(700);
+    }
+    say(log, 3, tx("[vpn] the VPN Gate helper did not start."));
     return false;
+}
+
+// the helper checks the config, runs OpenVPN and waits for its "Initialization Sequence Completed". true = tunnel up
+bool EgressEngine::vgStart(const std::string& cfgText, const std::vector<std::string>& ips, int secs) {
+    std::string ipList;
+    for (const auto& ip : ips) ipList += (ipList.empty() ? "" : " ") + ip;
+    std::string r = vgRequest("START " + base64Encode(ipList) + " " + base64Encode(cfgText) + " " + std::to_string(secs), (secs + 30) * 1000);
+    logInfo("[vpn] helper: " + (r.empty() ? std::string("no answer") : r));
+    return r == "OK";
+}
+
+// tears the tunnel down and removes its routes (the helper does both). Does nothing when no helper was started.
+void EgressEngine::vgStop() {
+    vpnUp_ = false;
+    if (gVgStarted) vgRequest("STOP", 2000);
+}
+
+// the app is closing: stop the tunnel and let the helper exit
+void EgressEngine::vgQuit() {
+    vgStop();
+    if (gVgStarted) { vgRequest("QUIT", 3000); gVgStarted = false; }
 }
 
 // the VPN Gate list: fresh from the API, else the last saved copy (the API is slow and sometimes down)
@@ -722,11 +776,6 @@ static bool vgServers(const std::string& stateDir, std::vector<VgServer>& out) {
 
 bool EgressEngine::vgSwitch(ProgressFn log) {
     say(log, 0, tx("[vpn] changing the {0} tunnel...", "VPNGATE"));
-    std::string exe = ovpnExe(log);
-    if (exe.empty()) {
-        say(log, 3, tx("[vpn] OpenVPN is missing and winget could not install it. Install OpenVPN from openvpn.net, then try again."));
-        return false;
-    }
     std::vector<std::string> ips = ocIps();
     if (ips.empty()) {
         say(log, 3, tx("[vpn] could not resolve the OpenCode hosts (opencode.ai, models.opencode.ai, opentunnel.xyz). Check the internet connection."));
@@ -736,8 +785,6 @@ bool EgressEngine::vgSwitch(ProgressFn log) {
     std::string cc = upper(trim(cfg_->s("VPNGATE_COUNTRY")));
     if (cc == "-") cc.clear();
     int max = cfg_->i("VPNGATE_MAX"), timeout = cfg_->i("VPN_TIMEOUT");
-    std::string cfgDir = joinPath(cfg_->dir(), "vgate");
-    makeDirs(cfgDir);
     std::vector<VgServer> all;
     if (!vgServers(cfg_->dir(), all)) {
         say(log, 3, tx("[vpn] the VPN Gate list could not be downloaded and there is no saved copy."));
@@ -755,12 +802,10 @@ bool EgressEngine::vgSwitch(ProgressFn log) {
         say(log, 3, tx("[vpn] nothing left to try: every VPN Gate server failed in this session."));
         return false;
     }
+    if (!vgEnsure(log)) return false;
     // the exit IP to beat: OpenCode's host as seen from this PC right now (the old tunnel is still up until the switch)
     TraceInfo p0 = vgTrace();
     std::string prev = p0.ok ? p0.ip : "";
-    std::string rt = joinPath(cfg_->dir(), "vpn_routes.txt");
-    std::string routeList;
-    for (const auto& ip : ips) routeList += ip + "\r\n";
     int tried = 0;
     for (const VgServer& s : cands) {
         ++tried;
@@ -769,15 +814,13 @@ bool EgressEngine::vgSwitch(ProgressFn log) {
         std::string raw = vgHostOk(s.host) ? base64Decode(s.b64) : "";   // the host names a file: only plain names
         if (raw.empty()) { failedVg_.insert(s.host); logWarn("[vpn] skipped a server with an unusable name or config"); continue; }
         OvpnBuilt built = buildOvpn(raw, ips, resolveAll);
-        std::string cfg = joinPath(cfgDir, s.host + ".ovpn");
-        writeFileText(cfg, built.text);
         logInfo(fmt("[vpn] config %s: %d opencode routes", s.host.c_str(), built.routes));
-        writeFileText(rt, routeList);
-        if (!vgTunStart(exe, cfg, timeout)) { failedVg_.insert(s.host); logWarn("[vpn] failed " + s.host + ": tunnel did not start"); vgStop(); continue; }
+        if (!vgStart(built.text, ips, timeout)) { failedVg_.insert(s.host); logWarn("[vpn] failed " + s.host + ": tunnel did not start"); vgStop(); continue; }
         curName_ = s.host;
         TraceInfo t;
         int w = waitNewIp(prev, timeout, [&] { return vgTrace(); }, &t);
         if (w == 0) {
+            vpnUp_ = true;
             st_->nodeOptions = "--no-network-family-autoselection --dns-result-order=ipv4first";
             say(log, 1, tx("[vpn] tunnel \"{0}\" is up. Exit IP {1} (country {2}).", {s.host, t.ip, t.loc}));
             return true;
@@ -880,12 +923,15 @@ bool EgressEngine::rotateRoute(ProgressFn log) {
             st_->proxyUrl = fmt("http://127.0.0.1:%d", cfg_->i("TOR_HTTP_PORT"));
             return true;
         case Egress::Proxy:
+            if (poolUse(log)) return true;
             return proxyPick(log);
         case Egress::Wireproxy:
+            if (poolUse(log)) return true;
             if (!wgSwitch(log)) return false;
             st_->proxyUrl = fmt("http://127.0.0.1:%d", wpPort_);
             return true;
         case Egress::VpnGate:
+            if (poolUse(log)) return true;
             return vgSwitch(log);
         default:
             return false;
@@ -961,23 +1007,22 @@ bool EgressEngine::hunt(ProgressFn log, const std::string& cli) {
         return false;
     }
     bool goal = !cfg_->s("TARGET_COUNTRY").empty() || !cfg_->s("TARGET_PREFIX").empty();
-    int tries = goal ? cfg_->i("TARGET_TRIES") : cfg_->i("ROTATE_TRIES_MAX");
     int interval = goal ? cfg_->i("TARGET_INTERVAL") : cfg_->i("ROTATE_COOLDOWN");
-    int minutes = cfg_->i("TARGET_MINUTES");
+    const int tryMax = cfg_->i("TARGET_TRIES");
+    const ULONGLONG limitMs = (ULONGLONG)cfg_->i("TARGET_MINUTES") * 60000;
+    const ULONGLONG t0 = GetTickCount64();
+    cancelHunt_ = false;
     int burnedLimit = cfg_->i("IP_FIND_MAX");
     int brokenMax = cfg_->i("PROBE_BROKEN_MAX");
     int proxyRotMax = cfg_->i("PROXY_ROT_MAX");
 
-    int64_t start = nowSeconds();
     int burned = 0, broken = 0;
     std::string startIp = st_->lastIp;   // rotate() moves lastIp on, keep the IP the hunt left
 
-    for (int i = 1; i <= tries; ++i) {
-        if (goal && nowSeconds() - start > (int64_t)minutes * 60) {
-            say(log, 2, "the hunt ran out of time.");
-            return false;
-        }
-        say(log, 0, fmt("[%d/%d] rotating...", i, tries));
+    for (int i = 1; !cancelHunt_; ++i) {
+        if (i > tryMax) { say(log, 3, fmt("attempt limit reached: %d attempts, no match.", tryMax)); return false; }
+        if (GetTickCount64() - t0 >= limitMs) { say(log, 3, fmt("time limit reached: %d min, %d attempts, no match.", (int)(limitMs / 60000), i - 1)); return false; }
+        say(log, 0, fmt("[%d/%d] rotating...", i, tryMax));
         if (!rotate(log)) {
             say(log, 2, "  rotation failed.");
             Sleep(interval * 1000);
@@ -1029,15 +1074,226 @@ bool EgressEngine::hunt(ProgressFn log, const std::string& cli) {
         }
         Sleep(interval * 1000);
     }
-    say(log, 2, "the hunt gave up without a usable IP.");
+    say(log, 2, "the hunt was cancelled.");
     return false;
 }
 
 void EgressEngine::shutdown() {
     if (st_->mode == Egress::Tor || st_->ourTor) torStop();
     wgStop();
-    vgStop();
+    vgQuit();
     if (bridge_) { bridge_->stop(); bridge_.reset(); }
+}
+
+// ---------------------------------------------------------------- IP pool
+// Routes that worked: PROXY (host:port), WIREGUARD (.conf name), VPNGATE (server host).
+// File <cfg dir>/ip_pool.txt, one tab-separated line each: mode, id, ip, loc.
+
+namespace {
+struct PoolItem { std::string mode, id, ip, loc; };
+std::mutex gPoolMtx;
+
+std::string poolFile(const Config* cfg) { return joinPath(cfg->dir(), "ip_pool.txt"); }
+
+std::vector<PoolItem> poolLoad(const Config* cfg) {
+    std::vector<PoolItem> v;
+    for (const auto& line : split(readFileText(poolFile(cfg)), '\n')) {
+        std::vector<std::string> f = split(trim(line), '\t');
+        if (f.size() == 4 && !f[0].empty() && !f[1].empty()) v.push_back({f[0], f[1], f[2], f[3]});
+    }
+    return v;
+}
+
+void poolStore(const Config* cfg, const std::vector<PoolItem>& v) {
+    std::string out;
+    for (const auto& p : v) out += p.mode + "\t" + p.id + "\t" + p.ip + "\t" + p.loc + "\r\n";
+    writeFileText(poolFile(cfg), out);
+}
+
+bool poolHas(const std::vector<PoolItem>& v, const PoolItem& it) {
+    for (const auto& p : v)
+        if (p.mode == it.mode && (p.id == it.id || (!it.ip.empty() && p.ip == it.ip))) return true;
+    return false;
+}
+
+// takes the first saved route of this mode whose exit IP is not the current one
+bool poolTake(const Config* cfg, const std::string& mode, const std::string& curIp, PoolItem& out) {
+    std::lock_guard<std::mutex> lk(gPoolMtx);
+    std::vector<PoolItem> v = poolLoad(cfg);
+    for (size_t i = 0; i < v.size(); ++i) {
+        if (v[i].mode != mode || sameIp(v[i].ip, curIp)) continue;
+        out = v[i];
+        v.erase(v.begin() + (long)i);
+        poolStore(cfg, v);
+        return true;
+    }
+    return false;
+}
+
+// keeps at most max routes per mode, dropping the oldest
+bool poolAdd(const Config* cfg, const PoolItem& it, int max) {
+    std::lock_guard<std::mutex> lk(gPoolMtx);
+    std::vector<PoolItem> v = poolLoad(cfg);
+    if (poolHas(v, it)) return false;
+    v.push_back(it);
+    int n = 0;
+    for (const auto& p : v) if (p.mode == it.mode) ++n;
+    for (size_t i = 0; n > max && i < v.size();) {
+        if (v[i].mode == it.mode) { v.erase(v.begin() + (long)i); --n; }
+        else ++i;
+    }
+    poolStore(cfg, v);
+    return true;
+}
+} // namespace
+
+std::string EgressEngine::wgConfPath(const std::string& name) const {
+    std::string dir = trim(cfg_->s("WG_DIR"));
+    if (dir.empty() || dir == "-") dir = joinPath(cfg_->dir(), "wireguard");
+    return joinPath(dir, name + ".conf");
+}
+
+// one WireGuard config up through its own wireproxy (no search)
+bool EgressEngine::wgUseConf(const std::string& name, const std::string& path, ProgressFn log) {
+    std::string exe = wpExe(log);
+    if (exe.empty()) return false;
+    wgStop();
+    int port = 0;
+    for (int p = 25345; p < 25355 && !port; ++p) if (portFree(p)) port = p;
+    if (!port || !wpStart(exe, path, port)) { wgStop(); return false; }
+    curName_ = name;
+    st_->proxyUrl = fmt("http://127.0.0.1:%d", port);
+    return true;
+}
+
+// one VPN Gate server up from a saved .ovpn (no search); the helper is started on first use, like vgSwitch
+bool EgressEngine::vgUseHost(const std::string& host, const std::string& cfgPath, const std::vector<std::string>& ips, ProgressFn log) {
+    if (!vgEnsure(log)) return false;
+    vgStop();
+    if (!vgStart(readFileText(cfgPath), ips, cfg_->i("VPN_TIMEOUT"))) {
+        logWarn("[vpn] failed " + host + ": tunnel did not start");
+        vgStop();
+        return false;
+    }
+    curName_ = host;
+    vpnUp_ = true;
+    st_->nodeOptions = "--no-network-family-autoselection --dns-result-order=ipv4first";
+    return true;
+}
+
+// rotation: a saved route of the current mode, if any; false = search for a new one as before
+bool EgressEngine::poolUse(ProgressFn log) {
+    if (!cfg_->b("POOL_ENABLE")) return false;
+    std::string mode = egressName(st_->mode);
+    PoolItem it;
+    while (poolTake(cfg_, mode, st_->lastIp, it)) {
+        bool ok = false;
+        if (st_->mode == Egress::Proxy) {
+            st_->activeProxy = it.id;
+            st_->proxyUrl = "http://" + it.id;
+            ok = true;           // the rotation checks the exit IP next
+        } else if (st_->mode == Egress::Wireproxy) {
+            std::string path = wgConfPath(it.id);
+            ok = fileExists(path) && wgUseConf(it.id, path, log);
+        } else if (st_->mode == Egress::VpnGate) {
+            std::string path = joinPath(joinPath(cfg_->dir(), "vgate"), it.id + ".ovpn");
+            ok = fileExists(path) && vgUseHost(it.id, path, ocIps(), log);
+        }
+        if (ok) {
+            say(log, 1, fmt("pool: using the saved %s route %s (%s).", mode.c_str(), it.id.c_str(), it.ip.c_str()));
+            return true;
+        }
+        say(log, 2, fmt("pool: saved route %s is not usable, next one.", it.id.c_str()));
+    }
+    return false;
+}
+
+// background worker: tests one new candidate and keeps it when its IP is new and the probe accepts it
+bool EgressEngine::poolFillOne(ProgressFn log, const std::string& cli, const std::string& curIp, bool useProbe) {
+    std::string mode = egressName(st_->mode);
+    int max = cfg_->i("POOL_MAX");
+    auto keep = [&](const std::string& id, const TraceInfo& t) -> bool {
+        if (!t.ok || sameIp(t.ip, curIp)) return false;
+        PoolItem it{mode, id, t.ip, t.loc.empty() ? std::string("-") : t.loc};
+        {
+            std::lock_guard<std::mutex> lk(gPoolMtx);
+            if (poolHas(poolLoad(cfg_), it)) return false;      // already saved: no probe spent on it
+        }
+        if (useProbe && !cli.empty() && probe(log, cli, cfg_->s("PROBE_MODEL")) != 0) return false;
+        if (!poolAdd(cfg_, it, max)) return false;
+        say(log, 1, fmt("pool: saved %s %s (%s).", mode.c_str(), id.c_str(), it.ip.c_str()));
+        return true;
+    };
+
+    if (st_->mode == Egress::Proxy) {
+        std::string src = cfg_->s("PROXY_LIST_URL"), raw;
+        if (fileExists(src)) raw = readFileText(src);
+        else {
+            HttpResult r = httpGet(src, "", 20);
+            if (!r.ok) return false;
+            raw = r.body;
+        }
+        std::vector<std::string> list;
+        if (!parseProxies(raw, list)) return false;
+        std::mt19937 rng((unsigned)GetTickCount64());
+        std::shuffle(list.begin(), list.end(), rng);
+        int tryMax = cfg_->i("PROXY_TRY_MAX"), timeout = cfg_->i("PROXY_PROBE_TIMEOUT"), tries = 0;
+        for (const auto& p : list) {
+            if (poolTried_.count(p)) continue;
+            if (cancelHunt_ || ++tries > tryMax) break;
+            poolTried_.insert(p);
+            st_->proxyUrl = "http://" + p;
+            if (keep(p, trace(timeout))) { st_->proxyUrl.clear(); return true; }
+        }
+        st_->proxyUrl.clear();
+        return false;
+    }
+
+    if (st_->mode == Egress::Wireproxy) {
+        std::string dir = trim(cfg_->s("WG_DIR"));
+        if (dir.empty() || dir == "-") dir = joinPath(cfg_->dir(), "wireguard");
+        for (const auto& f : listDir(dir, false)) {
+            if (cancelHunt_) break;
+            if (f.size() < 6 || !iequals(f.substr(f.size() - 5), ".conf")) continue;
+            std::string name = f.substr(0, f.size() - 5), path = joinPath(dir, f);
+            if (poolTried_.count(name) || !wgNameOk(name) || fileSizeOf(path) == 0) continue;
+            poolTried_.insert(name);
+            if (!wgConfValid(readFileText(path))) continue;
+            if (!wgUseConf(name, path, log)) { wgStop(); continue; }
+            bool kept = keep(name, trace(8));
+            wgStop();
+            curName_.clear();
+            st_->proxyUrl.clear();
+            if (kept) return true;
+        }
+        return false;
+    }
+
+    if (st_->mode == Egress::VpnGate) {
+        if (tunnelUp()) return false;          // never touch the routes of a tunnel that is in use
+        std::vector<std::string> ips = ocIps();
+        if (ips.empty()) return false;
+        std::string cc = upper(trim(cfg_->s("VPNGATE_COUNTRY")));
+        if (cc == "-") cc.clear();
+        std::vector<VgServer> all;
+        if (!vgServers(cfg_->dir(), all)) return false;
+        std::string cfgDir = joinPath(cfg_->dir(), "vgate");
+        makeDirs(cfgDir);
+        for (const VgServer& s : vgPick(all, poolTried_, cc, cfg_->i("VPNGATE_MAX"))) {
+            if (cancelHunt_) break;
+            poolTried_.insert(s.host);
+            std::string raw = vgHostOk(s.host) ? base64Decode(s.b64) : std::string();
+            if (raw.empty()) continue;
+            std::string path = joinPath(cfgDir, s.host + ".ovpn");
+            writeFileText(path, buildOvpn(raw, ips, resolveAll).text);
+            if (!vgUseHost(s.host, path, ips, log)) continue;
+            bool kept = keep(s.host, vgTrace());
+            vgStop();
+            if (kept) return true;
+        }
+        return false;
+    }
+    return false;
 }
 
 } // namespace oi

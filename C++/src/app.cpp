@@ -18,7 +18,7 @@
 
 namespace oi {
 
-const char* kLauncherVersion = "3.3.0";
+const char* kLauncherVersion = "3.4.0";
 
 App::App() {}
 App::~App() { shutdown(); }
@@ -61,15 +61,60 @@ bool App::init() {
     return true;
 }
 
+void App::setScreen(Screen s) {
+    bool was = screen_ == Screen::Settings;
+    screen_ = s;
+    if (s == Screen::Settings && !was) startPool();
+    else if (was && s != Screen::Settings) stopPool();
+}
+
+void App::startPool() {
+    if (!poolThread_.joinable()) {
+        poolSt_ = est_;                       // route state at the first Settings visit (the mode is not re-read later)
+        poolIp_ = est_.lastIp;
+        poolEng_.reset(new EgressEngine(&cfg_, &poolSt_));
+        poolEng_->asPoolWorker();
+        poolThread_ = std::thread([this] { poolLoop(); });
+    } else {
+        poolEng_->resume();
+    }
+    poolStop_ = false;
+}
+
+// pauses the worker; the current probe or tunnel test finishes on its own (no wait on the UI thread)
+void App::stopPool() {
+    poolStop_ = true;
+    if (poolEng_) poolEng_->cancel();
+}
+
+void App::poolLoop() {
+    ProgressFn log = [](int kind, const std::string& msg) { if (kind >= 2) logWarn(msg); else logInfo(msg); };
+    while (!quit_) {
+        if (poolStop_) { std::this_thread::sleep_for(std::chrono::milliseconds(500)); continue; }
+        Egress m = poolSt_.mode;
+        bool on = cfg_.b("POOL_ENABLE") && (m == Egress::Proxy || m == Egress::Wireproxy || m == Egress::VpnGate);
+        // VPN Gate: only while its helper already runs (the pool never asks for administrator), no session, no tunnel
+        if (on && m == Egress::VpnGate) on = vgHelperAlive() && !appRunning() && !engine_->tunnelUp();
+        if (on) poolEng_->poolFillOne(log, probeCli(), poolIp_, cfg_.b("PROBE"));
+        int waitSec = on ? cfg_.i("POOL_INTERVAL") : 2;
+        for (int i = 0; i < waitSec * 2 && !poolStop_ && !quit_; ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
+}
+
 void App::shutdown() {
     if (quit_.exchange(true)) {
         // Already shutting down (or never started).
         if (worker_.joinable()) worker_.join();
         return;
     }
+    engine_->cancel();   // a hunt has no attempt cap now: stop it so the worker can finish
+    stopPool();
     stopWatcher();
     taskCv_.notify_all();
     if (worker_.joinable()) worker_.join();
+    if (poolThread_.joinable()) poolThread_.join();   // the pool worker exits on quit_
+    poolEng_.reset();
     engine_->shutdown();
     cfg_.save();
     logInfo("launcher stopped");

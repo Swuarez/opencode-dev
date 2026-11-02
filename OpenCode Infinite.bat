@@ -1,8 +1,8 @@
 @echo off
 setlocal EnableExtensions
-title OpenCode-Infinite
+title opencode-infinity
 REM ============================================================
-REM  OpenCode launcher  (v2.53)
+REM  OpenCode launcher  (v2.54)
 REM  Multi-egress (WARP / TOR / free HTTP) + dependency bootstrap
 REM  + auto-resume.
 REM  v2.22 - v2.29: every fixed bug carries an inline "REM v2.2x:"
@@ -200,6 +200,10 @@ REM v2.40: one attempt ended the hunt on the first infrastructure miss; default 
 set "TARGET_TRIES=5"
 set "TARGET_MINUTES=15"
 set "TARGET_INTERVAL=15"
+REM v2.54: the IP pool (see :pool_start). POOL_ENABLE=0 turns the background search off.
+set "POOL_ENABLE=1"
+set "POOL_MAX=5"
+set "POOL_INTERVAL=60"
 REM Seconds a single warp-cli call may take before it is killed.
 set "WARP_CALL_TIMEOUT=15"
 REM Seconds a single "where" lookup may take before it is killed. A PATH
@@ -241,6 +245,10 @@ REM v2.36: when the free limit keeps coming back: rotate (new IP, the default), 
 set "LIMIT_ACTION=rotate"
 set "LIMIT_MODEL="
 set "LIMIT_ROT_MAX=3"
+REM v2.54: 1 = after a quota stop the chat is resumed by a later start, only with a new exit IP and a fresh probe.
+set "QUOTA_RESUME=1"
+REM v2.54: a saved chat older than this many hours is dropped, not resumed.
+set "AR_MAX_HOURS=24"
 REM v2.36: model of the automatic resume (provider/model). Empty = the one OpenCode already uses.
 set "OC_MODEL="
 REM v2.36: ask shows the OpenCode menu; 1, 2 or 3 runs that option at once (new IP / clear tokens / change IP).
@@ -385,6 +393,8 @@ if not exist "%LOGFILE%" if exist "%LOCALAPPDATA%\opencode\log\opencode.log" set
 REM Folder for the launcher own state files (last folder, last IP, logs, locks).
 REM v2.30: own state folder, named after the launcher and not after OpenCode.
 set "STATE_DIR=%LOCALAPPDATA%\opencode-infinite"
+REM v2.54: the chat saved after a quota stop (see :ar_mark). Only this file, never tokens.
+set "ARF=%STATE_DIR%\pending_resume.txt"
 set "T_1=  This copy is not the official one. Starting the official copy:"
 set "T_2=  OpenCode - how do you want to run it?"
 set "T_3=  [1] CLI      - terminal TUI ^(chat resumes on every new IP^)"
@@ -740,6 +750,18 @@ set "T_353=  Running instance: PID %%LK_PID%%  "%%LK_BAT%%""
 set "T_354=  [1] Close it and continue   [2] Open anyway (own copy of the settings)   [3] Exit"
 set "T_355=  The other instance was closed and its lock removed. Starting."
 set "T_356=  Instance lock cleared."
+REM v2.54: pending resume after a quota stop.
+set "T_357=  Pending resume from a quota stop: checking it..."
+set "T_358=  Pending resume kept: this exit IP still has no quota. It stays for a later start."
+set "T_359=  Pending resume kept: the check on this IP failed for a reason other than the quota."
+set "T_360=  Pending resume kept: it was saved in another folder (%%AR_FOLDER%%)."
+set "T_361=  Pending resume kept: the exit IP is the same as at the quota stop."
+set "T_362=  Pending resume discarded: it is older than %%AR_MAX_HOURS%% hours."
+set "T_363=  Pending resume: new exit IP and a fresh quota. Resuming the chat."
+set "T_364=  Pending resume discarded. The chat itself is untouched."
+set "T_365=  Pending resume file is damaged. Discarded."
+set "T_366=  Pending resume kept: the exit IP cannot be read right now."
+set "T_367=  Pending resume kept: PROBE is off, so the quota cannot be confirmed."
 set "T_346=--- continue ------------------------------------------------"
 REM Batch messages are translated from lang\<code>.json; the UI writes lang\messages.txt (data only).
 set "OC_TUI=mki18n"
@@ -820,6 +842,8 @@ call :numcfg RESUME_TIMEOUT 90
 call :numcfg PROXY_TRY_MAX 12
 call :numcfg PROXY_ROT_MAX 10
 call :numcfg PROXY_PROBE_TIMEOUT 8
+call :numcfg POOL_MAX 5
+call :numcfg POOL_INTERVAL 60
 REM 0 is also valid here: "no size gate on a custom list"
 call :numcfg0 PROXY_LIST_MIN_BYTES 20
 call :numcfg TOR_SOCKS_PORT 9050
@@ -829,7 +853,7 @@ call :numcfg0 IP_FIND_MAX 0
 call :numcfg PROBE_BROKEN_MAX 3
 call :numcfg VPN_TIMEOUT 45
 call :numcfg VPNGATE_MAX 8
-call :numcfg LIMIT_ROT_MAX 3
+call :numcfg0 LIMIT_ROT_MAX 3
 REM the model of the settings, restored by a fresh start after the limit action switched it
 set "OC_MODEL_CFG=%OC_MODEL%"
 call :numcfg TOR_BOOTSTRAP_WAIT 120
@@ -1198,7 +1222,7 @@ set "POPPED=1"
 REM quoted write + quote-strip on read: survives & and () in the path
 >"%LASTFOLDER%" echo "%CD%"
 call :folder_remember
-title OpenCode-Infinite
+title opencode-infinity
 echo.
 call echo %T_22%
 call :trace folder "%CD%"
@@ -1400,6 +1424,7 @@ REM Main menu. Each pass redraws the screen and checks the IP.
 :menu_loop
 REM v2.39: a chat pinned by menu [9] is forgotten once the menu is shown again.
 set "PIN_SESS="
+set "AR_CHECKED="
 call :trace menu
 REM keep the lock fresh so a second launcher can tell it is alive
 REM v2.22: :lock_touch recreates the stamp entry, which is what moves the
@@ -1581,7 +1606,9 @@ goto :run
 REM Option 8: the settings screens; WARP_UP=0 re-applies the proxy port on the
 REM next pass. Values that a running service cannot change say so in the UI.
 :menu_settings
+call :pool_start
 call :tui settings
+call :pool_stop
 call :cfg_import
 REM v2.44: a new OC_APP or a "Re-detect" in Settings - Paths takes effect now.
 if /i "%APP_MODE%"=="DESKTOP" call :find_desktop_app
@@ -1595,12 +1622,21 @@ set "DRC=%errorlevel%"
 if "%DRC%"=="1" goto :run_deep
 if "%DRC%"=="2" goto :restore_chats
 if "%DRC%"=="4" goto :menu_clear_lock
+if "%DRC%"=="5" goto :menu_drop_resume
 if not "%DRC%"=="3" goto :menu_loop
 REM v2.44: "Clear cache" on its own: the cache folder only, never auth.json or the chats.
 REM v2.39: ask first, like the deep reset does.
 call :yn "  Delete the OpenCode cache folder? [Y/N] "
 if errorlevel 2 goto :menu_loop
 call :clear_cache menu
+call :pause_key
+goto :menu_loop
+
+REM v2.54: "Discard pending resume" (deep menu): forgets the saved chat; the chat itself is kept.
+:menu_drop_resume
+del /f /q "%ARF%" >nul 2>&1
+call :log "pending resume discarded from the menu" resume
+call echo %T_364%
 call :pause_key
 goto :menu_loop
 
@@ -1888,6 +1924,7 @@ echo   OpenCode no encontrado, instalalo o indica la ruta en OC_APP ^(config^).
 call :pause_key
 goto :menu_loop
 :rl_cmd_ok
+call :auto_resume
 
 REM Remember the log size before launch, so the watcher and the quota
 REM check only read what this run writes.
@@ -2102,28 +2139,17 @@ REM Only the message for the current WHY value is shown.
 :quota_rotate
 call :log "rotating: reason=%WHY% egress=%EGRESS% opencode-exit=%EC%" rotate
 call :chat_snapshot
+call :ar_mark
 REM v2.45: QUOTA_STREAK is set only by a fresh start and by a clean close. A resume (continue)
 REM or a watcher hit reached the next line with it empty, and then "if %QUOTA_STREAK% GTR ..."
 REM is a syntax error that closes the window ("3 was unexpected at this time.").
 if not defined QUOTA_STREAK set "QUOTA_STREAK=0"
 if not defined LIMIT_ROT_MAX set "LIMIT_ROT_MAX=3"
-REM v2.44: anti-loop: at most 5 automatic rotations in 30 minutes (rotations.log keeps the times).
-REM A rotation the user asked for (stop, ratelimit = said yes) is not counted.
-if "%WHY%"=="stop" goto :qr_guard_ok
-if "%WHY%"=="ratelimit" goto :qr_guard_ok
-set "OC_ROTF=%STATE_DIR%\rotations.log"
-"%PSX%" -NoProfile -Command "try{ $f=$env:OC_ROTF; $now=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); $k=@(); foreach($x in @(Get-Content -LiteralPath $f -ErrorAction SilentlyContinue)){ $v=0L; if([int64]::TryParse([string]$x,[ref]$v) -and ($now-$v) -lt 1800){ $k+=$v } }; if($k.Count -ge 5){ exit 1 }; $k+=$now; Set-Content -LiteralPath $f -Value $k; exit 0 }catch{ exit 0 }" >nul 2>&1
-if not errorlevel 1 goto :qr_guard_ok
-set "WATCH=0"
-call :log "rotation stopped: 5 automatic rotations in 30 minutes (reason=%WHY%); watcher off for this session" rotate
-echo.
-echo %C_WARN%  [*] 5 automatic rotations in 30 minutes: rotation and the watcher are stopped for this session.%C_RST%
-echo %C_WARN%      Check launcher.log before rotating again by hand.%C_RST%
-call :pause_key
-goto :menu_loop
+REM v2.44 anti-loop cap (5 rotations in 30 minutes) removed: keep trying until a usable IP appears; Exit stops it.
 :qr_guard_ok
 if "%WHY%"=="quota" set /a QUOTA_STREAK+=1
-if "%WHY%"=="quota" if %QUOTA_STREAK% GTR %LIMIT_ROT_MAX% goto :limit_action
+REM LIMIT_ROT_MAX=0 means never stop (the user chose it in Settings)
+if not "%LIMIT_ROT_MAX%"=="0" if "%WHY%"=="quota" if %QUOTA_STREAK% GTR %LIMIT_ROT_MAX% goto :limit_action
 if "%WHY%"=="exit" call echo %T_319%
 if "%WHY%"=="quota" call echo %T_320%
 if "%WHY%"=="stop" call echo %T_321%
@@ -2571,6 +2597,7 @@ call echo %T_129%
 set "RESUME="
 goto :run
 :resume_cli
+call :ar_clear
 REM The proxy must answer before the message is sent: a dead route here is
 REM the exact case that used to block forever with both streams discarded.
 REM v2.43: start from errorlevel 0, so the check below reads this step's own result: the NONE
@@ -2604,7 +2631,9 @@ REM holds the old tunnel's sockets. v1 has no shared service and no such
 REM flag: it prints the help screen and never sends the message. So the flag
 REM is added only when :detect_caps found it in the CLI help.
 set "RARGS=-c"
-if defined CAP_STANDALONE set "RARGS=-c --standalone"
+REM v2.54: a pinned chat (menu [9] or an automatic resume) is resumed by its id, not the newest chat of the folder.
+if defined PIN_SESS set "RARGS=-s %PIN_SESS%"
+if defined CAP_STANDALONE set "RARGS=%RARGS% --standalone"
 if "%RESUME_AUTO%"=="1" set "RARGS=%RARGS% --auto"
 if defined OC_MODEL set "RARGS=%RARGS% -m %OC_MODEL%"
 call :resume_msg
@@ -2811,10 +2840,50 @@ set "WG_DIR_SHOW=%WG_DIR%"
 if not defined WG_DIR_SHOW set "WG_DIR_SHOW=%STATE_DIR%\wireguard"
 goto :eof
 
+REM v2.54: the pool worker (#>>>OC_POOL_PS) runs only while Settings is open. :pool_stop waits for it (up to 2 min).
+:pool_start
+set "POOL_STARTED="
+if /i not "%POOL_ENABLE%"=="1" goto :eof
+set "OC_STATE=%STATE_DIR%"
+md "%STATE_DIR%\pool" >nul 2>&1
+del /f /q "%STATE_DIR%\pool\stop.flag" "%STATE_DIR%\pool\done.flag" >nul 2>&1
+start "" /b "%PSX%" -NoProfile -Command "$l=Get-Content -LiteralPath $env:OCI_SELF; $i=[Array]::IndexOf($l,'#>>>OC_POOL_PS'); $e=[Array]::IndexOf($l,'#>>>OC_ENDPOOL'); if(($i -lt 0) -or ($e -le $i)){exit 30}; Invoke-Expression (($l[($i+1)..($e-1)]) -join [Environment]::NewLine)" >nul 2>&1
+set "POOL_STARTED=1"
+goto :eof
+:pool_stop
+if not defined POOL_STARTED goto :eof
+set "POOL_STARTED="
+type nul > "%STATE_DIR%\pool\stop.flag"
+set /a POOL_WAIT=0
+:pool_wait
+if exist "%STATE_DIR%\pool\done.flag" goto :pool_stopped
+set /a POOL_WAIT+=1
+if %POOL_WAIT% GEQ 120 goto :pool_stopped
+ping -n 2 127.0.0.1 >nul
+goto :pool_wait
+:pool_stopped
+if exist "%STATE_DIR%\pool\done.flag" del /f /q "%STATE_DIR%\pool\stop.flag" "%STATE_DIR%\pool\done.flag" >nul 2>&1
+goto :eof
+REM takes one saved entry for the mode in the first argument (VPNGATE, WIREGUARD, PROXY) whose IP is not the current one.
+REM Its id goes to OC_POOL_PREFER; empty = none.
+:pool_take
+set "OC_POOL_PREFER="
+if /i not "%POOL_ENABLE%"=="1" goto :eof
+set "OC_POOL_MODE=%~1"
+set "OC_POOL_CUR=%IPN%"
+set "OC_STATE=%STATE_DIR%"
+set "OC_POOL_ACT=take"
+for /f "usebackq delims=" %%i in (`"%PSX%" -NoProfile -Command "$l=Get-Content -LiteralPath $env:OCI_SELF; $i=[Array]::IndexOf($l,'#>>>OC_POOL_PS'); $e=[Array]::IndexOf($l,'#>>>OC_ENDPOOL'); if(($i -lt 0) -or ($e -le $i)){exit 30}; Invoke-Expression (($l[($i+1)..($e-1)]) -join [Environment]::NewLine)"`) do set "OC_POOL_PREFER=%%i"
+set "OC_POOL_ACT="
+goto :eof
+
 REM Switch to the next .conf and prove the exit IP changed. Exit 0 = up; the report says why when not.
 :vpn_switch
 call echo %T_283%
+if /i "%EGRESS%"=="VPNGATE" call :pool_take VPNGATE
+if /i "%EGRESS%"=="WIREGUARD" call :pool_take WIREGUARD
 call :vpn_run switch
+set "OC_POOL_PREFER="
 if /i "%VPN_STATUS%"=="NOTOOL" goto :vpn_r_notool
 set "IPN=%VPN_IP%"
 set "GLOC=%VPN_LOC%"
@@ -2822,6 +2891,7 @@ if /i "%VPN_STATUS%"=="OK" goto :vpn_r_ok
 if /i "%VPN_STATUS%"=="NOCONF" goto :vpn_r_noconf
 if /i "%VPN_STATUS%"=="NOLIST" goto :vpn_r_nolist
 if /i "%VPN_STATUS%"=="NOIP" goto :vpn_r_noip
+if /i "%VPN_STATUS%"=="NOADMIN" goto :vpn_r_noadmin
 if "%VPN_TRIED%"=="0" goto :vpn_r_none
 call echo %T_290%
 exit /b 1
@@ -2859,6 +2929,9 @@ exit /b 1
 :vpn_r_nolist
 call echo %T_288%
 exit /b 1
+:vpn_r_noadmin
+call echo %T_287%
+exit /b 1
 :vpn_r_notool
 if /i "%EGRESS%"=="VPNGATE" call echo %T_279%
 if /i not "%EGRESS%"=="VPNGATE" call echo %T_285%
@@ -2882,6 +2955,7 @@ REM ============================================================
 REM usage: call :chat_run snapshot|empty|resume|typed. Result: CHAT_EMPTY CHAT_DUP CHAT_MSG CHAT_TYPED.
 :chat_run
 set "CHAT_EMPTY="
+set "CHAT_SID="
 set "CHAT_DUP="
 set "CHAT_MSG="
 set "CHAT_SHOW="
@@ -2923,6 +2997,126 @@ echo.
 call echo %T_302%
 call :chat_run snapshot
 echo.
+goto :eof
+
+REM v2.54: after a quota stop the chat is remembered (pending_resume.txt). A later start resumes it only
+REM with a new exit IP and a fresh probe. :ar_mark saves, :auto_resume checks, :ar_clear consumes.
+REM Only WARP: :getip2 reads the exit IP through WARP; the other egresses have no IP to compare.
+:ar_mark
+if not "%QUOTA_RESUME%"=="1" goto :eof
+if /i "%APP_MODE%"=="DESKTOP" goto :eof
+if not defined OC_CMD goto :eof
+if not "%WHY%"=="quota" if not "%WHY%"=="watcher" goto :eof
+if /i not "%EGRESS%"=="WARP" call :log "pending resume not saved: egress %EGRESS% has no exit IP check" resume
+if /i not "%EGRESS%"=="WARP" goto :eof
+REM a watcher hit counts only when the log scan finds a quota error
+if "%WHY%"=="watcher" call :scan_log %SIZE_BEFORE%
+if "%WHY%"=="watcher" if not defined FHIT goto :eof
+REM rotation has not run yet, so this is still the IP that hit the quota
+call :getip2 ARIP ARFL
+if not defined ARIP set "ARIP=unknown"
+set "OC_ARSID=continue"
+call :chat_run sid
+if defined CHAT_SID set "OC_ARSID=%CHAT_SID%"
+set "OC_ARF=%ARF%"
+set "OC_ARFOLDER=%CD%"
+set "OC_ARIP=%ARIP%"
+"%PSX%" -NoProfile -Command "try{ $t=$env:OC_ARF+'.tmp'; $v=@('FOLDER='+$env:OC_ARFOLDER,'SESSION='+$env:OC_ARSID,'IP='+$env:OC_ARIP,'TIME='+[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()); [IO.File]::WriteAllLines($t,[string[]]$v,(New-Object Text.UTF8Encoding($false))); Move-Item -LiteralPath $t -Destination $env:OC_ARF -Force; exit 0 }catch{ exit 1 }" >nul 2>&1
+if errorlevel 1 goto :ar_mark_fail
+call :log "pending resume saved: session=%OC_ARSID% ip=%ARIP% folder=%CD%" resume
+goto :eof
+:ar_mark_fail
+call :log "pending resume not saved: the file could not be written" resume
+goto :eof
+
+REM v2.54: a start after a quota stop. A probe that passes on a new exit IP means the quota is back.
+REM The record is kept on every other outcome, except when it is damaged or older than AR_MAX_HOURS.
+:auto_resume
+if not "%QUOTA_RESUME%"=="1" goto :eof
+if defined RESUME goto :eof
+if "%AR_CHECKED%"=="1" goto :eof
+if not exist "%ARF%" goto :eof
+if /i "%APP_MODE%"=="DESKTOP" goto :eof
+if not defined OC_CMD goto :eof
+if /i not "%EGRESS%"=="WARP" goto :eof
+set "AR_CHECKED=1"
+set "AR_FOLDER="
+set "AR_SESSION="
+set "AR_IP="
+set "AR_TIME="
+for /f "usebackq tokens=1* delims==" %%a in ("%ARF%") do set "AR_%%a=%%b"
+if not defined AR_FOLDER goto :ar_bad
+if not defined AR_TIME goto :ar_bad
+set "OC_ART=%AR_TIME%"
+set "OC_ARMAX=%AR_MAX_HOURS%"
+"%PSX%" -NoProfile -Command "try{ $a=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()-[int64]$env:OC_ART; if(($a -ge 0) -and ($a -le 3600*[int64]$env:OC_ARMAX)){ exit 0 }; exit 1 }catch{ exit 2 }" >nul 2>&1
+if errorlevel 2 goto :ar_bad
+if errorlevel 1 goto :ar_old
+if /i not "%AR_FOLDER%"=="%CD%" goto :ar_other
+call echo %T_357%
+call :getip2 ARCUR ARCFL
+echo(%ARCUR%| findstr /r /x /c:"[0-9a-fA-F.:][0-9a-fA-F.:]*" >nul
+if errorlevel 1 goto :ar_noip
+echo(%AR_IP%| findstr /r /x /c:"[0-9a-fA-F.:][0-9a-fA-F.:]*" >nul
+if errorlevel 1 goto :ar_noip
+call :ipkey ARCK "%ARCUR%"
+call :ipkey ARSK "%AR_IP%"
+if "%ARCK%"=="%ARSK%" goto :ar_sameip
+if "%PROBE%"=="0" goto :ar_noprobe
+call :export_proxy
+call :probe_once
+if not errorlevel 1 goto :ar_go
+if /i "%PCLASS%"=="burned" goto :ar_still
+goto :ar_probe_fail
+:ar_go
+call :log "pending resume: new exit IP %ARCUR% (saved %AR_IP%), probe passed, resuming session %AR_SESSION%" resume
+call echo %T_363%
+set "COLD=0"
+set "RESUME=1"
+if /i not "%AR_SESSION%"=="continue" set "PIN_SESS=%AR_SESSION%"
+goto :resume_and_run
+:ar_bad
+call echo %T_365%
+call :log "pending resume file damaged: discarded" resume
+del /f /q "%ARF%" >nul 2>&1
+goto :eof
+:ar_old
+call echo %T_362%
+call :log "pending resume older than %AR_MAX_HOURS% hours: discarded" resume
+del /f /q "%ARF%" >nul 2>&1
+goto :eof
+:ar_other
+call echo %T_360%
+call :log "pending resume kept: saved in another folder (%AR_FOLDER%)" resume
+goto :eof
+:ar_noip
+call echo %T_366%
+call :log "pending resume kept: exit IP not readable (now=%ARCUR% saved=%AR_IP%)" resume
+goto :eof
+:ar_sameip
+call echo %T_361%
+call :log "pending resume kept: same exit IP %ARCUR%" resume
+goto :eof
+:ar_noprobe
+call echo %T_367%
+call :log "pending resume kept: PROBE=0, quota not confirmed" resume
+goto :eof
+:ar_still
+call echo %T_358%
+call :log "pending resume kept: the probe on %ARCUR% still shows the quota" resume
+goto :eof
+:ar_probe_fail
+call echo %T_359%
+call :log "pending resume kept: probe failed, class %PCLASS%" resume
+goto :eof
+
+REM v2.54: any resume of this folder's chat consumes the record. A record of another folder stays.
+:ar_clear
+if not exist "%ARF%" goto :eof
+findstr /l /b /c:"FOLDER=%CD%" "%ARF%" >nul 2>&1
+if errorlevel 1 goto :eof
+del /f /q "%ARF%" >nul 2>&1
+call :log "pending resume consumed by a resume of this folder" resume
 goto :eof
 
 REM Second window (MULTI_INSTANCE=1): it works on a private copy of the settings, so the two never share
@@ -5233,6 +5427,16 @@ set "ACTIVE_PROXY="
 REM v2.23: first candidate that passed the Cloudflare trace but not the
 REM (unverified) API check. Offered at the end instead of failing the mode.
 set "TRACE_ONLY="
+call :pool_take PROXY
+set "PPOOL_OK="
+if defined OC_POOL_PREFER if "%HAVE_CURL%"=="1" (
+  curl.exe -sS -o nul -f --max-time %PROXY_PROBE_TIMEOUT% --noproxy "" --proxy "%OC_POOL_PREFER%" "%TRACE_URL%" >nul 2>&1
+  if not errorlevel 1 set "PPOOL_OK=1"
+)
+if defined PPOOL_OK set "ACTIVE_PROXY=%OC_POOL_PREFER%"
+set "OC_POOL_PREFER="
+if defined PPOOL_OK call echo %T_255%
+if defined PPOOL_OK exit /b 0
 set "PLIST=%STATE_DIR%\proxy_list.txt"
 if exist "%PLIST%" del /f /q "%PLIST%" >nul 2>&1
 call echo %T_250%
@@ -6054,9 +6258,12 @@ $Schema = @(
   S 'TARGET_TRIES' 'Rotation' 'Max attempts per hunt' 'int' 5 'New IPs requested in one hunt. The hunt stops at this count.' 'now' 1 100
   S 'TARGET_MINUTES' 'Rotation' 'Max minutes per hunt' 'int' 15 'The hunt stops after this many minutes.' 'now' 1 240
   S 'TARGET_INTERVAL' 'Rotation' 'Seconds between attempts' 'int' 15 'Pause between two attempts, so Cloudflare is not hit too fast.' 'now' 0 300
+  S 'POOL_ENABLE' 'Rotation' 'Keep a pool of tested IPs' 'bool' 1 'While Settings is open, the launcher tests IPs for proxy, VPN Gate and WireGuard and keeps them, so a rotation can reuse one.' 'now'
+  S 'POOL_MAX' 'Rotation' 'Saved IPs per mode' 'int' 5 'Most tested IPs kept for each mode. The oldest is dropped.' 'now' 1 50
+  S 'POOL_INTERVAL' 'Rotation' 'Seconds between pool searches' 'int' 60 'Pause between two pool searches. Minimum 5.' 'now' 5 3600
   S 'LIMIT_ACTION' 'Rotation' 'When the free limit returns' 'enum' 'rotate' 'rotate = a new IP every time. provider = after the rotations below, switch to the fallback model. ask = stop and ask.' 'now' 0 0 @('rotate', 'provider', 'ask')
   S 'LIMIT_MODEL' 'Rotation' 'Fallback model' 'ostring' '' 'Model used when the free limit keeps coming back, as provider/model. Type - to clear.' 'now'
-  S 'LIMIT_ROT_MAX' 'Rotation' 'Limit rotations in a row' 'int' 3 'Rotations in a row that end in the free limit again before the action above applies.' 'now' 1 50
+  S 'LIMIT_ROT_MAX' 'Rotation' 'Limit rotations in a row' 'int' 3 'Rotations in a row that end in the free limit again before the action above applies. 0 = never stop: keep rotating until a usable IP appears.' 'now' 0 50
   S 'WATCH' 'Watcher' 'Watch the log' 'bool' 1 'Rotate when a fatal error appears while opencode runs.' 'now'
   S 'RESUME_MSG' 'Watcher' 'Resume message' 'string' 'continue' 'Sent automatically after a rotation.' 'now'
   S 'RESUME_MODE' 'Watcher' 'Resume mode' 'enum' 'continue' 'continue = send the resume message. last = send your last message again. custom = send the custom text below.' 'now' 0 0 @('continue', 'last', 'custom')
@@ -6064,6 +6271,7 @@ $Schema = @(
   S 'CHAT_SNAPSHOT' 'Watcher' 'Show the last messages' 'bool' 1 'After opencode closes, the last messages of the chat are printed so they stay in the scroll-back and can be copied.' 'now'
   S 'TYPE_AHEAD' 'Watcher' 'Keep what you type' 'bool' 1 'Keys typed while the IP is being renewed are put in the prompt when opencode opens again.' 'now'
   S 'RESUME_AUTO' 'Watcher' 'Unattended resume' 'bool' 1 'The resume auto-approves tool permissions.' 'now'
+  S 'QUOTA_RESUME' 'Watcher' 'Resume after quota' 'bool' 1 'After a quota stop the chat resumes on a later start only with a new exit IP and a fresh probe.' 'now'
   S 'RESUME_TIMEOUT' 'Watcher' 'Resume timeout (s)' 'int' 90 'Seconds before a silent resume counts as a dead IP.' 'now' 10 900
   S 'PROBE' 'Probe' 'Test every new IP' 'bool' 1 'Send one cheap message through each candidate IP.' 'now'
   S 'PROBE_MODEL' 'Probe' 'Probe model' 'string' 'opencode/big-pickle' 'Model used by the IP probe.' 'now'
@@ -7664,12 +7872,14 @@ function Menu-Deep {
     @{ L = 'Restore chats'; V = 'from the Desktop'; H = 'Bring chats back from an earlier deep reset.' },
     @{ L = 'Clear cache'; V = 'keeps tokens'; H = 'Delete the opencode cache folder only. The login file (auth.json) and the chats are not touched.' },
     @{ L = 'Clear instance lock'; V = 'if a start says already open'; H = 'Remove the single-instance lock left by a window that crashed or was closed.' },
+    @{ L = 'Discard pending resume'; V = 'after a quota stop'; H = 'Forget the chat that was waiting to resume after a quota stop. The chat itself is not touched.' },
     @{ L = ($script:I.back + ' Back'); H = 'Return to the main menu.' })
   $r = Show-Menu 'Deep reset or restore chats' $items $null (Header-Lines) 0
   if ($r -eq 0) { exit 1 }
   if ($r -eq 1) { exit 2 }
   if ($r -eq 2) { exit 3 }
   if ($r -eq 3) { exit 4 }
+  if ($r -eq 4) { exit 5 }
   exit 10
 }
 # Pick an archived backup (one folder per deep reset). Exit 1 = picked, its path is in restore_pick.txt; 10 = back.
@@ -8222,7 +8432,7 @@ function Read-Cur {
   return @{ name = $p[1]; ip = $(if ($p.Count -gt 2) { $p[2] } else { '' }); port = $(if ($p.Count -gt 3 -and $p[3]) { [int]$p[3] } else { 0 }) }
 }
 
-if ($Act -eq 'stop') { Stop-Wp; Remove-Item -LiteralPath $CurF -Force -ErrorAction SilentlyContinue; Fin 'DOWN' }
+if ($Act -eq 'stop' -or $Act -eq 'stopkeep') { Stop-Wp; Remove-Item -LiteralPath $CurF -Force -ErrorAction SilentlyContinue; Fin 'DOWN' }
 if ($Act -eq 'status') {
   $c = Read-Cur
   if (-not $c) { Fin 'DOWN' }
@@ -8252,6 +8462,7 @@ $start = 0
 for ($i = 0; $i -lt $confs.Count; $i++) { if ($confs[$i].BaseName -eq $curName) { $start = $i + 1 } }
 $order = @(); for ($i = 0; $i -lt $confs.Count; $i++) { $order += $confs[($start + $i) % $confs.Count] }
 $cands = @($order | Where-Object { -not $failed.ContainsKey($_.BaseName) -and $_.BaseName -ne $curName })
+if ($env:OC_POOL_PREFER) { $cands = @(@($cands | Where-Object { $_.BaseName -eq $env:OC_POOL_PREFER }) + @($cands | Where-Object { $_.BaseName -ne $env:OC_POOL_PREFER })) }
 if ($cands.Count -eq 0) { Stop-Wp; Remove-Item -LiteralPath $CurF -Force -ErrorAction SilentlyContinue; Fin 'ALLFAIL' -tool 'WireGuard' -dir $dir }
 $tried = 0
 foreach ($c in $cands) {
@@ -8278,7 +8489,8 @@ Fin 'ALLFAIL' -tool 'WireGuard' -tried $tried -dir $dir
 #>>>OC_VGATE_PS
 # VPN Gate egress (v2.38): OpenVPN (openvpn.exe, community build) with the VPN Gate server configs.
 # Only OpenCode's hosts go through the tunnel: the config gets route-nopull and one route per IP that the hosts
-# resolve to right now. Everything else stays direct. Adding routes is an administrator action (one prompt per start).
+# resolve to right now. Everything else stays direct. The administrator prompt comes once per session: the VPN Gate helper (#>>>OC_VGHELP) runs
+# OpenVPN for every start and stop of this session.
 # Installs OpenVPN with winget when it is missing (one prompt).
 # In (env): OC_STATE, OC_VPN_ACT (switch|status|stop), VPN_TIMEOUT, OC_SID, VPNGATE_COUNTRY, VPNGATE_MAX, OC_VPN_M_TRY / _SAME / _NOANS.
 # Out: STATE\vpn_result.txt (STATUS, IP, LOC, NAME, TRIED, TOOL, DIR, PORT=0). Exit 0 = tunnel up and the exit IP changed.
@@ -8290,9 +8502,9 @@ $Act = $env:OC_VPN_ACT
 $Sid = $env:OC_SID; if (-not $Sid) { $Sid = '-' }
 $ResF = Join-Path $State 'vpn_result.txt'
 $CurF = Join-Path $State 'vpn_current.txt'
-$PidF = Join-Path $State 'openvpn.pid'
 $RtF = Join-Path $State 'vpn_routes.txt'
-$CleanF = Join-Path $State 'stop_tun.ps1'
+$Pipe = 'opencode-infinite-vgate'
+$ClientSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $LogF = Join-Path $State 'vpn.log'
 $FailF = Join-Path $State 'vpn_failed.txt'
 $CacheF = Join-Path $State 'vgate.csv'
@@ -8405,36 +8617,52 @@ function Get-Failed {
   }
   return $set
 }
-# the tunnel this launcher started: pid and start time, so a reused pid is never stopped
-function Tun-Pid {
-  if (-not (Test-Path -LiteralPath $PidF)) { return $null }
-  $p = @((Get-Content -LiteralPath $PidF -TotalCount 1) -split '\|')
-  try { $pr = Get-Process -Id ([int]$p[0]) -ErrorAction Stop; if ($pr.StartTime.Ticks -eq [long]$p[1]) { return $pr } } catch { }
-  return $null
-}
-# OpenVPN runs elevated, so it is stopped by one elevated script (one prompt). A hard kill leaves the
-# opencode routes on the TAP adapter, so the script also removes the routes listed in vpn_routes.txt.
-$CleanPs = @'
-param([int]$TunPid = 0, [string]$Routes = '')
-if ($TunPid -gt 0) { & taskkill.exe /PID $TunPid /F | Out-Null }
-if ($Routes -and (Test-Path -LiteralPath $Routes)) {
-  foreach ($ip in @(Get-Content -LiteralPath $Routes)) {
-    if ($ip) { Get-NetRoute -DestinationPrefix ($ip + $(if ($ip -like '*:*') { '/128' } else { '/32' })) -ErrorAction SilentlyContinue | Where-Object { $_.InterfaceAlias -like 'OpenVPN*' } | Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue }
+# The VPN Gate helper (#>>>OC_VGHELP): one elevated process per session, reached through a named pipe that only
+# this user can open. Vg-Call sends one line and returns the one-line answer, or $null when there is no helper.
+function Vg-Call([string]$req, [int]$ms) {
+  # retries while the helper turns to its next pipe instance (a short gap between two requests)
+  $end = (Get-Date).AddMilliseconds($ms); $c = $null
+  while ($null -eq $c) {
+    $t = New-Object IO.Pipes.NamedPipeClientStream('.', $Pipe, [IO.Pipes.PipeDirection]::InOut)
+    try { $t.Connect(200); $c = $t } catch { $t.Dispose(); if ((Get-Date) -ge $end) { return $null }; Start-Sleep -Milliseconds 100 }
   }
+  try {
+    $w = New-Object IO.StreamWriter($c, (New-Object Text.UTF8Encoding $false), 65536, $true); $w.AutoFlush = $true; $w.NewLine = "`n"
+    $w.WriteLine($req)
+    $r = New-Object IO.StreamReader($c, [Text.Encoding]::UTF8, $false, 65536, $true)
+    $ans = $r.ReadLine()
+    if ($ans) { return $ans }
+    return $null
+  } catch { return $null } finally { $c.Dispose() }
 }
-'@
-function Stop-Tun {
-  $pr = Tun-Pid
-  if (-not $pr -and -not (Test-Path -LiteralPath $RtF)) { Remove-Item -LiteralPath $PidF -Force -ErrorAction SilentlyContinue; return }
-  $id = $(if ($pr) { [int]$pr.Id } else { 0 })
-  New-Item -ItemType Directory -Force -Path $State | Out-Null
-  Set-Content -LiteralPath $CleanF -Value $CleanPs -Encoding UTF8
+# starts the helper if it is not there: the only administrator prompt of the session. $false = refused or not up.
+function Vg-Ensure {
+  if ($null -ne (Vg-Call 'STATUS' 400)) { return $true }
+  $l = Get-Content -LiteralPath $env:OCI_SELF
+  $i = [Array]::IndexOf($l, '#>>>OC_VGHELP'); $e = [Array]::IndexOf($l, '#>>>OC_ENDVGHELP')
+  if (($i -lt 0) -or ($e -le $i)) { VLog 'helper block is missing'; return $false }
+  $pre = '$Pipe = ''' + $Pipe + '''; $ClientSid = ''' + $ClientSid + '''; $IdleSec = 600'
+  if ($env:OC_VG_NOELEV) { $pre += '; $OvpnExe = ''' + $env:OC_OVPN_EXE + '''' }
+  $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($pre + "`r`n" + (($l[($i+1)..($e-1)]) -join "`r`n")))
   $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-  $psArgs = '-NoProfile -ExecutionPolicy Bypass -File "' + $CleanF + '" -TunPid ' + $id + ' -Routes "' + $RtF + '"'
-  if ($env:OC_VG_NOELEV) { Start-Process -FilePath $ps -ArgumentList $psArgs -Wait -WindowStyle Hidden }
-  else { Start-Process -FilePath $ps -ArgumentList $psArgs -Verb RunAs -Wait -WindowStyle Hidden }
-  Remove-Item -LiteralPath $RtF, $PidF -Force -ErrorAction SilentlyContinue
+  $al = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand ' + $enc
+  try {
+    if ($env:OC_VG_NOELEV) { $null = Start-Process -FilePath $ps -ArgumentList $al -WindowStyle Hidden -PassThru }
+    else { $null = Start-Process -FilePath $ps -ArgumentList $al -Verb RunAs -WindowStyle Hidden -PassThru }
+  } catch { VLog 'the administrator prompt was refused'; return $false }
+  $end = (Get-Date).AddSeconds(90)
+  while ((Get-Date) -lt $end) { if ($null -ne (Vg-Call 'STATUS' 400)) { return $true }; Start-Sleep -Milliseconds 700 }
+  return $false
 }
+# the config is sent as base64; the helper checks it and runs OpenVPN. $true = tunnel up.
+function Vg-Start([string]$cfgText, [string[]]$ips, [int]$secs) {
+  $ipsB = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($ips -join ' ')))
+  $cfgB = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($cfgText))
+  $r = Vg-Call ('START ' + $ipsB + ' ' + $cfgB + ' ' + $secs) (($secs + 30) * 1000)
+  VLog ('helper: ' + $r)
+  return ($r -eq 'OK')
+}
+function Vg-Stop { $null = Vg-Call 'STOP' 300 }
 function Read-Cur {
   if (-not (Test-Path -LiteralPath $CurF)) { return $null }
   $p = @((Get-Content -LiteralPath $CurF -TotalCount 1) -split '\|')
@@ -8481,37 +8709,12 @@ function Wait-NewIp([string]$prev, [int]$secs) {
   if ($last) { return @{ state = 'same'; r = $last } }
   return @{ state = 'none'; r = $null }
 }
-# starts openvpn elevated and waits for "Initialization Sequence Completed" in its log. $true = connected.
-# OpenVPN keeps its log open while it runs, so the log is read with the sharing that allows it
-function Read-Shared([string]$p) {
-  $fs = [IO.File]::Open($p, [IO.FileMode]::Open, [IO.FileAccess]::Read, ([IO.FileShare]'ReadWrite,Delete'))
-  try { $sr = New-Object IO.StreamReader($fs); return $sr.ReadToEnd() } finally { $fs.Dispose() }
-}
-function Start-Tun([string]$exe, [string]$cfg, [int]$secs) {
-  $log = Join-Path $CfgDir 'openvpn.log'
-  Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue
-  $oargs = @('--config', ('"' + $cfg + '"'), '--log', ('"' + $log + '"'), '--verb', '3', '--connect-retry-max', '2', '--auth-nocache')
-  if ($env:OC_VG_NOELEV) { $p = Start-Process -FilePath $exe -ArgumentList $oargs -WindowStyle Hidden -PassThru }
-  else { $p = Start-Process -FilePath $exe -ArgumentList $oargs -Verb RunAs -WindowStyle Hidden -PassThru }
-  Set-Content -LiteralPath $PidF -Value ([string]$p.Id + '|' + [string]$p.StartTime.Ticks)
-  $end = (Get-Date).AddSeconds($secs)
-  while ((Get-Date) -lt $end) {
-    if (Test-Path -LiteralPath $log) {
-      $t = Read-Shared $log
-      if ($t -match 'Initialization Sequence Completed') { return $true }
-      if ($t -match 'AUTH_FAILED|Exiting due to fatal error|SIGTERM') { VLog 'openvpn reported a failure'; return $false }
-    }
-    if ($p.HasExited) { VLog ('openvpn exited, code ' + $p.ExitCode); return $false }
-    Start-Sleep -Milliseconds 500
-  }
-  return $false
-}
-
-if ($Act -eq 'stop') { Stop-Tun; Remove-Item -LiteralPath $CurF -Force -ErrorAction SilentlyContinue; Fin 'DOWN' }
+if ($Act -eq 'stop') { Vg-Call 'QUIT' 300 | Out-Null; Remove-Item -LiteralPath $CurF, $RtF -Force -ErrorAction SilentlyContinue; Fin 'DOWN' }
+if ($Act -eq 'stopkeep') { Vg-Call 'STOP' 300 | Out-Null; Remove-Item -LiteralPath $CurF, $RtF -Force -ErrorAction SilentlyContinue; Fin 'DOWN' }
 if ($Act -eq 'status') {
   $c = Read-Cur
   if (-not $c) { Fin 'DOWN' }
-  $up = [bool](Tun-Pid)
+  $up = ((Vg-Call 'STATUS' 400) -eq 'UP')
   if ($env:OC_VPN_FAKEUP) { $up = ($env:OC_VPN_FAKEUP -eq '1') }
   if ($up -and -not $env:OC_VPN_FAKEUP) {
     $routed = @(); if (Test-Path -LiteralPath $RtF) { $routed = @(Get-Content -LiteralPath $RtF) }
@@ -8537,7 +8740,9 @@ if ($cands.Count -eq 0) { Fin 'NOCONF' -tool 'VPN Gate' -dir $cc }
 $cur = Read-Cur
 $curName = $(if ($cur) { $cur.name } else { '' })
 $cands = @($cands | Where-Object { $_.HostName -ne $curName })
-if ($cands.Count -eq 0) { Stop-Tun; Remove-Item -LiteralPath $CurF -Force -ErrorAction SilentlyContinue; Fin 'ALLFAIL' -tool 'VPN Gate' -dir $cc }
+if ($env:OC_POOL_PREFER) { $cands = @(@($cands | Where-Object { $_.HostName -eq $env:OC_POOL_PREFER }) + @($cands | Where-Object { $_.HostName -ne $env:OC_POOL_PREFER })) }
+if ($cands.Count -eq 0) { Vg-Stop; Remove-Item -LiteralPath $CurF -Force -ErrorAction SilentlyContinue; Fin 'ALLFAIL' -tool 'VPN Gate' -dir $cc }
+if (-not (Vg-Ensure)) { Fin 'NOADMIN' -tool 'VPN Gate' }
 # the exit IP to beat: OpenCode's host as seen from this PC right now (the old tunnel, if any, is still up until the switch)
 $prevR = Get-ExitIp
 $prev = $(if ($prevR) { $prevR.ip } else { '' })
@@ -8545,14 +8750,12 @@ $tried = 0
 foreach ($s in $cands) {
   $tried++
   Say $env:OC_VPN_M_TRY $s.HostName
-  Stop-Tun
-  $cfg = Join-Path $CfgDir ($s.HostName + '.ovpn')
+  Vg-Stop
   $raw = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($s.OpenVPN_ConfigData_Base64))
   $built = Build-Ovpn $raw $ocIps
-  [IO.File]::WriteAllText($cfg, $built.text, (New-Object Text.UTF8Encoding $false))
   VLog ('config ' + $s.HostName + ': ' + $built.routes + ' opencode routes')
   [IO.File]::WriteAllText($RtF, ($ocIps -join "`r`n"))
-  if (-not (Start-Tun $exe $cfg $timeout)) { Mark-Failed $s.HostName 'tunnel did not start'; Stop-Tun; continue }
+  if (-not (Vg-Start $built.text $ocIps $timeout)) { Mark-Failed $s.HostName 'tunnel did not start'; Vg-Stop; continue }
   Set-Content -LiteralPath $CurF -Value ('VPNGATE|' + $s.HostName + '|')
   $w = Wait-NewIp $prev $timeout
   if ($w.state -eq 'new') {
@@ -8561,12 +8764,279 @@ foreach ($s in $cands) {
   }
   if ($w.state -eq 'same') { Say $env:OC_VPN_M_SAME $s.HostName; Mark-Failed $s.HostName 'same exit IP' }
   else { Say $env:OC_VPN_M_NOANS $s.HostName $timeout; Mark-Failed $s.HostName 'no answer' }
-  Stop-Tun
+  Vg-Stop
 }
-Stop-Tun
+Vg-Stop
 Remove-Item -LiteralPath $CurF -Force -ErrorAction SilentlyContinue
 Fin 'ALLFAIL' -tool 'VPN Gate' -tried $tried -dir $cc
 #>>>OC_ENDVGATE
+#>>>OC_VGHELP
+# VPN Gate helper (v2.54). Runs elevated ONCE per session (one UAC prompt), then serves the requests
+# of the launcher user only: the named pipe accepts that user's SID alone. It never takes an exe or a
+# folder from a request. Every config is checked against an allow-list and written to an
+# administrator-only folder before OpenVPN reads it, so the user cannot change it in between.
+# Input (set by the launcher above this text): $Pipe, $ClientSid, $IdleSec, and in tests only $OvpnExe.
+$ErrorActionPreference = 'Stop'
+$Test = [bool]$env:OC_VG_RUNDIR
+$Dir = $(if ($Test) { $env:OC_VG_RUNDIR } else { Join-Path $env:ProgramData 'opencode-infinite\vgate-run' })
+$Allowed = @('client', 'dev', 'dev-type', 'proto', 'remote', 'remote-random', 'nobind', 'persist-key', 'persist-tun', 'resolv-retry', 'cipher', 'data-ciphers', 'data-ciphers-fallback', 'auth', 'auth-nocache', 'comp-lzo', 'compress', 'verb', 'remote-cert-tls', 'key-direction', 'tls-client', 'tls-cipher', 'tls-version-min', 'verify-x509-name', 'ping', 'ping-restart', 'ping-exit', 'connect-retry', 'connect-retry-max', 'connect-timeout', 'keepalive', 'mssfix', 'tun-mtu', 'link-mtu', 'float', 'reneg-sec', 'explicit-exit-notify', 'allow-recursive-routing', 'ignore-unknown-option', 'route', 'route-nopull', 'route-ipv6', 'route-method', 'route-delay', 'pull-filter', 'ifconfig-ipv6', 'block-ipv6', 'fragment', 'sndbuf', 'rcvbuf', 'tcp-nodelay', 'tls-timeout')
+$Blocks = @('ca', 'cert', 'key', 'tls-auth', 'tls-crypt')
+function Harden([string]$d) {
+  if ($Test) { return }
+  $own = (Get-Acl -LiteralPath $d).GetOwner([Security.Principal.SecurityIdentifier]).Value
+  if ($own -ne 'S-1-5-32-544' -and $own -ne 'S-1-5-18') { throw 'the run folder is not owned by administrators' }
+  & icacls.exe $d /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' | Out-Null
+}
+$Parent = Split-Path -Parent $Dir
+foreach ($d in @($Parent, $Dir)) { if (-not (Test-Path -LiteralPath $d)) { New-Item -ItemType Directory -Path $d | Out-Null }; Harden $d }
+# '' when every directive is allowed, else the first one that is not
+function Cfg-Error([string]$t) {
+  $blk = ''
+  foreach ($ln in ($t -split "`r?`n")) {
+    $s = $ln.Trim()
+    if ($blk) { if ($s -eq ('</' + $blk + '>')) { $blk = '' }; continue }
+    if ($s -match '^<([A-Za-z-]+)>$') { if ($Blocks -notcontains $matches[1]) { return ('block ' + $matches[1]) }; $blk = $matches[1]; continue }
+    if ($s -eq '' -or $s[0] -eq '#' -or $s[0] -eq ';') { continue }
+    $k = ($s -split '\s+')[0]
+    if ($Allowed -notcontains $k) { return ('directive ' + $k) }
+  }
+  if ($blk) { return 'unclosed block' }
+  return ''
+}
+function Drop-Routes {
+  $f = Join-Path $Dir 'routes.txt'
+  if (-not (Test-Path -LiteralPath $f)) { return }
+  foreach ($ip in @(Get-Content -LiteralPath $f)) {
+    if ($ip) { Get-NetRoute -DestinationPrefix ($ip + $(if ($ip -like '*:*') { '/128' } else { '/32' })) -ErrorAction SilentlyContinue | Where-Object { $_.InterfaceAlias -like 'OpenVPN*' } | Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue }
+  }
+  Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue
+}
+$script:Tun = $null
+function Tun-Up { return ($null -ne $script:Tun -and -not $script:Tun.HasExited) }
+function Stop-Tun {
+  if ($script:Tun) { try { if (-not $script:Tun.HasExited) { Stop-Process -Id $script:Tun.Id -Force } } catch { }; $script:Tun = $null }
+  Drop-Routes
+}
+function Find-Ovpn {
+  if ($Test) { return $OvpnExe }
+  foreach ($c in @((Join-Path $env:ProgramFiles 'OpenVPN\bin\openvpn.exe'), (Join-Path ${env:ProgramFiles(x86)} 'OpenVPN\bin\openvpn.exe'))) { if (Test-Path -LiteralPath $c) { return $c } }
+  return ''
+}
+# shared read: OpenVPN keeps its log open while it runs
+function Read-Shared([string]$p) {
+  $fs = [IO.File]::Open($p, [IO.FileMode]::Open, [IO.FileAccess]::Read, ([IO.FileShare]'ReadWrite,Delete'))
+  try { $sr = New-Object IO.StreamReader($fs); return $sr.ReadToEnd() } finally { $fs.Dispose() }
+}
+function Start-Vpn([string]$ipsText, [string]$cfgText, [int]$secs) {
+  Stop-Tun
+  $ovpn = Find-Ovpn
+  if (-not $ovpn) { return 'FAIL openvpn is missing' }
+  $err = Cfg-Error $cfgText
+  if ($err) { return ('FAIL config rejected: ' + $err) }
+  $ips = @($ipsText -split ' ' | Where-Object { $_ })
+  if ($ips.Count -eq 0) { return 'FAIL no ip' }
+  foreach ($ip in $ips) { $a = $null; if (-not [Net.IPAddress]::TryParse($ip, [ref]$a)) { return 'FAIL bad ip' } }
+  $cfg = Join-Path $Dir 'run.ovpn'
+  $log = Join-Path $Dir 'openvpn.log'
+  Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue
+  [IO.File]::WriteAllText($cfg, $cfgText, (New-Object Text.UTF8Encoding $false))
+  [IO.File]::WriteAllText((Join-Path $Dir 'routes.txt'), ($ips -join "`r`n"))
+  $p = Start-Process -FilePath $ovpn -ArgumentList @('--config', ('"' + $cfg + '"'), '--log', ('"' + $log + '"'), '--verb', '3', '--connect-retry-max', '2', '--auth-nocache') -WindowStyle Hidden -PassThru
+  $script:Tun = $p
+  $end = (Get-Date).AddSeconds($secs)
+  while ((Get-Date) -lt $end) {
+    if (Test-Path -LiteralPath $log) {
+      $t = Read-Shared $log
+      if ($t -match 'Initialization Sequence Completed') { return 'OK' }
+      if ($t -match 'AUTH_FAILED|Exiting due to fatal error|SIGTERM') { break }
+    }
+    if ($p.HasExited) { break }
+    Start-Sleep -Milliseconds 500
+  }
+  Stop-Tun
+  return 'FAIL tunnel did not start'
+}
+function Handle([string]$req) {
+  $p = @($req -split ' ', 5)
+  switch ($p[0]) {
+    'STATUS' { if (Tun-Up) { return 'UP' } else { return 'DOWN' } }
+    'STOP' { Stop-Tun; return 'OK' }
+    'QUIT' { Stop-Tun; return 'OK' }
+    'START' {
+      if ($p.Count -lt 4) { return 'FAIL bad request' }
+      $secs = 0; if (-not [int]::TryParse($p[3], [ref]$secs) -or $secs -lt 5 -or $secs -gt 300) { return 'FAIL bad timeout' }
+      $ipsText = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($p[1]))
+      $cfgText = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($p[2]))
+      return (Start-Vpn $ipsText $cfgText $secs)
+    }
+    default { return 'FAIL unknown request' }
+  }
+}
+$sec = New-Object IO.Pipes.PipeSecurity
+$sec.AddAccessRule((New-Object IO.Pipes.PipeAccessRule((New-Object Security.Principal.SecurityIdentifier($ClientSid)), [IO.Pipes.PipeAccessRights]::ReadWrite, [Security.AccessControl.AccessControlType]::Allow)))
+$lastUse = Get-Date
+while ($true) {
+  $srv = New-Object IO.Pipes.NamedPipeServerStream -ArgumentList @($Pipe, [IO.Pipes.PipeDirection]::InOut, 1, [IO.Pipes.PipeTransmissionMode]::Byte, [IO.Pipes.PipeOptions]::Asynchronous, 65536, 65536, $sec)
+  $task = $srv.WaitForConnectionAsync()
+  $idle = $false
+  while (-not $task.Wait(1000)) { if (((Get-Date) - $lastUse).TotalSeconds -gt $IdleSec) { $idle = $true; break } }
+  if ($idle) { $srv.Dispose(); Stop-Tun; break }
+  $quit = $false
+  try {
+    $r = New-Object IO.StreamReader($srv, [Text.Encoding]::UTF8, $false, 65536, $true)
+    $w = New-Object IO.StreamWriter($srv, (New-Object Text.UTF8Encoding $false), 65536, $true)
+    $w.AutoFlush = $true; $w.NewLine = "`n"
+    $req = [string]$r.ReadLine()
+    $res = 'FAIL no answer'
+    try { $res = [string](Handle $req) } catch { $res = 'FAIL ' + ($_.Exception.Message -replace '\s+', ' ') }
+    $w.WriteLine($res)
+    $quit = ($req -like 'QUIT*')
+    $lastUse = Get-Date
+  } catch { } finally { try { $srv.WaitForPipeDrain() } catch { }; try { $srv.Disconnect() } catch { }; $srv.Dispose() }
+  if ($quit) { break }
+}
+#>>>OC_ENDVGHELP
+#>>>OC_POOL_PS
+# Pool worker (v2.54). Runs only while Settings is open (see :pool_start / :pool_stop).
+# Keeps tested IPs in <STATE>\pool\ip_pool.txt, one line per entry: mode TAB id TAB ip TAB loc.
+# OC_POOL_ACT=take: prints the id of one saved entry of OC_POOL_MODE whose ip is not OC_POOL_CUR, and removes it.
+$ErrorActionPreference = 'Continue'
+$st = $env:OC_STATE
+$pool = Join-Path $st 'pool'
+New-Item -ItemType Directory -Force -Path $pool | Out-Null
+$pfile = Join-Path $pool 'ip_pool.txt'
+$stopF = Join-Path $pool 'stop.flag'
+$doneF = Join-Path $pool 'done.flag'
+$max = [int]$(if ($env:POOL_MAX) { $env:POOL_MAX } else { 5 })
+$iv = [Math]::Max(5, [int]$(if ($env:POOL_INTERVAL) { $env:POOL_INTERVAL } else { 60 }))
+$psx = $(if ($env:PSX) { $env:PSX } else { 'powershell' })
+
+function Pool-Load { if (Test-Path -LiteralPath $pfile) { return @(Get-Content -LiteralPath $pfile -Encoding UTF8 | Where-Object { ($_ -split "`t").Count -eq 4 }) }; return @() }
+function Pool-Save([string[]]$l) { [IO.File]::WriteAllLines($pfile, [string[]]@($l), (New-Object Text.UTF8Encoding($false))) }
+function Pool-Count([string]$mode) { return @(Pool-Load | Where-Object { ($_ -split "`t")[0] -eq $mode }).Count }
+function Pool-Add([string]$mode, [string]$id, [string]$ip, [string]$loc) {
+  $l = @(Pool-Load)
+  foreach ($x in $l) { $p = $x -split "`t"; if ($p[0] -eq $mode -and ($p[1] -eq $id -or $p[2] -eq $ip)) { return } }
+  $new = (@($mode, $id, $ip, $loc) -join "`t")
+  $mine = @($l | Where-Object { ($_ -split "`t")[0] -eq $mode }) + $new
+  $others = @($l | Where-Object { ($_ -split "`t")[0] -ne $mode })
+  Pool-Save (@($others) + @($mine | Select-Object -Last $max))
+}
+function Pool-Take([string]$mode, [string]$cur) {
+  $l = @(Pool-Load)
+  $hit = $null
+  foreach ($x in $l) { $p = $x -split "`t"; if ($p[0] -eq $mode -and $p[2] -ne $cur) { $hit = $x; break } }
+  if ($null -eq $hit) { return '' }
+  Pool-Save @($l | Where-Object { $_ -ne $hit })
+  return [string](($hit -split "`t")[1])
+}
+
+# rotation: the id to try first, removed from the pool; prints nothing when the pool has none
+if ($env:OC_POOL_ACT -eq 'take') { Write-Output (Pool-Take $env:OC_POOL_MODE $env:OC_POOL_CUR); exit 0 }
+
+function Stopping { return (Test-Path -LiteralPath $stopF) }
+
+# the helper's pipe, one request one answer; '' = helper not running (never starts it, never asks for administrator)
+function Vg-Quick([string]$req) {
+  try {
+    $c = New-Object System.IO.Pipes.NamedPipeClientStream('.', 'opencode-infinite-vgate', [System.IO.Pipes.PipeDirection]::InOut)
+    $c.Connect(400)
+    $w = New-Object System.IO.StreamWriter($c)
+    $w.AutoFlush = $true
+    $w.Write($req + "`n")
+    $r = New-Object System.IO.StreamReader($c)
+    $ans = [string]$r.ReadLine()
+    $c.Dispose()
+    return $ans
+  } catch { return '' }
+}
+
+# one VPN block as a hidden child (it calls exit): its messages stay off the Settings screen
+function Run-Vpn([string]$startM, [string]$endM, [string]$act) {
+  $oldAct = $env:OC_VPN_ACT; $oldState = $env:OC_STATE; $oldSid = $env:OC_SID
+  $env:OC_VPN_ACT = $act; $env:OC_STATE = $pool; $env:OC_SID = 'pool'
+  $cmd = '$l=Get-Content -LiteralPath $env:OCI_SELF; $i=[Array]::IndexOf($l,''' + $startM + '''); $e=[Array]::IndexOf($l,''' + $endM + '''); if(($i -lt 0) -or ($e -le $i)){exit 90}; Invoke-Expression (($l[($i+1)..($e-1)]) -join [Environment]::NewLine)'
+  $p = Start-Process -FilePath $psx -ArgumentList ('-NoProfile -Command "' + $cmd + '"') -WindowStyle Hidden -Wait -PassThru
+  $env:OC_VPN_ACT = $oldAct; $env:OC_STATE = $oldState; $env:OC_SID = $oldSid
+  return $p.ExitCode
+}
+
+function Fill-Vpn([string]$mode) {
+  if ($mode -eq 'VPNGATE') { $sM = '#>>>OC_VGATE_PS'; $eM = '#>>>OC_ENDVGATE' } else { $sM = '#>>>OC_VPN_PS'; $eM = '#>>>OC_ENDVPN' }
+  Remove-Item -LiteralPath (Join-Path $pool 'vpn_result.txt') -Force -ErrorAction SilentlyContinue
+  [void](Run-Vpn $sM $eM 'switch')
+  $r = @{}
+  $rf = Join-Path $pool 'vpn_result.txt'
+  if (Test-Path -LiteralPath $rf) { foreach ($x in @(Get-Content -LiteralPath $rf)) { $kv = $x -split '=', 2; if ($kv.Count -eq 2) { $r[$kv[0]] = $kv[1] } } }
+  if ($r['STATUS'] -eq 'OK' -and $r['IP']) { Pool-Add $mode $r['NAME'] $r['IP'] $r['LOC'] }
+  [void](Run-Vpn $sM $eM 'stopkeep')
+}
+
+# proxy list: the same download and normalizer as the launcher; refreshed every 30 minutes
+function Get-Plist {
+  $src = ([string]$env:PROXY_LIST_URL).Trim().Trim('"')
+  $raw = Join-Path $pool 'proxy_list_raw.txt'
+  $plist = Join-Path $pool 'proxy_list.txt'
+  $age = 9999
+  if (Test-Path -LiteralPath $raw) { $age = ((Get-Date) - (Get-Item -LiteralPath $raw).LastWriteTime).TotalMinutes }
+  if ($src -and $age -gt 30) {
+    Remove-Item -LiteralPath $raw, (Join-Path $pool 'proxy_tested.txt') -Force -ErrorAction SilentlyContinue
+    if ($src -match '^(https?|ftp)://') {
+      if ($env:HAVE_CURL -eq '1') { & curl.exe -L -f -s --max-time 20 --noproxy '*' -o $raw $src 2>$null }
+      else { try { Invoke-WebRequest -UseBasicParsing -Uri $src -OutFile $raw -TimeoutSec 20 } catch {} }
+    } elseif ($src -notmatch '^file://') { Copy-Item -LiteralPath $src -Destination $raw -Force -ErrorAction SilentlyContinue }
+    if ((Test-Path -LiteralPath $raw) -and (Get-Item -LiteralPath $raw).Length -ge [int]$(if ($env:PROXY_LIST_MIN_BYTES) { $env:PROXY_LIST_MIN_BYTES } else { 20 })) {
+      $env:OC_PRAW = $raw; $env:OC_PLIST = $plist
+      $nl = Get-Content -LiteralPath $env:OCI_SELF
+      $ni = [Array]::IndexOf($nl, '#>>>OC_PLIST_PS'); $ne = [Array]::IndexOf($nl, '#>>>OC_ENDPLIST')
+      if (($ni -ge 0) -and ($ne -gt $ni)) { Invoke-Expression (($nl[($ni+1)..($ne-1)]) -join [Environment]::NewLine) | Out-Null }
+    }
+  }
+  return (Test-Path -LiteralPath $plist)
+}
+
+function Fill-Proxy {
+  if (-not (Get-Plist)) { return }
+  $plist = Join-Path $pool 'proxy_list.txt'
+  $tf = Join-Path $pool 'proxy_tested.txt'
+  $tested = @(); if (Test-Path -LiteralPath $tf) { $tested = @(Get-Content -LiteralPath $tf) }
+  $burnF = Join-Path $st 'proxy_burned.txt'
+  $burn = @(); if (Test-Path -LiteralPath $burnF) { $burn = @(Get-Content -LiteralPath $burnF) }
+  $tryMax = [int]$(if ($env:PROXY_TRY_MAX) { $env:PROXY_TRY_MAX } else { 12 })
+  $to = [int]$(if ($env:PROXY_PROBE_TIMEOUT) { $env:PROXY_PROBE_TIMEOUT } else { 8 })
+  $trace = $(if ($env:TRACE_URL) { $env:TRACE_URL } else { 'https://www.cloudflare.com/cdn-cgi/trace' })
+  $tries = 0
+  foreach ($x in @(Get-Content -LiteralPath $plist)) {
+    if ((Stopping) -or $tries -ge $tryMax -or (Pool-Count 'PROXY') -ge $max) { break }
+    $c = ([string]$x).Trim()
+    if (-not $c -or $c -match '^[#;]' -or $c -match 'socks') { continue }
+    $url = $(if ($c -match '^https?://') { $c } else { 'http://' + $c })
+    if (($tested -contains $url) -or ($burn -contains $url) -or ($burn -contains $c)) { continue }
+    $tries++
+    Add-Content -LiteralPath $tf -Value $url
+    $tr = & curl.exe -s -f --max-time $to --proxy $url --noproxy 'none.invalid' $trace 2>$null
+    if (($LASTEXITCODE -ne 0) -or -not $tr) { continue }
+    $ip = ''; $loc = ''
+    foreach ($ln in @($tr)) { if ($ln -match '^ip=(.+)$') { $ip = $Matches[1].Trim() }; if ($ln -match '^loc=(.+)$') { $loc = $Matches[1].Trim() } }
+    if ($ip) { Pool-Add 'PROXY' $url $ip $loc }
+  }
+}
+
+Remove-Item -LiteralPath $doneF -Force -ErrorAction SilentlyContinue
+try {
+  while (-not (Stopping)) {
+    if ($env:PROXY_LIST_URL -and $env:HAVE_CURL -eq '1' -and (Pool-Count 'PROXY') -lt $max) { Fill-Proxy }
+    if (Stopping) { break }
+    # VPN Gate only when its helper already runs and no tunnel is up (the pool never asks for administrator)
+    if ((Pool-Count 'VPNGATE') -lt $max) { $ah = Vg-Quick 'STATUS'; if ($ah -and $ah -ne 'UP') { Fill-Vpn 'VPNGATE' } }
+    if (Stopping) { break }
+    if ((Pool-Count 'WIREGUARD') -lt $max) { Fill-Vpn 'WIREGUARD' }
+    for ($s = 0; ($s -lt $iv) -and -not (Stopping); $s++) { Start-Sleep -Seconds 1 }
+  }
+} finally {
+  Set-Content -LiteralPath $doneF -Value 'done'
+}
+#>>>OC_ENDPOOL
 #>>>OC_CHAT_PS
 # Reads the chat of the current folder through the opencode CLI. Run by :chat_run.
 # In (env): OC_CHAT_ACT = snapshot | empty | resume | typed, OC_EXE (opencode), OC_STATE.
@@ -8626,6 +9096,11 @@ try {
     }
     $t = Clean $sb.ToString() 500
     if ($t) { Put @('TYPED=' + $t) }
+    exit 0
+  }
+  if ($Act -eq 'sid') {
+    $j = @((Run-Cli @('session', 'list', '--format', 'json', '-n', '1')) | ConvertFrom-Json)
+    if ($j.Count -and ([string]$j[0].id) -match '^[A-Za-z0-9_-]+$') { Put @('SID=' + [string]$j[0].id) }
     exit 0
   }
   $e = Get-Chat

@@ -5,6 +5,7 @@
 #include <memory>
 #include <set>
 #include <vector>
+#include <atomic>
 
 #include "config.h"
 #include "torbridge.h"
@@ -15,6 +16,9 @@ enum class Egress { None, Warp, Tor, Proxy, Wireproxy, VpnGate };
 
 const char* egressName(Egress e);
 Egress      egressFromName(const std::string& s);
+
+// true when the VPN Gate helper answers (no administrator prompt, no state change)
+bool vgHelperAlive();
 
 struct EgressState {
     Egress      mode = Egress::None;
@@ -57,8 +61,16 @@ public:
     // 0 = usable, 1 = burned (limit answer), 2 = probe itself broken
     int probe(ProgressFn log, const std::string& cli, const std::string& model);
 
-    // Rotate until the target matches and the probe accepts. false = gave up.
+    // Rotate until the target matches and the probe accepts. Runs until that happens or cancel() is called.
     bool hunt(ProgressFn log, const std::string& cli);
+    void cancel() { cancelHunt_ = true; }
+
+    // IP pool: routes that worked, kept for the next rotation (PROXY, WIREGUARD, VPNGATE).
+    bool poolUse(ProgressFn log);                                   // rotation: take a saved route first
+    bool poolFillOne(ProgressFn log, const std::string& cli, const std::string& curIp, bool useProbe);
+    void asPoolWorker() { runTag_ = "pool"; }                       // worker engine: never tears down the session
+    void resume() { cancelHunt_ = false; }                          // the pool worker is used again
+    bool tunnelUp() const { return vpnUp_.load(); }                 // a VPN Gate tunnel is up in this engine
 
     void shutdown();
 
@@ -66,6 +78,7 @@ public:
     std::string torLogPath() const;
 
 private:
+    std::atomic<bool> cancelHunt_{false};
     bool rotateRoute(ProgressFn log);                        // one mode-specific rotation, unchecked
     bool warpAvailable() const;
     bool warpCall(const std::string& args, int timeoutSec, std::string* out = nullptr) const;
@@ -94,11 +107,19 @@ private:
     bool vgSwitch(ProgressFn log);
     void vgStop();
     std::string ovpnExe(ProgressFn log);
-    bool vgTunStart(const std::string& exe, const std::string& cfg, int secs);
+    bool vgEnsure(ProgressFn log);
+    bool vgStart(const std::string& cfgText, const std::vector<std::string>& ips, int secs);
+    void vgQuit();
     TraceInfo vgTrace() const;
     std::vector<std::string> ocIps() const;
 
     bool portOpen(uint16_t port, int timeoutMs) const;
+    bool wgUseConf(const std::string& name, const std::string& path, ProgressFn log);
+    bool vgUseHost(const std::string& host, const std::string& cfgPath, const std::vector<std::string>& ips, ProgressFn log);
+    std::string wgConfPath(const std::string& name) const;
+    std::set<std::string> poolTried_;   // candidates this engine already tested
+    std::string runTag_;                // "" = session engine, "pool" = background worker
+    std::atomic<bool> vpnUp_{false};
     static bool probeClassifyLimit(const std::string& text);
 
     Config* cfg_;
@@ -110,7 +131,6 @@ private:
     std::set<std::string> failedWg_, failedVg_;
     std::string curName_;          // active .conf / VPN Gate host
     uint32_t wpPid_ = 0;  void* wpProc_ = nullptr;  int wpPort_ = 0;
-    uint32_t ovPid_ = 0;  void* ovProc_ = nullptr;
     bool vgRoutesSet_ = false;
 };
 

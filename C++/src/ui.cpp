@@ -410,6 +410,8 @@ static void drawSetting(App& app, const SettingDef& d) {
 static const float kSideW = 210.0f;
 
 static bool sideItem(const char* label, bool selected, float indent) {
+    // Same label can appear twice (a settings group and a nav item both named "Support"): the indent tells them apart.
+    ImGui::PushID(static_cast<int>(indent));
     ImGui::PushID(label);
     ImVec2 pos = ImGui::GetCursorScreenPos();
     ImVec2 sz(ImGui::GetContentRegionAvail().x, 32.0f);
@@ -425,6 +427,7 @@ static bool sideItem(const char* label, bool selected, float indent) {
     }
     dl->AddText(ImVec2(pos.x + 14 + indent, pos.y + (sz.y - ImGui::GetTextLineHeight()) * 0.5f),
                 selected ? kText : (hov ? kText : IM_COL32(170, 180, 198, 255)), label);
+    ImGui::PopID();
     ImGui::PopID();
     return pressed;
 }

@@ -216,7 +216,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
     int w = 1180, h = 760;
     if (w > waW - 40) w = waW - 40;
     if (h > waH - 40) h = waH - 40;
-    HWND hwnd = ::CreateWindowExW(WS_EX_APPWINDOW, wc.lpszClassName, L"OpenCode Infinite",
+    HWND hwnd = ::CreateWindowExW(WS_EX_APPWINDOW, wc.lpszClassName, L"opencode-infinity",
                                   WS_POPUP | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX,
                                   wa.left + (waW - w) / 2, wa.top + (waH - h) / 2, w, h,
                                   nullptr, nullptr, wc.hInstance, nullptr);
