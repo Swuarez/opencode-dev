@@ -71,8 +71,6 @@ The Desktop folder is asked from Windows, so it works when Desktop lives in OneD
 powershell -NoProfile -Command "$d=[Environment]::GetFolderPath('Desktop'); [Net.ServicePointManager]::SecurityProtocol='Tls12'; iwr https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest/downloads/OpenCode-Infinite.bat -UseBasicParsing -OutFile (Join-Path $d 'OpenCode Infinite.bat'); & (Join-Path $d 'OpenCode Infinite.bat')"
 ```
 
-To update an old copy, run `Update launcher.bat` from this repository in the same folder. It downloads the latest release and replaces the old file.
-
 ### 1b. Linux
 
 Download the script into your home folder and run it:
@@ -363,15 +361,12 @@ No network, or an unreadable version, changes nothing.
 
 **Linux.** On start the launcher checks the latest release for a newer copy of itself, with the same SHA-256 check (it backs up the old file and asks first) and for a newer OpenCode through npm (it asks first). **Check for updates** in Settings > Support runs the same check now.
 
-`Update launcher.bat` uses the same source and the same check. It is kept in the repository and is not attached to the releases; it still fetches the launcher from the latest release.
-
 **Publishing a version** (maintainers):
 
 1. Raise the version in the launcher header (`REM  OpenCode launcher  (vX.Y)`) and, for Linux, `VERSION=` in the script.
 2. Write the checksums and commit them with the files: `sha256sum "OpenCode Infinite.bat" opencode-infinite.sh > SHA256SUMS`. The `.exe` is built from `C++/` and is not committed; add its line for `OpenCode Infinite.exe` by hand (`sha256sum` of the built file), from a copy kept next to the other files.
 3. Push a tag with the same version: `git tag vX.Y && git push origin main vX.Y`
-4. Create the release for that tag in GitLab (**Deploy > Releases > New release**) and attach `OpenCode Infinite.bat`, `opencode-infinite.sh`, `SHA256SUMS` and the built `.exe` as `OpenCode-Infinite.exe` (the launcher downloads it from that path). `Update launcher.bat` is not attached.
-
+4. Create the release for that tag in GitLab (**Deploy > Releases > New release**) and attach `OpenCode Infinite.bat`, `opencode-infinite.sh`, `SHA256SUMS` and the built `.exe` as `OpenCode-Infinite.exe` (the launcher downloads it from that path).
 The launcher only reads the latest release's tag and checks the file against `SHA256SUMS` at that tag, so a commit on `main` without a release reaches nobody. `.gitattributes` keeps the `.bat` files with CRLF in the repository, so the downloaded bytes are the ones that were hashed.
 
 ---
@@ -416,7 +411,7 @@ The C++ app uses this same folder and `config.json`, unless `OCIN_STATE` points 
 
 | Symptom | What to do |
 |---|---|
-| The launcher shows old text or an old version | **Windows:** run `Update launcher.bat`, or accept the update prompt on the next start. **Linux:** download the script again (section 1b) |
+| The launcher shows old text or an old version | **Windows:** accept the update prompt on the next start. **Linux:** download the script again (section 1b) |
 | `Terminate batch job (Y/N)?` | *Windows.* You pressed `Ctrl+C` inside the launcher. Answer `N` to keep it running |
 | WARP rotation keeps failing | Use **Renew session**. The daemon's own error text is in `wcli.log` in the state folder |
 | TOR says it is not up after 120 s | Raise `TOR_BOOTSTRAP_WAIT`. **Windows:** the last `tor.log` lines are printed with the message. **Linux:** read `~/.config/opencode-infinite/tor.log` |

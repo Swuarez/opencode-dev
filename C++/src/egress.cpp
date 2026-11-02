@@ -5,6 +5,7 @@
 #include "util.h"
 #include "log.h"
 #include "json.h"
+#include "updates.h"
 
 #include <windows.h>
 #include <winsock2.h>
@@ -212,6 +213,32 @@ bool EgressEngine::torInstall(ProgressFn log) {
         say(log, 3, "the Tor bundle download failed.");
         removeFile(tgz);
         return false;
+    }
+    // Same check as the .bat: SHA-256 against sha256sums-signed-build.txt published next to the bundle; fail closed.
+    {
+        std::string base = url.substr(0, url.rfind('/') + 1), name = url.substr(base.size());
+        HttpResult sums = httpGet(base + "sha256sums-signed-build.txt", "", 30);
+        std::string want;
+        size_t p = 0;
+        while (sums.ok && p < sums.body.size()) {
+            size_t e = sums.body.find('\n', p);
+            if (e == std::string::npos) e = sums.body.size();
+            std::string ln = sums.body.substr(p, e - p);
+            p = e + 1;
+            while (!ln.empty() && isspace((unsigned char)ln.back())) ln.pop_back();
+            if (ln.size() > 65 + name.size() && isspace((unsigned char)ln[ln.size() - name.size() - 1]) && ln.compare(ln.size() - name.size(), name.size(), name) == 0 &&
+                isspace((unsigned char)ln[64]) && ln.find_first_not_of("0123456789abcdefABCDEF") == 64) {
+                want = ln.substr(0, 64);
+                break;
+            }
+        }
+        std::string got = sha256File(tgz);
+        auto lower = [](std::string x) { for (char& c : x) c = (char)tolower((unsigned char)c); return x; };
+        if (want.empty() || got.empty() || lower(want) != got) {
+            say(log, 3, "the Tor bundle failed the SHA-256 check against sha256sums-signed-build.txt; it was deleted and NOT unpacked.");
+            removeFile(tgz);
+            return false;
+        }
     }
     makeDirs(torDir());
     std::string tar = joinPath(envVar("SystemRoot"), "System32\\tar.exe");
