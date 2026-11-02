@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 title OpenCode-Infinite
 REM ============================================================
-REM  OpenCode launcher  (v2.50)
+REM  OpenCode launcher  (v2.51)
 REM  Multi-egress (WARP / TOR / free HTTP) + dependency bootstrap
 REM  + auto-resume.
 REM  v2.22 - v2.29: every fixed bug carries an inline "REM v2.2x:"
@@ -849,7 +849,7 @@ set "LOG_ARGS=%*"
 if defined LOG_ARGS set "LOG_ARGS=%LOG_ARGS:"='%"
 set "LOG_OSV="
 for /f "tokens=*" %%v in ('ver') do if not defined LOG_OSV set "LOG_OSV=%%v"
-call :log "start v2.50 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
+call :log "start v2.51 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
 REM v2.30: one official copy. Setup copies this file to STATE_DIR\app and the opencode
 REM command runs that copy. A duplicate (a second download, "(1)") hands over to it, or
 REM replaces it when it is the newer one.
@@ -868,7 +868,8 @@ set "OC_OFF=%OFFICIAL%"
 "%PSX%" -NoProfile -Command "$a=$false; try{ $me=(Get-CimInstance Win32_Process -Filter ('ProcessId='+$PID)).ParentProcessId; $of=Join-Path $env:OC_LOCK 'owner'; if(Test-Path -LiteralPath $of){ $o=[int](@((Get-Content -LiteralPath $of -TotalCount 1) -split '\|')[0]); $p=Get-Process -Id $o -ErrorAction SilentlyContinue; if($p -and $o -ne $me -and $p.ProcessName -eq 'cmd'){ $a=$true } }; $id=Join-Path (Split-Path -Parent $env:OC_LOCK) 'instances'; foreach($f2 in @(Get-ChildItem -LiteralPath $id -Filter owner -Recurse -File -ErrorAction SilentlyContinue)){ try{ $v=@((Get-Content -LiteralPath $f2.FullName -TotalCount 1) -split '\|'); $q=Get-Process -Id ([int]$v[0]) -ErrorAction SilentlyContinue; if($q -and $v.Count -gt 3 -and $q.Id -ne $me -and [string]$q.StartTime.Ticks -eq $v[1] -and $q.Path -eq $v[2]){ $a=$true } }catch{} }; foreach($c in @(Get-CimInstance Win32_Process -Filter \"Name='cmd.exe'\")){ if($c.ProcessId -ne $me -and $c.CommandLine -and $c.CommandLine.ToLower().Contains($env:OC_OFF.ToLower())){ $a=$true } } }catch{}; if($a){ exit 1 }; exit 0" >nul 2>&1
 if errorlevel 1 goto :official_inuse
 copy /y "%~f0" "%OFFICIAL%" >nul 2>&1
-call :log "official copy replaced by this newer launcher" boot
+REM v2.39: the log depended on nothing; now it reflects the copy result.
+if errorlevel 1 (call :log "official copy could not be replaced; the old copy runs" boot) else (call :log "official copy replaced by this newer launcher" boot)
 goto :official_ok
 :official_inuse
 call :log "official copy in use by another window: not replaced" boot
@@ -1391,6 +1392,8 @@ REM  3) MENU
 REM ============================================================
 REM Main menu. Each pass redraws the screen and checks the IP.
 :menu_loop
+REM v2.39: a chat pinned by menu [9] is forgotten once the menu is shown again.
+set "PIN_SESS="
 call :trace menu
 REM keep the lock fresh so a second launcher can tell it is alive
 REM v2.22: :lock_touch recreates the stamp entry, which is what moves the
@@ -1565,6 +1568,7 @@ set "POPPED=1"
 :ms_dir_done
 if defined SESSDIR call :folder_remember
 set "RUNARGS=--session %SESSID%"
+set "PIN_SESS=%SESSID%"
 set "COLD=0"
 goto :run
 
@@ -1587,6 +1591,9 @@ if "%DRC%"=="2" goto :restore_chats
 if "%DRC%"=="4" goto :menu_clear_lock
 if not "%DRC%"=="3" goto :menu_loop
 REM v2.44: "Clear cache" on its own: the cache folder only, never auth.json or the chats.
+REM v2.39: ask first, like the deep reset does.
+call :yn "  Delete the OpenCode cache folder? [Y/N] "
+if errorlevel 2 goto :menu_loop
 call :clear_cache menu
 call :pause_key
 goto :menu_loop
@@ -1636,9 +1643,12 @@ set "RS_KEEP=%DESKTOP%\opencode_chats_before_restore\%RANDOM%%RANDOM%"
 if not exist "%RS_KEEP%" mkdir "%RS_KEEP%" >nul 2>&1
 for %%F in (opencode.db opencode.db-wal opencode.db-shm) do if exist "%DATA_DIR%\%%F" move /y "%DATA_DIR%\%%F" "%RS_KEEP%\%%F" >nul
 if exist "%DATA_DIR%\storage" robocopy "%DATA_DIR%\storage" "%RS_KEEP%\storage" /e /move /r:1 /w:1 /nfl /ndl /njh /njs /np >nul
-for %%F in (opencode.db opencode.db-wal opencode.db-shm) do if exist "%RS_SRC%\%%F" copy /y "%RS_SRC%\%%F" "%DATA_DIR%\%%F" >nul
+REM v2.39: a failed database copy is reported, not announced as restored.
+set "RS_FAIL="
+for %%F in (opencode.db opencode.db-wal opencode.db-shm) do if exist "%RS_SRC%\%%F" copy /y "%RS_SRC%\%%F" "%DATA_DIR%\%%F" >nul || set "RS_FAIL=1"
 if exist "%RS_SRC%\storage" robocopy "%RS_SRC%\storage" "%DATA_DIR%\storage" /e /r:1 /w:1 /nfl /ndl /njh /njs /np >nul
 if errorlevel 8 call echo %T_273%
+if defined RS_FAIL call echo %T_273%
 call echo %T_274%
 echo     "%RS_KEEP%"
 set "RESUME="
@@ -1765,6 +1775,8 @@ REM - TOR egress: gate first, then hand the bridge to the child
 :run_tor
 call :tor_gate
 if errorlevel 1 goto :run_tor_fail
+REM v2.39: a fresh start gets a new circuit (menu text promises a new IP); only a Tor we started can be renewed.
+if "%COLD%"=="1" if defined OURTOR call :tor_rotate || call :log "tor rotate on fresh start failed; continuing on the current circuit" run
 set "ACTIVE_PROXY=http://127.0.0.1:%TOR_HTTP_PORT%"
 call :export_proxy_active
 goto :run_gate_ok
@@ -1876,7 +1888,8 @@ REM FLAGS gets --continue when resuming the last chat.
 set "FLAGS="
 set "RL_RENEWED="
 if defined RESUME set "RL_RENEWED=1"
-if defined RESUME set "FLAGS=--continue"
+REM v2.39: a chat picked in menu [9] stays pinned across rotation/crash resumes (PIN_SESS is cleared in :menu_loop).
+if defined RESUME if defined PIN_SESS (set "FLAGS=--session %PIN_SESS%") else (set "FLAGS=--continue")
 if defined RESUME call echo %T_318%
 REM v2.36: a fresh start continues the newest chat of the folder while it is still empty, instead of piling up empty chats
 if /i "%APP_MODE%"=="DESKTOP" goto :rl_reuse_done
@@ -1952,10 +1965,10 @@ set "CRASH_STOP="
 if not "%EC%"=="0" call :crash_retry
 if defined CRASH_STOP goto :menu_loop
 if defined CRASH_RETRY goto :run
-if not "%EC%"=="0" goto :exit_rotate
 REM NONE (or WARP mode without WARP) has no egress to retry: menu.
 if /i "%EGRESS%"=="NONE" goto :closed
 if /i "%EGRESS%"=="WARP" if not defined WARP goto :closed
+if not "%EC%"=="0" goto :exit_rotate
 REM A clean exit: check the log for a quota message before deciding.
 call :check_quota
 if defined QHIT set "WHY=quota"
@@ -2809,7 +2822,7 @@ set "ACTIVE_PROXY="
 if not "%VPN_PORT%"=="0" set "ACTIVE_PROXY=http://127.0.0.1:%VPN_PORT%"
 REM Node picks IPv6 first, and an IPv6 request leaves by the physical route. VPN Gate routes only IPv4,
 REM so the Node processes of this tree (opencode and its service) are told to use IPv4.
-REM v2.40: opencode runs on Bun, which ignores NODE_OPTIONS (tested); Build-Ovpn now routes and blocks its IPv6 in the tunnel.
+REM v2.40: NODE_OPTIONS is set anyway; whether Bun honours it is not verified; Build-Ovpn now routes and blocks its IPv6 in the tunnel.
 if /i "%EGRESS%"=="VPNGATE" set "NODE_OPTIONS=--no-network-family-autoselection --dns-result-order=ipv4first"
 call echo %T_284%
 call :log "vpn up: %EGRESS% %VPN_NAME% ip=%VPN_IP% port=%VPN_PORT%" vpn
@@ -3257,7 +3270,7 @@ REM Install silently; the UAC prompt appears here. Remove the MSI afterwards.
 :iw_install
 call echo %T_154%
 set "OC_MSI=%MSI%"
-"%PSX%" -NoProfile -Command "try{Start-Process msiexec.exe -ArgumentList '/i',$env:OC_MSI,'/qn' -Verb RunAs -Wait}catch{}" >nul 2>&1
+"%PSX%" -NoProfile -Command "try{Start-Process msiexec.exe -ArgumentList ('/i ' + [char]34 + $env:OC_MSI + [char]34 + ' /qn') -Verb RunAs -Wait}catch{}" >nul 2>&1
 del /f /q "%MSI%" >nul 2>&1
 goto :eof
 
@@ -3393,7 +3406,7 @@ for /f "usebackq delims=" %%r in (`npm root -g 2^>nul`) do set "NPMROOT=%%r"
 if not defined NPMROOT set "NPMROOT=%APPDATA%\npm\node_modules"
 set "NPMCLI=%NPMROOT%\@opencode\cli"
 if not exist "%NPMCLI%\postinstall.mjs" goto :eof
-for %%F in ("%NPMCLI%\bin\opencode.exe") do if %%~zF GTR 100000 goto :eof
+if exist "%NPMCLI%\bin\opencode.exe" for %%F in ("%NPMCLI%\bin\opencode.exe") do if %%~zF GTR 100000 goto :eof
 call echo %T_167%
 node "%NPMCLI%\postinstall.mjs" >nul 2>&1
 goto :eof
@@ -3447,7 +3460,7 @@ if exist "%NODE_MSI%" for %%M in ("%NODE_MSI%") do if not "%%~zM"=="" if %%~zM G
 if not "%NOK%"=="1" goto :node_done
 call echo %T_174%
 set "OC_MSI=%NODE_MSI%"
-"%PSX%" -NoProfile -Command "try{Start-Process msiexec.exe -ArgumentList '/i',$env:OC_MSI,'/qn','/norestart' -Verb RunAs -Wait}catch{}" >nul 2>&1
+"%PSX%" -NoProfile -Command "try{Start-Process msiexec.exe -ArgumentList ('/i ' + [char]34 + $env:OC_MSI + [char]34 + ' /qn /norestart') -Verb RunAs -Wait}catch{}" >nul 2>&1
 del /f /q "%NODE_MSI%" >nul 2>&1
 REM Either route: refresh the session PATH with the standard homes.
 :node_done
@@ -3538,7 +3551,8 @@ if defined OC_CMD if not defined OC_VER (
     REM One candidate skips the probe loop, so its version is carried here;
     REM without this the menu loses the version line and the database check
     REM pays for a second probe.
-    if defined CVER set "OC_VER=%CVER%"
+    REM v2.39: %CVER% inside the block expanded before :oc_version set it; call re-expands it.
+    if defined CVER call set "OC_VER=%%CVER%%"
 )
 if defined OC_CMD >"%STATE_DIR%\opencode_path.txt" echo %OC_CMD%
 goto :eof
@@ -4605,6 +4619,8 @@ exit /b %YU_RC%
 :yn_old
 if "%~2"=="" call :pick yn "%~1 "
 if not "%~2"=="" call :pick yn "%~1 " %~2 2
+REM v2.39: :pick returns 0 on Ctrl+C; callers test errorlevel 2 for No, so 0 must mean No.
+if "%errorlevel%"=="0" exit /b 2
 exit /b %errorlevel%
 
 REM - colors for the launcher's own lines (v2.29): the same theme as the interface.
@@ -6652,7 +6668,7 @@ function Edit-WtFile([string]$path, $block, [bool]$pTouch = $false, $pblock = $n
   if ($m.Success) {
     $body = $m.Groups[2].Value
     $fm = [regex]::Match($body, $fontRe)
-    if ($fm.Success) { $prior = $fm.Value; $body = $body.Remove($fm.Index, $fm.Length); $body = [regex]::Replace($body, '^(\s*),', '$1', 'Singleline') }
+    if ($fm.Success) { $prior = $fm.Value; $cm = [regex]::new(',\s*' + $fontRe); if ($cm.IsMatch($body)) { $body = $cm.Replace($body, '', 1) } else { $body = ([regex]::new($fontRe + '\s*,?')).Replace($body, '', 1) } }  # v2.39: remove the font and exactly one adjacent comma
     $block = Merge-FontFace $block $prior
     if ($block) {
       $sep = $(if ($body.Trim()) { ',' } else { '' })
@@ -6690,6 +6706,7 @@ function Apply-WtFont([string]$face, [int]$size) {
   if ($paths.Count -eq 0) { return @('warn', 'Windows Terminal settings.json was not found.') }
   if (-not $script:Cfg.font.ContainsKey('wt')) { $script:Cfg.font['wt'] = @{} }
   $done = 0
+  $failed = $false  # v2.39: a failure on one file no longer drops the backup record of files already written
   foreach ($p in $paths) {
     $key = ($p -replace '[^A-Za-z0-9]', '_')
     $restore = (-not $face) -and $script:Cfg.font.wt.ContainsKey($key) -and [bool]$script:Cfg.font.wt[$key].face
@@ -6704,7 +6721,7 @@ function Apply-WtFont([string]$face, [int]$size) {
     if ($restore) { $pentry = [string]$script:Cfg.font.wt[$key].pprior; if (-not $pentry) { $pentry = $null } }
     $ptouch = if ($restore) { [bool]$script:Cfg.font.wt[$key].ptouched } else { $true }
     $prior = Edit-WtFile $p $entry $ptouch $pentry
-    if ($prior -is [bool] -and -not $prior) { Remove-Item -LiteralPath $bk -Force -ErrorAction SilentlyContinue; return @('err', 'settings.json was left untouched: the edit would not have kept it valid.') }
+    if ($prior -is [bool] -and -not $prior) { Remove-Item -LiteralPath $bk -Force -ErrorAction SilentlyContinue; $failed = $true; continue }
     if ($restore) { [void]$script:Cfg.font.wt.Remove($key) }
     else {
       if (-not $script:Cfg.font.wt.ContainsKey($key)) { $script:Cfg.font.wt[$key] = @{ prior = [string]$prior; backup = $bk; ptouched = [bool]$script:ProfFound; pprior = [string]$script:ProfPrior } }
@@ -6712,6 +6729,7 @@ function Apply-WtFont([string]$face, [int]$size) {
     }
     $done++
   }
+  if ($done -eq 0 -and $failed) { return @('err', 'settings.json was left untouched: the edit would not have kept it valid.') }
   Save-Cfg
   if (-not $face -and $paths.Count -gt 0 -and $done -gt 0 -and -not $script:Cfg.font.wt.Count) { return @('ok', 'Windows Terminal font put back as it was. Reopen the tab if it does not change.') }
   if (-not $face) { return @('ok', (Tf 'Windows Terminal font size set to {0}. Reopen the tab if it does not change.' $size)) }
@@ -6924,6 +6942,7 @@ function Import-Settings {
   if (-not (Confirm-Box (Tf 'Import {0} setting(s)? Their current values are replaced.' $take.Count) $extra)) { return }
   foreach ($k in $take.Keys) { Set-Val (Get-Setting $k) $take[$k] }
   Init-Ui
+  if ($take.ContainsKey('OCUI_LANG')) { $lg = [string]$take['OCUI_LANG']; Fetch-Lang $(if ($lg -eq 'auto') { Detect-Lang } else { $lg }); Init-Ui; Write-I18n }  # v2.39: refresh language after import
   if ($take.ContainsKey('OCUI_FONT') -or $take.ContainsKey('OCUI_FONT_SIZE')) { [void](Apply-Font) }
   Log ('settings imported: ' + $take.Count + ' from ' + $t)
   Say 'ok' (Tf 'Imported {0} setting(s).' $take.Count)
@@ -6950,6 +6969,7 @@ function Settings-Menu {
     if ($r -eq $iRes) {
       if (Confirm-Box 'Reset every setting to its default?' @('Your connection setup (shim, shortcuts) is not touched.')) {
         $script:Cfg.settings = @{}; Save-Cfg; Init-Ui
+        Fetch-Lang (Detect-Lang); Init-Ui; Write-I18n  # v2.39: refresh language after reset
         Log 'settings reset to defaults'
         [void](Apply-Font)
       }
@@ -7287,8 +7307,7 @@ function Redact([string]$text) {
     }
     $lines = @()
     foreach ($l in ($t -split "`r?`n")) {
-      # version numbers look like IPs: lines that talk about a version are left alone
-      if ($l -match '(?i)version|build|v\d+\.\d+') { $lines += $l } else { $lines += [regex]::Replace($l, '(?<![\d.])(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?![\d.])', $ev) }
+      $lines += [regex]::Replace($l, '(?<![\d.])(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?![\d.])', $ev)
     }
     $t = $lines -join "`r`n"
     $t = [regex]::Replace($t, '\b(?:[0-9A-Fa-f]{1,4}:){5,7}[0-9A-Fa-f]{1,4}\b|\b(?:[0-9A-Fa-f]{1,4}:){1,6}:(?:[0-9A-Fa-f]{1,4})?\b', '<ipv6>')
@@ -7312,7 +7331,7 @@ function New-Report {
   $total = 6
   & $A 'OpenCode Infinite - support report'
   & $A ('Generated   ' + (Get-Date).ToString('o'))
-  & $A 'Launcher    v2.50'
+  & $A 'Launcher    v2.51'
   & $A ('File        ' + $Self)
   try { $fi = Get-Item -LiteralPath $Self; & $A ('Size/date   ' + $fi.Length + ' bytes, ' + $fi.LastWriteTime.ToString('s')); & $A ('SHA-256     ' + (Get-FileHash -LiteralPath $Self -Algorithm SHA256).Hash) } catch { }
   & $A 'Personal data (user name, PC name, e-mails, tokens, passwords, and by default public IPs) is removed from this file. Read it before sharing.'
@@ -7507,7 +7526,7 @@ function Menu-Main {
     @{ L = ($script:I.back + ' Back'); C = 10; H = 'Return to the home screen.' },
     @{ L = ($script:I.err + ' Exit'); C = 6; H = 'Close the launcher.' })
   $head = Header-Lines
-  $r = Show-Menu 'OpenCode' $items ('v2.50   ' + $Repo) $head 0
+  $r = Show-Menu 'OpenCode' $items ('v2.51   ' + $Repo) $head 0
   if ($r -eq -1) { exit 10 }
   exit $items[$r].C
 }
@@ -7564,7 +7583,7 @@ function Menu-Sessions {
   $dirs = @($dirs | Select-Object -First 12)
   function Get-Sessions([string]$dir, [int]$n) {
     Push-Location -LiteralPath $dir
-    try { $raw = (& $exe session list --format json -n $n 2>&1 | Out-String).Trim(); return @((ConvertFrom-Json -InputObject $raw) | Where-Object { $_ -and $_.id }) }
+    try { $raw = (& $exe session list --format json -n $n 2>$null | Out-String).Trim(); return @((ConvertFrom-Json -InputObject $raw) | Where-Object { $_ -and $_.id }) }
     catch { return @() } finally { Pop-Location }
   }
   $pos = 0
@@ -7682,7 +7701,7 @@ function Home-Loop {
       $head += ''
     }
     if ($script:Notice) { $head += (P (Style $script:Notice[0]) ($script:I.warn + ' ' + (T $script:Notice[1]))); $head += ''; $script:Notice = $null }
-    $r = Show-Menu 'Main menu' $items ('v2.50   ' + $Self) $head $pos $true
+    $r = Show-Menu 'Main menu' $items ('v2.51   ' + $Self) $head $pos $true
     if ($r -eq -1) { continue }
     $pos = $r
     Log ('home -> ' + $acts[$r])
@@ -8216,7 +8235,7 @@ function Build-Ovpn([string]$text, [string[]]$ips) {
     if ($ip -like '*:*') { $v6 += $ip } else { $keep += ('route ' + $ip + ' 255.255.255.255') }
     $n++
   }
-  # v2.40: Bun ignores NODE_OPTIONS, so opencode's IPv6 left by the physical route. Its IPv6 goes into the tunnel and is refused there (block-ipv6): IPv4 wins, nothing leaks.
+  # v2.40: Bun may ignore NODE_OPTIONS (not verified), so opencode's IPv6 left by the physical route. Its IPv6 goes into the tunnel and is refused there (block-ipv6): IPv4 wins, nothing leaks.
   if ($v6.Count -gt 0) {
     $keep += 'ignore-unknown-option block-ipv6'
     $keep += 'ifconfig-ipv6 fd15:53b6:dead::2/64 fd15:53b6:dead::1'
