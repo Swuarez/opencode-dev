@@ -19,7 +19,7 @@ The sections marked **Windows only** below are not on Linux.
 
 ### Windows: .bat or .exe?
 
-- The `.bat` has VPN Gate and WireGuard. The `.exe` (3.4.0) has the same modes in its code, not yet run against real servers (section 14).
+- The `.bat` has VPN Gate and WireGuard. The `.exe` (3.4.1) has the same modes in its code, not yet run against real servers (section 14).
 - The `.exe` and the `.bat` share the state folder and `config.json` (section 14).
 - An `OpenCode Infinite.exe` that sits next to the `.bat` is offered for update by the launcher (section 11).
 
