@@ -291,8 +291,14 @@ static void drawTitleBar() {
 
     float cy = wp.y + kTitleBarH * 0.5f;
     dl->AddRectFilled(ImVec2(wp.x + 20, cy - 6), ImVec2(wp.x + 32, cy + 6), ImGui::GetColorU32(g_accent), 2.0f);
-    dl->AddText(ImVec2(wp.x + 44, cy - ImGui::GetFontSize() * 0.5f), IM_COL32(226, 231, 240, 255),
-                "OpenCode Infinite");
+    const char* name = "OpenCode Infinite";
+    float nameY = cy - ImGui::GetFontSize() * 0.5f;
+    dl->AddText(ImVec2(wp.x + 44, nameY), IM_COL32(226, 231, 240, 255), name);
+    // Version sits quietly after the name instead of repeating in the body.
+    float nameW = ImGui::CalcTextSize(name).x;
+    char ver[24];
+    snprintf(ver, sizeof(ver), "v%s", kLauncherVersion);
+    dl->AddText(ImVec2(wp.x + 44 + nameW + 10, nameY), kDim, ver);
 
     float bx = wp.x + w - kTitleButtonW * 3.0f;
     if (titleBarButton("##title_min", ImVec2(bx, wp.y), ImVec2(kTitleButtonW, kTitleBarH), false))
@@ -477,12 +483,7 @@ static void drawLogPanel(App& app) {
 }
 
 static void drawHeader(App& app) {
-    // Left: version tag.
-    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
-    ImGui::Text("v%s", kLauncherVersion);
-    ImGui::PopStyleColor();
-
-    // Right: state pill.
+    // Right: state pill (the version is in the title bar).
     std::string mode = estModeName(app);
     if (mode.empty()) mode = "-";
     std::string ip = app.egress().lastIp.empty() ? std::string("-") : app.egress().lastIp;

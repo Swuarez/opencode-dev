@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 title opencode-infinity
 REM ============================================================
-REM  OpenCode launcher  (v2.54)
+REM  OpenCode launcher  (v2.55)
 REM  Multi-egress (WARP / TOR / free HTTP) + dependency bootstrap
 REM  + auto-resume.
 REM  v2.22 - v2.29: every fixed bug carries an inline "REM v2.2x:"
@@ -876,7 +876,7 @@ set "LOG_ARGS=%*"
 if defined LOG_ARGS set "LOG_ARGS=%LOG_ARGS:"='%"
 set "LOG_OSV="
 for /f "tokens=*" %%v in ('ver') do if not defined LOG_OSV set "LOG_OSV=%%v"
-call :log "start v2.53 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
+call :log "start v2.55 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
 REM v2.30: one official copy. Setup copies this file to STATE_DIR\app and the opencode
 REM command runs that copy. A duplicate (a second download, "(1)") hands over to it, or
 REM replaces it when it is the newer one.
@@ -2873,7 +2873,8 @@ set "OC_POOL_MODE=%~1"
 set "OC_POOL_CUR=%IPN%"
 set "OC_STATE=%STATE_DIR%"
 set "OC_POOL_ACT=take"
-for /f "usebackq delims=" %%i in (`"%PSX%" -NoProfile -Command "$l=Get-Content -LiteralPath $env:OCI_SELF; $i=[Array]::IndexOf($l,'#>>>OC_POOL_PS'); $e=[Array]::IndexOf($l,'#>>>OC_ENDPOOL'); if(($i -lt 0) -or ($e -le $i)){exit 30}; Invoke-Expression (($l[($i+1)..($e-1)]) -join [Environment]::NewLine)"`) do set "OC_POOL_PREFER=%%i"
+REM v2.54: PSX unquoted as in every other for /f; quoted, cmd /c stripped the outer quotes and failed on the marker (N11).
+for /f "usebackq delims=" %%i in (`%PSX% -NoProfile -Command "$l=Get-Content -LiteralPath $env:OCI_SELF; $i=[Array]::IndexOf($l,'#>>>OC_POOL_PS'); $e=[Array]::IndexOf($l,'#>>>OC_ENDPOOL'); if(($i -lt 0) -or ($e -le $i)){exit 30}; Invoke-Expression (($l[($i+1)..($e-1)]) -join [Environment]::NewLine)"`) do set "OC_POOL_PREFER=%%i"
 set "OC_POOL_ACT="
 goto :eof
 
@@ -3302,7 +3303,9 @@ set "HTTP_PROXY=%PROXY%"
 set "HTTPS_PROXY=%PROXY%"
 set "POUTF=%STATE_DIR%\probe.out"
 set "PERRF=%STATE_DIR%\probe.err"
-set "PARGS=-m %PROBE_MODEL% -s %OC_PROBE_ID% --auto"
+REM The probe creates its own session (a fixed -s id is refused by some builds).
+REM :probe_cleanup then deletes only that session.
+set "PARGS=-m %PROBE_MODEL% --title ocinf-probe --auto"
 if defined CAP_STANDALONE set "PARGS=%PARGS% --standalone"
 if exist "%POUTF%" del /f /q "%POUTF%" >nul 2>&1
 if exist "%PERRF%" del /f /q "%PERRF%" >nul 2>&1
@@ -3311,6 +3314,7 @@ REM it still holds every old quota error and would fail every probe.
 set "PZB="
 for %%S in ("%LOGFILE%") do if not "%%~zS"=="" set "PZB=%%~zS"
 REM v2.40: the probe runs through :resume_run, so a hung IP is killed after RESUME_TIMEOUT (124) instead of freezing the hunt.
+call :probe_newest PROBE_N0
 set "PRB_MSG0=%OC_MSG%"
 set "OC_MSG=reply with just: ok"
 call :resume_run %PARGS%
@@ -3336,7 +3340,7 @@ if defined FASK set "PBURNED=1"
 if not defined PBURNED if exist "%POUTF%" findstr /i /c:"free usage limit" /c:"usage limit reached" /c:"out of usage" /c:"insufficient credits" /c:"payment required" "%POUTF%" >nul 2>&1 && set "PBURNED=1"
 if defined PBURNED goto :probe_bad
 REM pass: delete the probe session so --continue points at the chat
-call "%OC_CMD%" session delete %OC_PROBE_ID% >nul 2>&1
+call :probe_cleanup
 exit /b 0
 REM Failure: decide whether it was a limit error or a broken probe.
 :probe_classify
@@ -3355,8 +3359,24 @@ if not defined PBURNED if exist "%POUTF%" findstr /i /c:"database is not empty" 
 if not defined PBURNED if /i not "%PCLASS%"=="nosession" set "PCLASS=broken"
 REM Delete the probe session on both paths, so it never lingers as the
 REM newest session while the hunt keeps going.
-call "%OC_CMD%" session delete %OC_PROBE_ID% >nul 2>&1
+call :probe_cleanup
 exit /b 1
+
+REM - newest top-level session id, empty when none or unreadable. usage: call :probe_newest VAR
+:probe_newest
+set "%~1="
+set "OC_PLJ=%STATE_DIR%\probe_list.json"
+call "%OC_CMD%" session list --format json -n 1 > "%OC_PLJ%" 2>nul
+for /f "usebackq delims=" %%i in (`%PSX% -NoProfile -Command "try{ $r=@(Get-Content -LiteralPath $env:OC_PLJ -Raw | ConvertFrom-Json); if($r.Count -and $r[0].id){ [string]$r[0].id } }catch{}"`) do set "%~1=%%i"
+if exist "%OC_PLJ%" del /f /q "%OC_PLJ%" >nul 2>&1
+exit /b 0
+
+REM - delete the session this probe created; an older one is never deleted (the id must change)
+:probe_cleanup
+call :probe_newest PROBE_N1
+if defined PROBE_N1 if not "%PROBE_N1%"=="%PROBE_N0%" call "%OC_CMD%" session delete %PROBE_N1% >nul 2>&1
+set "PROBE_N1="
+exit /b 0
 
 REM - show the last output the probe produced (failure reports only)
 :probe_print
@@ -7666,7 +7686,7 @@ function New-Report {
   $total = 6
   & $A 'OpenCode Infinite - support report'
   & $A ('Generated   ' + (Get-Date).ToString('o'))
-  & $A 'Launcher    v2.53'
+  & $A 'Launcher    v2.55'
   & $A ('File        ' + $Self)
   try { $fi = Get-Item -LiteralPath $Self; & $A ('Size/date   ' + $fi.Length + ' bytes, ' + $fi.LastWriteTime.ToString('s')); & $A ('SHA-256     ' + (Get-FileHash -LiteralPath $Self -Algorithm SHA256).Hash) } catch { }
   & $A 'Personal data (user name, PC name, e-mails, tokens, passwords, and by default public IPs) is removed from this file. Read it before sharing.'
@@ -7861,7 +7881,7 @@ function Menu-Main {
     @{ L = ($script:I.back + ' Back'); C = 10; H = 'Return to the home screen.' },
     @{ L = ($script:I.err + ' Exit'); C = 6; H = 'Close the launcher.' })
   $head = Header-Lines
-  $r = Show-Menu 'OpenCode' $items ('v2.53   ' + $Repo) $head 0
+  $r = Show-Menu 'OpenCode' $items ('v2.55   ' + $Repo) $head 0
   if ($r -eq -1) { exit 10 }
   exit $items[$r].C
 }
@@ -8038,7 +8058,7 @@ function Home-Loop {
       $head += ''
     }
     if ($script:Notice) { $head += (P (Style $script:Notice[0]) ($script:I.warn + ' ' + (T $script:Notice[1]))); $head += ''; $script:Notice = $null }
-    $r = Show-Menu 'Main menu' $items ('v2.53   ' + $Self) $head $pos $true
+    $r = Show-Menu 'Main menu' $items ('v2.55   ' + $Self) $head $pos $true
     if ($r -eq -1) { continue }
     $pos = $r
     Log ('home -> ' + $acts[$r])
