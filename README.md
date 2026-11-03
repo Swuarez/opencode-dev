@@ -8,7 +8,7 @@ resumes the same chat.
 
 | File | Platform | What it is | Latest release |
 |---|---|---|---|
-| `OpenCode Infinite.bat` | Windows 10 / 11 (x64, ARM64, x86 limited) | Full launcher: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages; single-instance lock that checks PID, start time, executable and .bat path | v2.55 |
+| `OpenCode Infinite.bat` | Windows 10 / 11 (x64, ARM64, x86 limited) | Full launcher: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages; single-instance lock that checks PID, start time, executable and .bat path | v2.58 |
 | `OpenCode Infinite.exe` | Windows 10 / 11 (x64) | Native C++ app: WARP, Tor, proxies, WireGuard, VPN Gate and direct connection; retries OpenCode after a crash; 7 languages. WireGuard and VPN Gate are in the code but not yet run against real servers. See [section 14](#14-c-app-opencode-infiniteexe) | 3.4.1 (v2.55) |
 | `opencode-infinite.sh` | Linux (bash; tested on Ubuntu 24.04 with apt; command paths checked for dnf, pacman, zypper) | Full, including the desktop app (checked with a fake app, not the real one yet), except the Windows-only items. See [Linux: what is different](#linux-what-is-different) | linux-0.4.1 (unchanged in v2.55) |
 
@@ -160,7 +160,7 @@ The egress default is set during setup and in Settings, Connection (`OC_EGRESS_D
 |---|---|
 | **WARP** | Cloudflare WARP in local proxy mode (MASQUE protocol, port 40000). Every rotation registers again, which gives a new exit IP. Offered when WARP is missing. If a step fails, WARP stops there; there is no WireGuard fallback |
 | **TOR** | Tor with an HTTP bridge on `127.0.0.1:8118`. **Windows:** a portable Tor with a built-in bridge, no Privoxy needed. **Linux:** `tor` and `privoxy` from your system. A Tor that is already running (Tor Browser on port 9150, or 9050) is used as it is and never closed by the launcher |
-| **PROXY** | Free HTTP proxies from a list. Setup offers ProxyScrape (default), proxifly, GeoNode (HTTP only, fastest first), monosans, TheSpeedX, or your own list (`PROXY_LIST_URL`: a URL or a local file). Each pick tests untried proxies in random order (`PROXY_TRY_MAX` per pick, default 40); dead ones are skipped, and the list is reused once all of it was tried. In PROXY mode, after `PROXY_ROT_MAX` burned proxies the launcher asks whether to switch the hunt to Tor |
+| **PROXY** | Free HTTP proxies from a list. Settings > Proxy list offers ProxyScrape (default), proxifly, GeoNode (HTTP only, fastest first), monosans, TheSpeedX, or your own list (`PROXY_LIST_URL`: a URL or a local file). Each pick tests untried proxies in random order (`PROXY_TRY_MAX` per pick, default 40); dead ones are skipped, and the list is reused once all of it was tried. In PROXY mode, after `PROXY_ROT_MAX` burned proxies the launcher asks whether to switch the hunt to Tor |
 | **NONE** | Direct connection, no proxy |
 | **WIREGUARD** | **Windows only.** Your WireGuard `.conf` files from `WG_DIR` (default `...\opencode-infinite\wireguard`), run through [wireproxy](https://github.com/windtf/wireproxy), a local proxy that only OpenCode uses. Each switch takes the next file. Needs no WireGuard install and no administrator prompt |
 | **VPNGATE** | **Windows only.** Public servers from [vpngate.net](https://www.vpngate.net) through the normal OpenVPN client (`openvpn.exe`). Installed with winget when it is missing. OpenVPN creates a system tunnel, but the launcher adds routes only for the IPs of `opencode.ai`, `models.opencode.ai` and `opentunnel.xyz` as they resolve on your PC at start (`route-nopull`). Everything else stays direct. Filter by `VPNGATE_COUNTRY`, `VPNGATE_MAX` servers tried per start. A server that fails is skipped for the session. The administrator prompt comes once per launcher session, not on each start or switch |
@@ -255,7 +255,7 @@ Setting names are the same on Windows (`config.json`) and Linux (`config.env`). 
 | `TOR_SOCKS_PORT` / `TOR_HTTP_PORT` | `9050` / `8118` | Tor SOCKS port and the HTTP bridge port | both |
 | `TOR_AUTO_INSTALL` | `1` | Install Tor when missing (Windows: portable bundle; Linux: package manager) | both |
 | `TOR_BOOTSTRAP_WAIT` | `120` | Seconds to wait for Tor to connect | both |
-| `PROXY_LIST_URL` | ProxyScrape free HTTP list | The list used by PROXY mode. Setup also offers proxifly, GeoNode, monosans and TheSpeedX; or a URL or a local file, any format. `ip:port` entries are picked out | both |
+| `PROXY_LIST_URL` | ProxyScrape free HTTP list | The list used by PROXY mode. Settings also offers proxifly, GeoNode, monosans and TheSpeedX; or a URL or a local file, any format. `ip:port` entries are picked out | both |
 | `PROXY_LIST_MIN_BYTES` | `20` | A downloaded list smaller than this is rejected (`0` = off) | both |
 | `PROXY_TRY_MAX` | `40` | Untried proxies tested per pick; tested ones are skipped until the list is used up | both |
 | `PROXY_PROBE_TIMEOUT` | `8` | Seconds one proxy test may take | both |
@@ -481,7 +481,7 @@ A native Windows app with the same job as the `.bat`: a new exit IP, then OpenCo
 
 ### Current state
 
-v2.57 is the latest release, 2026-11-03; v2.56 is the previous release.
+v2.58 is the latest release, 2026-11-03; v2.57 is the previous release.
 
 **v2.55 (2026-11-03):** the `.bat` banner and log line say v2.55. The IP probe creates its own session (`ocinf-probe`) instead of using the fixed id `ses_probe0000000`, which some OpenCode builds refuse. The saved-IP pool no longer fails with "was unexpected at this time" (quoting of `%PSX%` in `:pool_take`). The fixes from the internal review (22 bugs) are in the code. None of them has been run on a real machine yet. The C++ app is 3.4.1: the version is in the title bar. The window was built but not looked at on screen.
 
@@ -520,7 +520,15 @@ Checked on a real Windows 11 PC:
 
 ### Version history
 
-- **v2.57** (latest release, 2026-11-03). PROXY mode has a choice of free lists in setup: ProxyScrape (default), proxifly, GeoNode (HTTP only, fastest first), monosans, TheSpeedX, or your own list. Each pick tests untried proxies in random order instead of always the first 12 of the file. The tested record is no longer cleared on every list refresh; it restarts only when the whole list was tried. `PROXY_TRY_MAX` defaults to 40. Checked offline with 20 closed local proxies (pick, cycle, refresh); not run against real free proxies on a console. The C++ app (3.4.2) and the Linux script (linux-0.4.2) are unchanged.
+- **v2.58** (latest release, 2026-11-03). Menus and setup:
+  - **Setup has two steps:** connection method, then run mode, then a review. The port questions (WARP, Tor) and the proxy list are no longer asked in setup; they are set in Settings (Connection, Tor, Proxy list). PROXY without a change uses the default list (ProxyScrape).
+  - **Setup 1/2 opens on your saved method** (or Cancel on a fresh install), not on WARP. Enter on a fresh install cancels.
+  - **Home:** "Start again" opens the last folder with the saved connection and mode (CLI only, when a last folder exists). "Connect with opencode" is now "Set up connection" or "Change connection". Uninstall moved from Home to Settings.
+  - **Settings:** a "Common" group with the seven settings most people change, at the top. "Proxy list source" opens the same source picker used before in setup.
+  - **Review:** each answer can be changed from the summary. Changing the connection method clears the answers of the previous method.
+  - Tested with the launcher's self-test (69 checks) and scripted menu runs. Not tested on a console: the "Start again" batch path, the Apply step end to end, and the new texts in languages other than Spanish (they show in English).
+  - The C++ app (3.4.2) and the Linux script (linux-0.4.2) are unchanged.
+- **v2.57** (previous release, 2026-11-03). PROXY mode has a choice of free lists in setup: ProxyScrape (default), proxifly, GeoNode (HTTP only, fastest first), monosans, TheSpeedX, or your own list. Each pick tests untried proxies in random order instead of always the first 12 of the file. The tested record is no longer cleared on every list refresh; it restarts only when the whole list was tried. `PROXY_TRY_MAX` defaults to 40. Checked offline with 20 closed local proxies (pick, cycle, refresh); not run against real free proxies on a console. The C++ app (3.4.2) and the Linux script (linux-0.4.2) are unchanged.
 - **v2.56** (previous release, 2026-11-03). The launcher only changes its version (banner, log line and header, so the updater sees the new tag). It ships the C++ app 3.4.2 and the Linux script `linux-0.4.2`:
   - **C++ 3.4.2:** new window layout (top tabs, status cards, egress panel with copy buttons, session IP history, log filters, bottom action row). Renew and Uninstall are under More.
   - **Linux `linux-0.4.2`:** Ubuntu fix. `opencode` installed by the official installer in `~/.opencode/bin` was not found, so the install was reported as failed. The search now also checks `~/.opencode/bin` and `$XDG_BIN_DIR`.

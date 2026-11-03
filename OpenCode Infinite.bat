@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 title opencode-infinity
 REM ============================================================
-REM  OpenCode launcher  (v2.57)
+REM  OpenCode launcher  (v2.58)
 REM  Multi-egress (WARP / TOR / free HTTP) + dependency bootstrap
 REM  + auto-resume.
 REM  v2.22 - v2.29: every fixed bug carries an inline "REM v2.2x:"
@@ -876,7 +876,7 @@ set "LOG_ARGS=%*"
 if defined LOG_ARGS set "LOG_ARGS=%LOG_ARGS:"='%"
 set "LOG_OSV="
 for /f "tokens=*" %%v in ('ver') do if not defined LOG_OSV set "LOG_OSV=%%v"
-call :log "start v2.57 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
+call :log "start v2.58 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
 REM v2.30: one official copy. Setup copies this file to STATE_DIR\app and the opencode
 REM command runs that copy. A duplicate (a second download, "(1)") hands over to it, or
 REM replaces it when it is the newer one.
@@ -941,9 +941,23 @@ set "TUIRC=%errorlevel%"
 call :log "ui home rc=%TUIRC%" ui
 set "TUI_PROBED=1"
 if not "%TUIRC%"=="20" set "TUI_OK=1"
+REM v2.58: "Start again" on the home screen (11): the last folder, CLI, the saved connection.
+if "%TUIRC%"=="11" goto :quick_start
 call :cfg_import
 if "%TUIRC%"=="0" goto :quit
 goto :mode_menu
+
+REM v2.58: the last folder again. Mode is CLI (the home row exists only for CLI); folder and connection follow as usual.
+:quick_start
+set "APP_MODE=CLI"
+set "QLAST="
+if exist "%LASTFOLDER%" set /p QLAST=<"%LASTFOLDER%"
+if defined QLAST set "QLAST=%QLAST:"=%"
+if not defined QLAST goto :home_start
+if not exist "%QLAST%\" goto :home_start
+set "OPFOLDER=%QLAST%"
+call :log "quick start in the last folder" menu
+goto :folder_ok
 
 :auto_run
 set "AUTO_RUN=1"
@@ -6314,8 +6328,9 @@ $Schema = @(
   S 'LOG_MAX_KB' 'Support' 'Log size limit (KB)' 'int' 1024 'The log is cut to its newest part when it grows past this.' 'next launch' 64 10240
   S 'LOG_MASK_IP' 'Support' 'Hide IPs in reports' 'bool' 1 'Public IP addresses are masked in the support report.' 'now'
 )
-$Groups = @('Connection', 'Proxy list', 'Tor', 'Egress', 'Rotation', 'Watcher', 'Probe', 'Paths', 'Updates', 'Appearance', 'Shortcuts', 'Support')
+$Groups = @('Common', 'Connection', 'Proxy list', 'Tor', 'Egress', 'Rotation', 'Watcher', 'Probe', 'Paths', 'Updates', 'Appearance', 'Shortcuts', 'Support')
 $GroupHelp = @{
+  'Common' = 'The settings most people change: connection, proxy list, rotation, language and theme. The other groups are for advanced use.'
   'Connection' = 'Default connection method and run mode, the WARP proxy port and the warp-cli timings.'
   'Proxy list' = 'Where proxies come from (URL or file, any format) and how each one is tested.'
   'Tor' = 'Ports and install behavior of the portable Tor the launcher starts for you.'
@@ -7143,6 +7158,11 @@ function Edit-Setting($s) {
     if ($r -lt 0 -or $r -ge $vals.Count) { return $null }
     $new = $vals[$r]
     if ([string]$new -eq [string]$cur) { return $null }
+  } elseif ($s.Key -eq 'PROXY_LIST_URL') {
+    # v2.58: the same source list as the setup
+    $v = Pick-ProxySource 'Proxy list source'
+    if ($v -eq '<') { return $null }
+    $new = $v
   } elseif ($s.Type -eq 'font') {
     $new = Pick-Font
     if ($null -eq $new) { return $null }
@@ -7204,7 +7224,7 @@ function Shortcut-Info {
   )
 }
 function Group-Menu([string]$group) {
-  $list = @($Schema | Where-Object { $_.Group -eq $group })
+  $list = @(Group-Keys $group)
   $pos = 0; $msg = $null
   while ($true) {
     $items = @()
@@ -7282,34 +7302,44 @@ function Import-Settings {
   Say 'ok' (Tf 'Imported {0} setting(s).' $take.Count)
   Wait-Key
 }
+# the schema rows of one settings group; "Common" is the short list people change most
+$CommonKeys = @('OC_EGRESS_DEFAULT', 'OC_MODE_DEFAULT', 'PROXY_LIST_URL', 'AUTO_ROTATE', 'ON_CLOSE', 'OCUI_THEME', 'OCUI_LANG')
+function Group-Keys([string]$g) {
+  if ($g -eq 'Common') { return @($Schema | Where-Object { $CommonKeys -contains $_.Key }) }
+  return @($Schema | Where-Object { $_.Group -eq $g })
+}
 function Settings-Menu {
   $pos = 0
   while ($true) {
-    $items = @()
+    $items = @(); $acts = @()
     foreach ($g in $Groups) {
-      $n = @($Schema | Where-Object { $_.Group -eq $g -and $script:Cfg.settings.ContainsKey($_.Key) }).Count
-      $items += @{ L = $g; V = $(if ($n) { Tf '{0} changed' $n } else { '' }); S = 'warn'; H = $GroupHelp[$g] }
+      $n = @(Group-Keys $g | Where-Object { $script:Cfg.settings.ContainsKey($_.Key) }).Count
+      $items += @{ L = $g; V = $(if ($n) { Tf '{0} changed' $n } else { '' }); S = 'warn'; H = $GroupHelp[$g] }; $acts += $g
     }
-    $items += @{ L = 'Export settings to a file'; H = 'Save every changed setting to one .json file, to keep a backup or copy them to another PC.' }
-    $items += @{ L = 'Import settings from a file'; H = 'Load a file made by Export. Every value is checked first; if one is wrong, nothing changes.' }
-    $items += @{ L = 'Reset to default values'; S = 'err'; H = 'Put every setting back to its default. Your connection setup (command, shortcuts) is not touched. Asks first.' }
-    $items += @{ L = ($script:I.back + ' Back'); H = 'Return to the main menu.' }
-    $iExp = $Groups.Count; $iImp = $iExp + 1; $iRes = $iExp + 2; $iBack = $iExp + 3
+    $items += @{ L = 'Export settings to a file'; H = 'Save every changed setting to one .json file, to keep a backup or copy them to another PC.' }; $acts += 'export'
+    $items += @{ L = 'Import settings from a file'; H = 'Load a file made by Export. Every value is checked first; if one is wrong, nothing changes.' }; $acts += 'import'
+    $items += @{ L = 'Reset to default values'; S = 'err'; H = 'Put every setting back to its default. Your connection setup (command, shortcuts) is not touched. Asks first.' }; $acts += 'reset'
+    # v2.58: uninstall moved here from the home screen; it only appears when a connection is set up
+    if (Test-Configured) { $items += @{ L = ($script:I.trash + ' Uninstall the connection'); S = 'err'; H = 'Removes only what the setup added (command, shortcuts, PATH entry) and restores the settings it changed. Backups are kept. Asks first.' }; $acts += 'uninstall' }
+    $items += @{ L = ($script:I.back + ' Back'); H = 'Return to the main menu.' }; $acts += 'back'
     $r = Show-Menu ($script:I.gear + ' ' + (T 'Settings')) $items (Tf 'Every change is saved at once to {0}' $CfgPath) $null $pos
-    if ($r -eq -1 -or $r -eq $iBack) { return }
+    if ($r -eq -1) { return }
     $pos = $r
-    if ($r -eq $iExp) { Export-Settings; continue }
-    if ($r -eq $iImp) { Import-Settings; continue }
-    if ($r -eq $iRes) {
-      if (Confirm-Box 'Reset every setting to its default?' @('Your connection setup (shim, shortcuts) is not touched.')) {
-        $script:Cfg.settings = @{}; Save-Cfg; Init-Ui
-        Fetch-Lang (Detect-Lang); Init-Ui; Write-I18n  # v2.39: refresh language after reset
-        Log 'settings reset to defaults'
-        [void](Apply-Font)
+    switch ($acts[$r]) {
+      'back' { return }
+      'export' { Export-Settings }
+      'import' { Import-Settings }
+      'uninstall' { Do-Uninstall; if (-not (Test-Configured)) { return } }
+      'reset' {
+        if (Confirm-Box 'Reset every setting to its default?' @('Your connection setup (shim, shortcuts) is not touched.')) {
+          $script:Cfg.settings = @{}; Save-Cfg; Init-Ui
+          Fetch-Lang (Detect-Lang); Init-Ui; Write-I18n  # v2.39: refresh language after reset
+          Log 'settings reset to defaults'
+          [void](Apply-Font)
+        }
       }
-      continue
+      default { Group-Menu $acts[$r] }
     }
-    Group-Menu $Groups[$r]
   }
 }
 
@@ -7338,6 +7368,25 @@ function Remove-PathEntry([string]$dir) {
   $parts = @($p -split ';' | Where-Object { $_ -and ($_.TrimEnd('\') -ine $dir.TrimEnd('\')) })
   Set-UserPath ($parts -join ';')
 }
+# v2.58: one source picker for the setup and for Settings > Proxy list. Returns the URL, or '<' for Back.
+function Pick-ProxySource([string]$title) {
+  $cur = [string](Get-Val 'PROXY_LIST_URL')
+  $srcs = @(
+    @{ L = 'ProxyScrape'; V = 'default'; u = 'https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&protocol=http&proxy_format=protocolipport&format=text'; H = 'The free ProxyScrape HTTP list, the launcher default.' },
+    @{ L = 'proxifly'; V = 'GitHub list'; u = 'https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/proxies/protocols/http/data.txt'; H = 'proxifly free-proxy-list: plain ip:port lines, refreshed every 5 minutes, no key.' },
+    @{ L = 'GeoNode'; V = 'API, HTTP only'; u = 'https://proxylist.geonode.com/api/proxy-list?page=1&limit=500&sort_by=responseTime&sort_type=asc&protocols=http'; H = 'GeoNode API: up to 500 HTTP proxies, fastest first.' },
+    @{ L = 'monosans'; V = 'GitHub list'; u = 'https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt'; H = 'monosans proxy-list: plain ip:port lines, HTTP only.' },
+    @{ L = 'TheSpeedX'; V = 'GitHub list'; u = 'https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt'; H = 'TheSpeedX PROXY-List: plain ip:port lines, HTTP only.' },
+    @{ L = 'Your own list'; V = 'URL or file'; u = ''; H = 'A URL or a local file of your own.' }
+  )
+  # the highlight starts on the list in use, so Enter keeps it
+  $start = 0
+  for ($k = 0; $k -lt $srcs.Count; $k++) { if ($srcs[$k].u -and $srcs[$k].u -eq $cur) { $start = $k } }
+  $pr = Show-Menu $title ($srcs + @(@{ L = ($script:I.back + ' Back'); H = 'Go back without changing the list.' })) 'Public proxies can see the traffic that goes through them. Each one is tested before use.' $null $start
+  if ($pr -eq -1 -or $pr -eq $srcs.Count) { return '<' }
+  if ($srcs[$pr].u) { return [string]$srcs[$pr].u }
+  return [string](Ask-Setting 'PROXY_LIST_URL' 'Proxies')
+}
 function Pick-Method {
   $opts = @(
     @{ L = 'WARP'; V = 'Cloudflare WARP'; m = 'WARP'; H = 'Cloudflare WARP in local proxy mode. Every rotation asks for a new registration, which gives a new exit IP. Needs the WARP client (offered if missing).' },
@@ -7346,7 +7395,10 @@ function Pick-Method {
     @{ L = 'NONE'; V = 'Direct, no proxy'; m = 'NONE'; H = 'No proxy: opencode uses your real connection and nothing is rotated.' },
     @{ L = 'WIREGUARD'; V = 'wireproxy'; m = 'WIREGUARD'; H = 'Your WireGuard .conf files through wireproxy, a local proxy that only opencode uses. No administrator prompt.' },
     @{ L = 'VPNGATE'; V = 'OpenVPN'; m = 'VPNGATE'; H = 'VPN Gate servers through OpenVPN. Only opencode''s hosts go through the tunnel. Administrator prompt.' })
-  $r = Show-Menu 'Setup 1/3 - connection method' ($opts + @(@{ L = ($script:I.back + ' Cancel'); H = 'Leave the setup without changing anything.' })) 'The proxy lives only in the opencode process; the rest of the system stays direct.'
+  # v2.58: the highlight starts on the method already set up, or on Cancel, never on WARP. Enter on a fresh start cancels.
+  $cur = [string](Get-Val 'OC_EGRESS_DEFAULT'); $start = $opts.Count
+  for ($k = 0; $k -lt $opts.Count; $k++) { if ($opts[$k].m -eq $cur) { $start = $k } }
+  $r = Show-Menu 'Setup 1/2 - connection method' ($opts + @(@{ L = ($script:I.back + ' Cancel'); H = 'Leave the setup without changing anything.' })) 'The proxy lives only in the opencode process; the rest of the system stays direct.' $null $start
   if ($r -eq -1 -or $r -ge $opts.Count) { return $null }
   return $opts[$r].m
 }
@@ -7414,58 +7466,32 @@ function Run-Setup {
     if ($step -eq 0) {
       $method = Pick-Method
       if (-not $method) { return $false }
+      foreach ($k in @($ans.Keys)) { if ($k -ne 'OC_EGRESS_DEFAULT') { $ans.Remove($k) } }
       $ans['OC_EGRESS_DEFAULT'] = $method
       $step = 1; continue
     }
     if ($step -eq 1) {
-      Clear-Screen
-      WL (P (Style 'title') (T 'Setup 2/3 - details'))
-      WL (P (Style 'dim') (T 'Type < to go back. Enter keeps the value shown.'))
-      $back = $false
-      if ($method -eq 'WARP') {
-        $v = Ask-Setting 'PROXY_PORT' 'WARP'
-        if ($v -eq '<') { $back = $true } else { $ans['PROXY_PORT'] = $v }
-      } elseif ($method -eq 'TOR') {
-        $v = Ask-Setting 'TOR_SOCKS_PORT' 'Tor'
-        if ($v -eq '<') { $back = $true } else {
-          $ans['TOR_SOCKS_PORT'] = $v
-          $v2 = Ask-Setting 'TOR_HTTP_PORT' 'Tor'
-          if ($v2 -eq '<') { $back = $true } else { $ans['TOR_HTTP_PORT'] = $v2 }
-        }
-      } elseif ($method -eq 'PROXY') {
-        $srcs = @(
-          @{ L = 'ProxyScrape'; V = 'default'; u = 'https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&protocol=http&proxy_format=protocolipport&format=text'; H = 'The free ProxyScrape HTTP list, the launcher default.' },
-          @{ L = 'proxifly'; V = 'GitHub list'; u = 'https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/proxies/protocols/http/data.txt'; H = 'proxifly free-proxy-list: plain ip:port lines, refreshed every 5 minutes, no key.' },
-          @{ L = 'GeoNode'; V = 'API, HTTP only'; u = 'https://proxylist.geonode.com/api/proxy-list?page=1&limit=500&sort_by=responseTime&sort_type=asc&protocols=http'; H = 'GeoNode API: up to 500 HTTP proxies, fastest first.' },
-          @{ L = 'monosans'; V = 'GitHub list'; u = 'https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt'; H = 'monosans proxy-list: plain ip:port lines, HTTP only.' },
-          @{ L = 'TheSpeedX'; V = 'GitHub list'; u = 'https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt'; H = 'TheSpeedX PROXY-List: plain ip:port lines, HTTP only.' },
-          @{ L = 'Your own list'; V = 'URL or file'; u = ''; H = 'A URL or a local file of your own.' }
-        )
-        $pr = Show-Menu 'Setup 2/3 - proxy list' ($srcs + @(@{ L = ($script:I.back + ' Back'); H = 'Return to the connection method.' })) 'Public proxies can see the traffic that goes through them. Each one is tested before use.'
-        if ($pr -eq -1 -or $pr -eq $srcs.Count) { $back = $true }
-        elseif ($srcs[$pr].u) { $ans['PROXY_LIST_URL'] = $srcs[$pr].u }
-        else {
-          $v = Ask-Setting 'PROXY_LIST_URL' 'Proxies'
-          if ($v -eq '<') { $back = $true } else { $ans['PROXY_LIST_URL'] = $v }
-        }
-      } elseif ($method -eq 'NONE') { Say 'ok' 'Nothing to ask for a direct connection.' }
-      if ($back) { $step = 0; continue }
+      $opts = @(@{ L = 'CLI'; V = 'terminal'; m = 'CLI'; H = 'The terminal interface. The opencode command and the shortcut open it.' }, @{ L = 'Desktop'; V = 'OpenCode app'; m = 'DESKTOP'; H = 'The OpenCode desktop app; it is restarted after every new IP.' }, @{ L = 'Ask every time'; V = ''; m = 'ASK'; H = 'Show the CLI or Desktop choice every time the launcher opens.' })
+      $r = Show-Menu 'Setup 2/2 - run mode' ($opts + @(@{ L = ($script:I.back + ' Back'); H = 'Return to the connection method.' })) 'The opencode command and the shortcut open this mode. Ask every time uses the CLI there. Ports and the proxy list are set in Settings.'
+      if ($r -eq -1 -or $r -eq 3) { $step = 0; continue }
+      $ans['OC_MODE_DEFAULT'] = $opts[$r].m
       $step = 2; continue
     }
     if ($step -eq 2) {
-      $opts = @(@{ L = 'CLI'; V = 'terminal'; m = 'CLI'; H = 'The terminal interface. The opencode command and the shortcut open it.' }, @{ L = 'Desktop'; V = 'OpenCode app'; m = 'DESKTOP'; H = 'The OpenCode desktop app; it is restarted after every new IP.' }, @{ L = 'Ask every time'; V = ''; m = 'ASK'; H = 'Show the CLI or Desktop choice every time the launcher opens.' })
-      $r = Show-Menu 'Setup 3/3 - run mode' ($opts + @(@{ L = ($script:I.back + ' Back'); H = 'Return to the connection details.' })) 'The opencode command and the shortcut open this mode. Ask every time uses the CLI there. Change it later in Settings, Connection.'
-      if ($r -eq -1 -or $r -eq 3) { $step = 1; continue }
-      $ans['OC_MODE_DEFAULT'] = $opts[$r].m
-      $step = 3; continue
-    }
-    if ($step -eq 3) {
       $head = @((P (Style 'title') (T 'Review')), '')
       foreach ($k in $ans.Keys) { $head += ('   ' + (Pad (T (Get-Setting $k).Label) 26) + ' ' + (P (Style 'accent') ([string]$ans[$k]))) }
       $head += ''
       $head += (P (Style 'dim') ('   ' + (T 'Adds: the opencode, opencodeinf and opencodeoc commands, two shortcuts, one PATH entry. Backups are kept.')))
-      $r = Show-Menu 'Apply setup' @(@{ L = ($script:I.ok + ' Apply'); S = 'ok'; H = 'Save the settings, create the opencode command, the shortcuts and the PATH entry, then test the connection.' }, @{ L = ($script:I.back + ' Back'); H = 'Change an answer.' }) '' $head 0
-      if ($r -eq -1 -or $r -eq 1) { $step = 2; continue }
+      # Each answer can be changed from here. Ports and the proxy list are changed in Settings.
+      $rows = @(
+        @{ L = 'Connection method'; V = [string]$ans['OC_EGRESS_DEFAULT']; H = 'Choose the method again.' },
+        @{ L = 'Run mode'; V = [string]$ans['OC_MODE_DEFAULT']; H = 'Choose CLI, Desktop or ask every time.' },
+        @{ L = ($script:I.ok + ' Apply'); S = 'ok'; H = 'Save the settings, create the opencode command, the shortcuts and the PATH entry, then test the connection.' },
+        @{ L = ($script:I.back + ' Back'); H = 'Change the run mode.' })
+      $r = Show-Menu 'Apply setup' $rows '' $head 2
+      if ($r -eq 0) { $step = 0; continue }
+      if ($r -eq 1) { $step = 1; continue }
+      if ($r -eq 3 -or $r -eq -1) { $step = 1; continue }
       break
     }
   }
@@ -7567,7 +7593,7 @@ function Show-Status {
   $head += ('   ' + (Pad (T 'Repository') 14) + (P (Style 'accent') $Repo))
   if ($s.launcher -ne $Official) { $head += ''; $head += (P (Style 'warn') ($script:I.warn + ' ' + (T 'This launcher is not the one that set it up. Reconfigure to repair the command.'))) }
   $head += ''
-  $r = Show-Menu ($script:I.link + ' Connect with opencode') @(@{ L = 'Reconfigure (run setup again)'; H = 'Run the setup again to change the method or repair the opencode command.' }, @{ L = ($script:I.back + ' Back'); H = 'Return to the main menu.' }) '' $head 0
+  $r = Show-Menu ($script:I.link + ' Connection') @(@{ L = 'Reconfigure (run setup again)'; H = 'Run the setup again to change the method or repair the opencode command.' }, @{ L = ($script:I.back + ' Back'); H = 'Return to the main menu.' }) '' $head 0
   if ($r -eq 0) { [void](Run-Setup) }
 }
 function Do-Renew {
@@ -7699,7 +7725,7 @@ function New-Report {
   $total = 6
   & $A 'OpenCode Infinite - support report'
   & $A ('Generated   ' + (Get-Date).ToString('o'))
-  & $A 'Launcher    v2.57'
+  & $A 'Launcher    v2.58'
   & $A ('File        ' + $Self)
   try { $fi = Get-Item -LiteralPath $Self; & $A ('Size/date   ' + $fi.Length + ' bytes, ' + $fi.LastWriteTime.ToString('s')); & $A ('SHA-256     ' + (Get-FileHash -LiteralPath $Self -Algorithm SHA256).Hash) } catch { }
   & $A 'Personal data (user name, PC name, e-mails, tokens, passwords, and by default public IPs) is removed from this file. Read it before sharing.'
@@ -7894,7 +7920,7 @@ function Menu-Main {
     @{ L = ($script:I.back + ' Back'); C = 10; H = 'Return to the home screen.' },
     @{ L = ($script:I.err + ' Exit'); C = 6; H = 'Close the launcher.' })
   $head = Header-Lines
-  $r = Show-Menu 'OpenCode' $items ('v2.57   ' + $Repo) $head 0
+  $r = Show-Menu 'OpenCode' $items ('v2.58   ' + $Repo) $head 0
   if ($r -eq -1) { exit 10 }
   exit $items[$r].C
 }
@@ -8045,20 +8071,30 @@ function First-Lang {
   Init-Ui
   Write-I18n
 }
+# the folder the launcher opened last, when it still exists; the quick-start row uses it
+function Get-Last-Folder {
+  $f = Join-Path $State 'lastfolder.txt'
+  if (-not (Test-Path -LiteralPath $f)) { return '' }
+  $p = ([string](Get-Content -LiteralPath $f -TotalCount 1 -ErrorAction SilentlyContinue)).Trim().Trim('"')
+  if ($p -and (Test-Path -LiteralPath $p -PathType Container)) { return $p }
+  return ''
+}
 function Home-Loop {
   $pos = 0
   while ($true) {
     $conf = Test-Configured
     $items = @(); $acts = @()
-    $items += @{ L = ($script:I.play + ' Launch OpenCode'); H = 'Open the launcher menus: pick a folder and a connection method, then start the opencode CLI or the desktop app.' }; $acts += 'launch'
-    if ($conf) { $items += @{ L = ($script:I.link + ' Connect with opencode'); V = (Tf 'Configured - {0}' $script:Cfg.setup.method); S = 'ok'; H = 'See what the setup installed (command, shortcuts, PATH) and run it again to change the method.' } }
-    else { $items += @{ L = ($script:I.link + ' Connect with opencode'); V = 'Not configured'; S = 'warn'; H = 'Guided setup: choose WARP, Tor, a proxy list or direct, then get an "opencode" command and a shortcut that start with it. It is tested at the end.' } }
+    # v2.58: the first row starts the last folder again, with the saved mode and connection (no folder or mode screen)
+    $last = Get-Last-Folder
+    if ($conf -and $last -and ([string](Get-Val 'OC_MODE_DEFAULT')) -ieq 'CLI') { $items += @{ L = ($script:I.play + ' ' + (T 'Start again')); V = $last; H = 'Start OpenCode in the last folder with the saved connection. Skips the folder and mode screens.' }; $acts += 'quick' }
+    $items += @{ L = ($script:I.play + ' Launch OpenCode'); H = 'Pick a folder and a connection method, then start the opencode CLI or the desktop app.' }; $acts += 'launch'
+    if ($conf) { $items += @{ L = ($script:I.link + ' Change connection'); V = (Tf 'Configured - {0}' $script:Cfg.setup.method); S = 'ok'; H = 'Run the setup again to change the method, or repair the opencode command.' } }
+    else { $items += @{ L = ($script:I.link + ' Set up connection'); V = 'Not configured'; S = 'warn'; H = 'Guided setup: choose WARP, Tor, a proxy list or direct, then get an "opencode" command and a shortcut that start with it. It is tested at the end.' } }
     $acts += 'connect'
     if ($conf) {
       $items += @{ L = ($script:I.renew + ' Renew session'); H = 'Use it when the free limit is hit or the login expired: closes opencode, saves and clears the saved tokens, and gets a new IP, WARP registration, Tor circuit or proxy.' }; $acts += 'renew'
-      $items += @{ L = ($script:I.trash + ' Uninstall'); S = 'err'; H = 'Removes only what the setup added (command, shortcuts, PATH entry) and restores the settings it changed. Backups are kept. Asks first.' }; $acts += 'uninstall'
     }
-    $items += @{ L = ($script:I.gear + ' ' + (T 'Settings')); H = 'View and change every launcher option: connection, proxies, Tor, rotation, themes. Saved instantly, no files to edit.' }; $acts += 'settings'
+    $items += @{ L = ($script:I.gear + ' ' + (T 'Settings')); H = 'View and change every launcher option, and uninstall the connection. Saved instantly, no files to edit.' }; $acts += 'settings'
     $items += @{ L = ($script:I.link + ' Support report'); H = 'Collect system info, versions, settings and the recent log into one text file you can send for help. Passwords, tokens, your user name and (by default) IPs are removed first.' }; $acts += 'report'
     $items += @{ L = ($script:I.err + ' Exit'); H = 'Close the launcher.' }; $acts += 'exit'
     $head = @()
@@ -8071,16 +8107,16 @@ function Home-Loop {
       $head += ''
     }
     if ($script:Notice) { $head += (P (Style $script:Notice[0]) ($script:I.warn + ' ' + (T $script:Notice[1]))); $head += ''; $script:Notice = $null }
-    $r = Show-Menu 'Main menu' $items ('v2.57   ' + $Self) $head $pos $true
+    $r = Show-Menu 'Main menu' $items ('v2.58   ' + $Self) $head $pos $true
     if ($r -eq -1) { continue }
     $pos = $r
     Log ('home -> ' + $acts[$r])
     switch ($acts[$r]) {
+      'quick' { return 11 }
       'launch' { return 10 }
       'report' { Show-Report }
       'connect' { if ($conf) { Show-Status } else { [void](Run-Setup) } }
       'renew' { Do-Renew }
-      'uninstall' { Do-Uninstall }
       'settings' { Settings-Menu }
       'exit' { return 0 }
     }
