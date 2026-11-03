@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 title opencode-infinity
 REM ============================================================
-REM  OpenCode launcher  (v2.56)
+REM  OpenCode launcher  (v2.57)
 REM  Multi-egress (WARP / TOR / free HTTP) + dependency bootstrap
 REM  + auto-resume.
 REM  v2.22 - v2.29: every fixed bug carries an inline "REM v2.2x:"
@@ -312,7 +312,7 @@ REM so a short custom list can pass the gate; 0 turns the gate off and
 REM accepts any downloaded file.
 set "PROXY_LIST_MIN_BYTES=20"
 REM How many free proxies to try before giving up (per rotate).
-set "PROXY_TRY_MAX=12"
+set "PROXY_TRY_MAX=40"
 REM Seconds a single free-proxy probe may take.
 set "PROXY_PROBE_TIMEOUT=8"
 REM NEW: how many burned proxies in a row before PROXY mode gives up and
@@ -839,7 +839,7 @@ call :numcfg0 TARGET_INTERVAL 15
 call :numcfg WARP_CALL_TIMEOUT 15
 call :numcfg WHERE_TIMEOUT 5
 call :numcfg RESUME_TIMEOUT 90
-call :numcfg PROXY_TRY_MAX 12
+call :numcfg PROXY_TRY_MAX 40
 call :numcfg PROXY_ROT_MAX 10
 call :numcfg PROXY_PROBE_TIMEOUT 8
 call :numcfg POOL_MAX 5
@@ -876,7 +876,7 @@ set "LOG_ARGS=%*"
 if defined LOG_ARGS set "LOG_ARGS=%LOG_ARGS:"='%"
 set "LOG_OSV="
 for /f "tokens=*" %%v in ('ver') do if not defined LOG_OSV set "LOG_OSV=%%v"
-call :log "start v2.56 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
+call :log "start v2.57 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
 REM v2.30: one official copy. Setup copies this file to STATE_DIR\app and the opencode
 REM command runs that copy. A duplicate (a second download, "(1)") hands over to it, or
 REM replaces it when it is the newer one.
@@ -6255,7 +6255,7 @@ $Schema = @(
   S 'WARP_CALL_TIMEOUT' 'Connection' 'warp-cli timeout (s)' 'int' 15 'Seconds a single warp-cli call may take.' 'now' 5 300
   S 'PROXY_LIST_URL' 'Proxy list' 'Proxy list source' 'listsrc' 'https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&protocol=http&proxy_format=protocolipport&format=text' 'URL or local file, any format (plain, CSV, JSON, XML, HTML).' 'now'
   S 'PROXY_LIST_MIN_BYTES' 'Proxy list' 'Minimum list size (bytes)' 'int' 20 'A downloaded list smaller than this is rejected. 0 = off.' 'now' 0 100000000
-  S 'PROXY_TRY_MAX' 'Proxy list' 'Proxies tried per pick' 'int' 12 'How many proxies to test before giving up.' 'now' 1 500
+  S 'PROXY_TRY_MAX' 'Proxy list' 'Proxies tried per pick' 'int' 40 'How many untried proxies to test before giving up. Tested ones are skipped until the whole list was used.' 'now' 1 500
   S 'PROXY_PROBE_TIMEOUT' 'Proxy list' 'Proxy test timeout (s)' 'int' 8 'Seconds a single proxy test may take.' 'now' 1 120
   S 'PROXY_ROT_MAX' 'Proxy list' 'Burned proxies before Tor offer' 'int' 10 'Burned proxies in a row before PROXY mode offers Tor.' 'now' 1 200
   S 'PROXY_API_CHECK' 'Proxy list' 'Check the API host' 'bool' 0 'A proxy must also reach the opencode API host.' 'now'
@@ -7342,7 +7342,7 @@ function Pick-Method {
   $opts = @(
     @{ L = 'WARP'; V = 'Cloudflare WARP'; m = 'WARP'; H = 'Cloudflare WARP in local proxy mode. Every rotation asks for a new registration, which gives a new exit IP. Needs the WARP client (offered if missing).' },
     @{ L = 'TOR'; V = 'Portable Tor'; m = 'TOR'; H = 'Tor is downloaded once, run hidden and offered to opencode through a built-in HTTP bridge. Slower, but a new circuit is a new IP.' },
-    @{ L = 'PROXY'; V = 'Free or your own list'; m = 'PROXY'; H = 'Public HTTP proxies from a list (yours, in any format, or the free default). Each one is tested first and burned ones are skipped.' },
+    @{ L = 'PROXY'; V = 'Free or your own list'; m = 'PROXY'; H = 'Public HTTP proxies from a list: ProxyScrape, proxifly (GitHub) or your own. Each one is tested first and burned ones are skipped.' },
     @{ L = 'NONE'; V = 'Direct, no proxy'; m = 'NONE'; H = 'No proxy: opencode uses your real connection and nothing is rotated.' },
     @{ L = 'WIREGUARD'; V = 'wireproxy'; m = 'WIREGUARD'; H = 'Your WireGuard .conf files through wireproxy, a local proxy that only opencode uses. No administrator prompt.' },
     @{ L = 'VPNGATE'; V = 'OpenVPN'; m = 'VPNGATE'; H = 'VPN Gate servers through OpenVPN. Only opencode''s hosts go through the tunnel. Administrator prompt.' })
@@ -7433,8 +7433,21 @@ function Run-Setup {
           if ($v2 -eq '<') { $back = $true } else { $ans['TOR_HTTP_PORT'] = $v2 }
         }
       } elseif ($method -eq 'PROXY') {
-        $v = Ask-Setting 'PROXY_LIST_URL' 'Proxies'
-        if ($v -eq '<') { $back = $true } else { $ans['PROXY_LIST_URL'] = $v }
+        $srcs = @(
+          @{ L = 'ProxyScrape'; V = 'default'; u = 'https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&protocol=http&proxy_format=protocolipport&format=text'; H = 'The free ProxyScrape HTTP list, the launcher default.' },
+          @{ L = 'proxifly'; V = 'GitHub list'; u = 'https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/proxies/protocols/http/data.txt'; H = 'proxifly free-proxy-list: plain ip:port lines, refreshed every 5 minutes, no key.' },
+          @{ L = 'GeoNode'; V = 'API, HTTP only'; u = 'https://proxylist.geonode.com/api/proxy-list?page=1&limit=500&sort_by=responseTime&sort_type=asc&protocols=http'; H = 'GeoNode API: up to 500 HTTP proxies, fastest first.' },
+          @{ L = 'monosans'; V = 'GitHub list'; u = 'https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt'; H = 'monosans proxy-list: plain ip:port lines, HTTP only.' },
+          @{ L = 'TheSpeedX'; V = 'GitHub list'; u = 'https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt'; H = 'TheSpeedX PROXY-List: plain ip:port lines, HTTP only.' },
+          @{ L = 'Your own list'; V = 'URL or file'; u = ''; H = 'A URL or a local file of your own.' }
+        )
+        $pr = Show-Menu 'Setup 2/3 - proxy list' ($srcs + @(@{ L = ($script:I.back + ' Back'); H = 'Return to the connection method.' })) 'Public proxies can see the traffic that goes through them. Each one is tested before use.'
+        if ($pr -eq -1 -or $pr -eq $srcs.Count) { $back = $true }
+        elseif ($srcs[$pr].u) { $ans['PROXY_LIST_URL'] = $srcs[$pr].u }
+        else {
+          $v = Ask-Setting 'PROXY_LIST_URL' 'Proxies'
+          if ($v -eq '<') { $back = $true } else { $ans['PROXY_LIST_URL'] = $v }
+        }
       } elseif ($method -eq 'NONE') { Say 'ok' 'Nothing to ask for a direct connection.' }
       if ($back) { $step = 0; continue }
       $step = 2; continue
@@ -7686,7 +7699,7 @@ function New-Report {
   $total = 6
   & $A 'OpenCode Infinite - support report'
   & $A ('Generated   ' + (Get-Date).ToString('o'))
-  & $A 'Launcher    v2.56'
+  & $A 'Launcher    v2.57'
   & $A ('File        ' + $Self)
   try { $fi = Get-Item -LiteralPath $Self; & $A ('Size/date   ' + $fi.Length + ' bytes, ' + $fi.LastWriteTime.ToString('s')); & $A ('SHA-256     ' + (Get-FileHash -LiteralPath $Self -Algorithm SHA256).Hash) } catch { }
   & $A 'Personal data (user name, PC name, e-mails, tokens, passwords, and by default public IPs) is removed from this file. Read it before sharing.'
@@ -7881,7 +7894,7 @@ function Menu-Main {
     @{ L = ($script:I.back + ' Back'); C = 10; H = 'Return to the home screen.' },
     @{ L = ($script:I.err + ' Exit'); C = 6; H = 'Close the launcher.' })
   $head = Header-Lines
-  $r = Show-Menu 'OpenCode' $items ('v2.56   ' + $Repo) $head 0
+  $r = Show-Menu 'OpenCode' $items ('v2.57   ' + $Repo) $head 0
   if ($r -eq -1) { exit 10 }
   exit $items[$r].C
 }
@@ -8058,7 +8071,7 @@ function Home-Loop {
       $head += ''
     }
     if ($script:Notice) { $head += (P (Style $script:Notice[0]) ($script:I.warn + ' ' + (T $script:Notice[1]))); $head += ''; $script:Notice = $null }
-    $r = Show-Menu 'Main menu' $items ('v2.56   ' + $Self) $head $pos $true
+    $r = Show-Menu 'Main menu' $items ('v2.57   ' + $Self) $head $pos $true
     if ($r -eq -1) { continue }
     $pos = $r
     Log ('home -> ' + $acts[$r])
@@ -9000,7 +9013,7 @@ function Get-Plist {
   $age = 9999
   if (Test-Path -LiteralPath $raw) { $age = ((Get-Date) - (Get-Item -LiteralPath $raw).LastWriteTime).TotalMinutes }
   if ($src -and $age -gt 30) {
-    Remove-Item -LiteralPath $raw, (Join-Path $pool 'proxy_tested.txt') -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $raw -Force -ErrorAction SilentlyContinue
     if ($src -match '^(https?|ftp)://') {
       if ($env:HAVE_CURL -eq '1') { & curl.exe -L -f -s --max-time 20 --noproxy '*' -o $raw $src 2>$null }
       else { try { Invoke-WebRequest -UseBasicParsing -Uri $src -OutFile $raw -TimeoutSec 20 } catch {} }
@@ -9022,16 +9035,18 @@ function Fill-Proxy {
   $tested = @(); if (Test-Path -LiteralPath $tf) { $tested = @(Get-Content -LiteralPath $tf) }
   $burnF = Join-Path $st 'proxy_burned.txt'
   $burn = @(); if (Test-Path -LiteralPath $burnF) { $burn = @(Get-Content -LiteralPath $burnF) }
-  $tryMax = [int]$(if ($env:PROXY_TRY_MAX) { $env:PROXY_TRY_MAX } else { 12 })
+  $tryMax = [int]$(if ($env:PROXY_TRY_MAX) { $env:PROXY_TRY_MAX } else { 40 })
   $to = [int]$(if ($env:PROXY_PROBE_TIMEOUT) { $env:PROXY_PROBE_TIMEOUT } else { 8 })
   $trace = $(if ($env:TRACE_URL) { $env:TRACE_URL } else { 'https://www.cloudflare.com/cdn-cgi/trace' })
+  # Candidates: list entries not tried yet, in random order. When every entry was tried, the record restarts.
+  $cands = @()
+  for ($round = 0; $round -lt 2 -and $cands.Count -eq 0; $round++) {
+    $cands = @(Get-Content -LiteralPath $plist | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ -and $_ -notmatch '^[#;]' -and $_ -notmatch 'socks' } | ForEach-Object { $(if ($_ -match '^https?://') { $_ } else { 'http://' + $_ }) } | Where-Object { ($tested -notcontains $_) -and ($burn -notcontains $_) -and ($burn -notcontains ($_ -replace '^https?://', '')) } | Sort-Object { Get-Random })
+    if ($cands.Count -eq 0) { Remove-Item -LiteralPath $tf -Force -ErrorAction SilentlyContinue; $tested = @() }
+  }
   $tries = 0
-  foreach ($x in @(Get-Content -LiteralPath $plist)) {
+  foreach ($url in $cands) {
     if ((Stopping) -or $tries -ge $tryMax -or (Pool-Count 'PROXY') -ge $max) { break }
-    $c = ([string]$x).Trim()
-    if (-not $c -or $c -match '^[#;]' -or $c -match 'socks') { continue }
-    $url = $(if ($c -match '^https?://') { $c } else { 'http://' + $c })
-    if (($tested -contains $url) -or ($burn -contains $url) -or ($burn -contains $c)) { continue }
     $tries++
     Add-Content -LiteralPath $tf -Value $url
     $tr = & curl.exe -s -f --max-time $to --proxy $url --noproxy 'none.invalid' $trace 2>$null
