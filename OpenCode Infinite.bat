@@ -395,7 +395,6 @@ REM v2.30: own state folder, named after the launcher and not after OpenCode.
 set "STATE_DIR=%LOCALAPPDATA%\opencode-infinite"
 REM v2.54: the chat saved after a quota stop (see :ar_mark). Only this file, never tokens.
 set "ARF=%STATE_DIR%\pending_resume.txt"
-set "T_1=  This copy is not the official one. Starting the official copy:"
 set "T_2=  OpenCode - how do you want to run it?"
 set "T_3=  [1] CLI      - terminal TUI ^(chat resumes on every new IP^)"
 set "T_4=  [2] Desktop  - the OpenCode desktop app ^(restarted on every new IP^)"
@@ -902,8 +901,6 @@ goto :official_ok
 call :log "official copy in use by another window: not replaced" boot
 goto :official_ok
 :official_hand
-call echo %T_1%
-echo   "%OFFICIAL%"
 REM v2.40: give the console its original code page back first, or the official copy saves 65001 as the "original" and never undoes it.
 if defined OC_OLDCP chcp %OC_OLDCP% >nul 2>&1
 call "%OFFICIAL%" %*
@@ -7901,8 +7898,8 @@ function Menu-Egress {
     @{ L = 'NONE'; V = 'direct'; H = 'No proxy: opencode uses your real connection and nothing is rotated.' },
     @{ L = 'WIREGUARD'; V = 'wireproxy'; H = 'Your WireGuard .conf files through wireproxy, a local proxy that only opencode uses. Each switch takes the next file. No administrator prompt.' },
     @{ L = 'VPNGATE'; V = 'OpenVPN'; H = 'VPN Gate servers through OpenVPN. Only OpenCode''s hosts go through the tunnel. Administrator prompt on start, switch and stop.' })
-  $head = @((P (Style 'dim') ('   ' + (T 'Only opencode uses the connection. VPNGATE sends only opencode''s hosts through the VPN.'))), '')
-  if ($env:OC_H_FOLDER) { $head = @(('   ' + (P (Style 'dim') (Pad (T 'Folder') 9)) + (P (Style 'accent') $env:OC_H_FOLDER))) + $head }
+  $head = @()
+  if ($env:OC_H_FOLDER) { $head = @(('   ' + (P (Style 'dim') (Pad (T 'Folder') 9)) + (P (Style 'accent') $env:OC_H_FOLDER)), '') }
   $r = Show-Menu 'Choose the connection for OpenCode' $items $null $head 0
   # 1-5 = the row, 9 = Esc (back to the folder screen; never a quit)
   if ($r -eq -1) { exit 9 }
