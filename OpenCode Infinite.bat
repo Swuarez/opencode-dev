@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 title opencode-infinity
 REM ============================================================
-REM  OpenCode launcher  (v2.58)
+REM  OpenCode launcher  (v2.59)
 REM  Multi-egress (WARP / TOR / free HTTP) + dependency bootstrap
 REM  + auto-resume.
 REM  v2.22 - v2.29: every fixed bug carries an inline "REM v2.2x:"
@@ -875,7 +875,7 @@ set "LOG_ARGS=%*"
 if defined LOG_ARGS set "LOG_ARGS=%LOG_ARGS:"='%"
 set "LOG_OSV="
 for /f "tokens=*" %%v in ('ver') do if not defined LOG_OSV set "LOG_OSV=%%v"
-call :log "start v2.58 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
+call :log "start v2.59 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
 REM v2.30: one official copy. Setup copies this file to STATE_DIR\app and the opencode
 REM command runs that copy. A duplicate (a second download, "(1)") hands over to it, or
 REM replaces it when it is the newer one.
@@ -3454,7 +3454,7 @@ REM ever says "exit 1" and nobody can tell Registration missing from
 REM a daemon that is not listening. Every value travels through the
 REM environment, so no path can break the PowerShell command line.
 :wcli
-if not defined WARP goto :eof
+if not defined WARP exit /b 9009
 set "WCMD=%*"
 set "OC_EXE=%WARP%"
 set "OC_ARGS=--accept-tos %WCMD%"
@@ -3466,7 +3466,7 @@ REM entry). Used by the registration poll in :reg_drop, where a failure is
 REM the expected answer and used to fill wcli.log with noise.
 set "OC_QUIET="
 if defined WCLI_QUIET set "OC_QUIET=1"
-"%PSX%" -NoProfile -Command "$o=$env:OC_RRF; $p=Start-Process -FilePath $env:OC_EXE -ArgumentList $env:OC_ARGS -NoNewWindow -PassThru -RedirectStandardOutput $o -RedirectStandardError ($o+'.err'); if(-not $p){ exit 1 }; $null=$p.Handle; if(-not $p.WaitForExit([int]$env:OC_TO*1000)){ try{$p.Kill()}catch{}; try{Add-Content -LiteralPath $env:OC_LOG -Value (((Get-Date -Format o)+' TIMEOUT: '+$env:OC_ARGS))}catch{}; exit 1 }; if($p.ExitCode -eq $null){ exit 1 }; $rc=$p.ExitCode; if($rc -ne 0){ $why=''; foreach($f in @($o,($o+'.err'))){ if(Test-Path -LiteralPath $f){ $l=@(Get-Content -LiteralPath $f -ErrorAction SilentlyContinue | Where-Object { $_ }); if($l.Count){ $why=$l[$l.Count-1]; break } } }; $line=((Get-Date -Format o)+' exit '+$rc+': '+$env:OC_ARGS); if($why){ $line=$line+' :: '+$why }; if(-not $env:OC_QUIET){ try{Add-Content -LiteralPath $env:OC_LOG -Value $line}catch{} }; exit $rc }; exit 0" >nul 2>&1
+"%PSX%" -NoProfile -Command "$o=$env:OC_RRF; $p=Start-Process -FilePath $env:OC_EXE -ArgumentList $env:OC_ARGS -NoNewWindow -PassThru -RedirectStandardOutput $o -RedirectStandardError ($o+'.err'); if(-not $p){ exit 1 }; $null=$p.Handle; if(-not $p.WaitForExit([int]$env:OC_TO*1000)){ Start-Process taskkill.exe -ArgumentList @('/T','/F','/PID',$p.Id) -WindowStyle Hidden -Wait; try{Add-Content -LiteralPath $env:OC_LOG -Value (((Get-Date -Format o)+' TIMEOUT: '+$env:OC_ARGS))}catch{}; exit 1 }; if($p.ExitCode -eq $null){ exit 1 }; $rc=$p.ExitCode; if($rc -ne 0){ $why=''; foreach($f in @($o,($o+'.err'))){ if(Test-Path -LiteralPath $f){ $l=@(Get-Content -LiteralPath $f -ErrorAction SilentlyContinue | Where-Object { $_ }); if($l.Count){ $why=$l[$l.Count-1]; break } } }; $line=((Get-Date -Format o)+' exit '+$rc+': '+$env:OC_ARGS); if($why){ $line=$line+' :: '+$why }; if(-not $env:OC_QUIET){ try{Add-Content -LiteralPath $env:OC_LOG -Value $line}catch{} }; exit $rc }; exit 0" >nul 2>&1
 REM v2.36: the exit code is read BEFORE the cleanup. A successful del sets ERRORLEVEL to 0, so every warp-cli call
 REM used to look successful (the failure was only written to wcli.log) and no retry or fallback ever ran.
 set "WCLIRC=%errorlevel%"
@@ -4017,29 +4017,73 @@ REM PROXY_PORT, then connects. Waits 3 seconds for the connection.
 REM v2.43: a (re)connect leaves the service on dead keep-alive sockets (ECONNRESET) and the
 REM proxy URL never changes, so forget the marker: the next :run_gate_ok restarts the service.
 set "SVC_PROXIED="
+set "WU_STEP="
+set "WU_OK="
 call :trace warp_up
 call :warp_register
+REM v2.59: the daemon rejects config verbs while the tunnel is up. Drop it and let it settle first.
+REM The wait is not checked: if the status text differs, the sequence still runs.
+call :wcli disconnect
+call :warp_wait "Status update: Disconnected" 15
 REM No WireGuard fallback: the local proxy mode needs MASQUE. A failed step skips the rest.
+set "WU_STEP=tunnel protocol set MASQUE"
 call :wcli tunnel protocol set MASQUE
-if errorlevel 1 goto :wu_done
+if errorlevel 1 goto :wu_fail
+set "WU_STEP=mode proxy"
 call :wcli mode proxy
-if errorlevel 1 goto :wu_done
+if errorlevel 1 goto :wu_fail
+set "WU_STEP=proxy port %PROXY_PORT%"
 call :wcli proxy port %PROXY_PORT%
-if errorlevel 1 goto :wu_done
+if errorlevel 1 goto :wu_fail
+set "WU_STEP=connect"
 call :wcli connect
-if not errorlevel 1 goto :wu_done
+if not errorlevel 1 goto :wu_connected
 REM v2.36: connect failed. Without a registration behind it ("Registration Missing", "Old registration is still
 REM around") every call fails; make a clean one and connect again.
 set "WCLI_QUIET=1"
 call :wcli registration show
 set "WCLI_QUIET="
-if not errorlevel 1 goto :wu_done
+if not errorlevel 1 goto :wu_fail
 call echo %T_314%
 call :reg_new
-if "%REGNEW%"=="1" call :wcli connect
+if not "%REGNEW%"=="1" goto :wu_fail
+set "WU_STEP=connect after new registration"
+call :wcli connect
+if errorlevel 1 goto :wu_fail
+:wu_connected
+set "WU_STEP=wait for Connected"
+call :warp_wait "Status update: Connected" 25
+if errorlevel 1 goto :wu_fail
+set "WU_STEP=port %PROXY_PORT% bound"
+call :port_up %PROXY_PORT%
+if errorlevel 1 goto :wu_fail
+set "WU_OK=1"
+goto :wu_done
+:wu_fail
+call :log "warp_up failed at step: %WU_STEP%" wcli
 :wu_done
 timeout /t 3 /nobreak >nul 2>&1
 goto :eof
+
+REM - wait for a status line that starts with the text in %~1. %~2 = seconds. exit 0 = seen, 1 = timeout.
+REM /b anchors the match: "Connected" alone would also match "Disconnected".
+:warp_wait
+set "WW_F=%TEMP%\oc_wst_%RANDOM%%RANDOM%.txt"
+set /a WW_I=0
+:ww_loop
+"%WARP%" --accept-tos status >"%WW_F%" 2>&1
+findstr /i /b /c:"%~1" "%WW_F%" >nul 2>&1
+if not errorlevel 1 goto :ww_ok
+set /a WW_I+=1
+if %WW_I% GEQ %~2 goto :ww_no
+timeout /t 1 /nobreak >nul 2>&1
+goto :ww_loop
+:ww_ok
+del /f /q "%WW_F%" >nul 2>&1
+exit /b 0
+:ww_no
+del /f /q "%WW_F%" >nul 2>&1
+exit /b 1
 
 REM - recreate a missing WARP registration
 REM After a manual deletion every later call fails in a confusing way:
@@ -4930,9 +4974,15 @@ if /i "%EGRESS%"=="VPNGATE" goto :vm_vpn
 call :find_warp
 if not defined WARP goto :vm_nowarp
 call :warp_up
+if not defined WU_OK goto :vm_wu_fail
 call :getip2 IPN WFLAG
 call echo %T_228%
 if defined IPN if "%WFLAG%"=="on" exit /b 0
+call :log "verify: trace came back but not through WARP" verify
+exit /b 1
+:vm_wu_fail
+call echo %T_228%
+call :log "verify: WARP unusable, failed step %WU_STEP%" verify
 exit /b 1
 :vm_nowarp
 call echo %T_229%
@@ -7425,8 +7475,12 @@ function Shim-Text([string]$arg) {
 }
 # The OpenCode that was installed before the launcher: the first opencode on PATH outside the launcher's folder.
 function Find-Original-Oc {
-  $c = @(Get-Command opencode -All -ErrorAction SilentlyContinue | Where-Object { $_.Source -match '\.(exe|cmd)$' -and -not $_.Source.StartsWith($ShimDir, [StringComparison]::OrdinalIgnoreCase) })
+  # v2.59: a temp copy (scratchpad, another session) is never the real install; the shim must not point into %TEMP%.
+  $tmp = ([string]$env:TEMP).TrimEnd('\') + '\'
+  $c = @(Get-Command opencode -All -ErrorAction SilentlyContinue | Where-Object { $_.Source -match '\.(exe|cmd)$' -and -not $_.Source.StartsWith($ShimDir, [StringComparison]::OrdinalIgnoreCase) -and -not $_.Source.StartsWith($tmp, [StringComparison]::OrdinalIgnoreCase) })
   if ($c.Count) { return [string]$c[0].Source }
+  $saved = Join-Path ([string]$env:OC_STATE) 'opencode_path.txt'
+  if (Test-Path -LiteralPath $saved) { $s = [string](Get-Content -LiteralPath $saved -TotalCount 1); if ($s -and (Test-Path -LiteralPath $s) -and -not $s.StartsWith($tmp, [StringComparison]::OrdinalIgnoreCase)) { return $s } }
   return ''
 }
 function Shim-Original([string]$exe) {
@@ -7688,6 +7742,7 @@ function Redact([string]$text) {
   $t = [regex]::Replace($t, '\b(?:sk|pk|ghp|gho|ghu|ghs|xox[bap])[-_][A-Za-z0-9_-]{16,}\b', '<token>')
   $t = [regex]::Replace($t, 'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}', '<jwt>')
   $t = [regex]::Replace($t, '(?i)([?&](?:key|token|api_key|apikey|auth|password|pass|secret)=)[^&\s"]+', '$1***')
+  $t = [regex]::Replace($t, '(?im)^\s*(ID|Device ID|Account ID|License|Public key):\s*\S+', '$1: <redacted>')
   if ([int](Get-Val 'LOG_MASK_IP') -eq 1) {
     $ev = [Text.RegularExpressions.MatchEvaluator] {
       param($m)
@@ -7722,7 +7777,7 @@ function New-Report {
   $total = 6
   & $A 'OpenCode Infinite - support report'
   & $A ('Generated   ' + (Get-Date).ToString('o'))
-  & $A 'Launcher    v2.58'
+  & $A 'Launcher    v2.59'
   & $A ('File        ' + $Self)
   try { $fi = Get-Item -LiteralPath $Self; & $A ('Size/date   ' + $fi.Length + ' bytes, ' + $fi.LastWriteTime.ToString('s')); & $A ('SHA-256     ' + (Get-FileHash -LiteralPath $Self -Algorithm SHA256).Hash) } catch { }
   & $A 'Personal data (user name, PC name, e-mails, tokens, passwords, and by default public IPs) is removed from this file. Read it before sharing.'
@@ -7917,7 +7972,7 @@ function Menu-Main {
     @{ L = ($script:I.back + ' Back'); C = 10; H = 'Return to the home screen.' },
     @{ L = ($script:I.err + ' Exit'); C = 6; H = 'Close the launcher.' })
   $head = Header-Lines
-  $r = Show-Menu 'OpenCode' $items ('v2.58   ' + $Repo) $head 0
+  $r = Show-Menu 'OpenCode' $items ('v2.59   ' + $Repo) $head 0
   if ($r -eq -1) { exit 10 }
   exit $items[$r].C
 }
@@ -8104,7 +8159,7 @@ function Home-Loop {
       $head += ''
     }
     if ($script:Notice) { $head += (P (Style $script:Notice[0]) ($script:I.warn + ' ' + (T $script:Notice[1]))); $head += ''; $script:Notice = $null }
-    $r = Show-Menu 'Main menu' $items ('v2.58   ' + $Self) $head $pos $true
+    $r = Show-Menu 'Main menu' $items ('v2.59   ' + $Self) $head $pos $true
     if ($r -eq -1) { continue }
     $pos = $r
     Log ('home -> ' + $acts[$r])

@@ -8,7 +8,7 @@ resumes the same chat.
 
 | File | Platform | What it is | Latest release |
 |---|---|---|---|
-| `OpenCode Infinite.bat` | Windows 10 / 11 (x64, ARM64, x86 limited) | Full launcher: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages; single-instance lock that checks PID, start time, executable and .bat path | v2.58 |
+| `OpenCode Infinite.bat` | Windows 10 / 11 (x64, ARM64, x86 limited) | Full launcher: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages; single-instance lock that checks PID, start time, executable and .bat path | v2.59 |
 | `OpenCode Infinite.exe` | Windows 10 / 11 (x64) | Native C++ app: WARP, Tor, proxies, WireGuard, VPN Gate and direct connection; retries OpenCode after a crash; 7 languages. WireGuard and VPN Gate are in the code but not yet run against real servers. See [section 14](#14-c-app-opencode-infiniteexe) | 3.4.1 (v2.55) |
 | `opencode-infinite.sh` | Linux (bash; tested on Ubuntu 24.04 with apt; command paths checked for dnf, pacman, zypper) | Full, including the desktop app (checked with a fake app, not the real one yet), except the Windows-only items. See [Linux: what is different](#linux-what-is-different) | linux-0.4.1 (unchanged in v2.55) |
 
@@ -481,7 +481,7 @@ A native Windows app with the same job as the `.bat`: a new exit IP, then OpenCo
 
 ### Current state
 
-v2.58 is the latest release, 2026-11-03; v2.57 is the previous release.
+v2.59 is the latest release, 2026-11-03; v2.58 is the previous release.
 
 **v2.55 (2026-11-03):** the `.bat` banner and log line say v2.55. The IP probe creates its own session (`ocinf-probe`) instead of using the fixed id `ses_probe0000000`, which some OpenCode builds refuse. The saved-IP pool no longer fails with "was unexpected at this time" (quoting of `%PSX%` in `:pool_take`). The fixes from the internal review (22 bugs) are in the code. None of them has been run on a real machine yet. The C++ app is 3.4.1: the version is in the title bar. The window was built but not looked at on screen.
 
@@ -520,7 +520,8 @@ Checked on a real Windows 11 PC:
 
 ### Version history
 
-- **v2.58** (latest release, 2026-11-03). Menus and setup:
+- **v2.59** (latest release, 2026-11-03). WARP: the launcher disconnects before it sets the protocol, mode and port, waits for `Connected`, and checks port 40000 before it reports the tunnel up. A failed step stops and is logged with its name (`warp_up failed at step: ...`). `:verify_mode` says why WARP is unusable. The `opencode` shim never points into `%TEMP%`. The support report hides the WARP account fields (ID, Device ID, Account ID, License, Public key). It also removes the "This copy is not the official one" notice and a note on the connection screen (commit `eb616d3`). Not run on a real console; the new WARP sequence has not been tested against the daemon.
+- **v2.58** (previous release, 2026-11-03). Menus and setup:
   - **Setup has two steps:** connection method, then run mode, then a review. The port questions (WARP, Tor) and the proxy list are no longer asked in setup; they are set in Settings (Connection, Tor, Proxy list). PROXY without a change uses the default list (ProxyScrape).
   - **Setup 1/2 opens on your saved method** (or Cancel on a fresh install), not on WARP. Enter on a fresh install cancels.
   - **Home:** "Start again" opens the last folder with the saved connection and mode (CLI only, when a last folder exists). "Connect with opencode" is now "Set up connection" or "Change connection". Uninstall moved from Home to Settings.
@@ -528,8 +529,8 @@ Checked on a real Windows 11 PC:
   - **Review:** each answer can be changed from the summary. Changing the connection method clears the answers of the previous method.
   - Tested with the launcher's self-test (69 checks) and scripted menu runs. Not tested on a console: the "Start again" batch path, the Apply step end to end, and the new texts in languages other than Spanish (they show in English).
   - The C++ app (3.4.2) and the Linux script (linux-0.4.2) are unchanged.
-- **v2.57** (previous release, 2026-11-03). PROXY mode has a choice of free lists in setup: ProxyScrape (default), proxifly, GeoNode (HTTP only, fastest first), monosans, TheSpeedX, or your own list. Each pick tests untried proxies in random order instead of always the first 12 of the file. The tested record is no longer cleared on every list refresh; it restarts only when the whole list was tried. `PROXY_TRY_MAX` defaults to 40. Checked offline with 20 closed local proxies (pick, cycle, refresh); not run against real free proxies on a console. The C++ app (3.4.2) and the Linux script (linux-0.4.2) are unchanged.
-- **v2.56** (previous release, 2026-11-03). The launcher only changes its version (banner, log line and header, so the updater sees the new tag). It ships the C++ app 3.4.2 and the Linux script `linux-0.4.2`:
+- **v2.57** (2026-11-03). PROXY mode has a choice of free lists in setup: ProxyScrape (default), proxifly, GeoNode (HTTP only, fastest first), monosans, TheSpeedX, or your own list. Each pick tests untried proxies in random order instead of always the first 12 of the file. The tested record is no longer cleared on every list refresh; it restarts only when the whole list was tried. `PROXY_TRY_MAX` defaults to 40. Checked offline with 20 closed local proxies (pick, cycle, refresh); not run against real free proxies on a console. The C++ app (3.4.2) and the Linux script (linux-0.4.2) are unchanged.
+- **v2.56** (2026-11-03). The launcher only changes its version (banner, log line and header, so the updater sees the new tag). It ships the C++ app 3.4.2 and the Linux script `linux-0.4.2`:
   - **C++ 3.4.2:** new window layout (top tabs, status cards, egress panel with copy buttons, session IP history, log filters, bottom action row). Renew and Uninstall are under More.
   - **Linux `linux-0.4.2`:** Ubuntu fix. `opencode` installed by the official installer in `~/.opencode/bin` was not found, so the install was reported as failed. The search now also checks `~/.opencode/bin` and `$XDG_BIN_DIR`.
   - Not run on a real machine yet (see Current state).
