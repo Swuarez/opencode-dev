@@ -10,6 +10,8 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <ctime>
+#include <fstream>
 #include <map>
 #include <string>
 #include <vector>
@@ -231,16 +233,6 @@ static void KeyValue(const char* k, const std::string& v, bool accentValue = fal
     if (accentValue) ImGui::PopStyleColor();
 }
 
-static void Badge(const char* text, const ImVec4& col) {
-    ImVec2 p = ImGui::GetCursorScreenPos();
-    ImVec2 sz = ImGui::CalcTextSize(text);
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    ImGui::Dummy(ImVec2(sz.x + 18, sz.y + 10));
-    dl->AddRectFilled(p, ImVec2(p.x + sz.x + 18, p.y + sz.y + 10), ImGui::GetColorU32(mul(col, 0.22f)), 3.0f);
-    dl->AddRect(p, ImVec2(p.x + sz.x + 18, p.y + sz.y + 10), ImGui::GetColorU32(mul(col, 0.85f)), 3.0f);
-    dl->AddText(ImVec2(p.x + 9, p.y + 5), ImGui::GetColorU32(col), text);
-}
-
 // ------------------------------------------------------------- title bar
 // Frameless chrome. Keep the sizes in sync with main.cpp (kTitleBarHeight,
 // kTitleButtonsWidth).
@@ -411,79 +403,59 @@ static void drawSetting(App& app, const SettingDef& d) {
     ImGui::PopID();
 }
 
-// ------------------------------------------------------------------ sidebar
+// ------------------------------------------------------------------- tabs
 
-static const float kSideW = 210.0f;
+// Session IP history (not saved to disk). Newest last.
+struct IpEntry { std::string time, ip, loc; };
+static std::vector<IpEntry> g_ipHist;
 
-static bool sideItem(const char* label, bool selected, float indent) {
-    // Same label can appear twice (a settings group and a nav item both named "Support"): the indent tells them apart.
-    ImGui::PushID(static_cast<int>(indent));
+static void updateIpHistory(App& app) {
+    const EgressState& e = app.egress();
+    if (e.lastIp.empty()) return;
+    if (!g_ipHist.empty() && g_ipHist.back().ip == e.lastIp) return;
+    std::time_t now = std::time(nullptr);
+    char buf[16];
+    std::strftime(buf, sizeof(buf), "%H:%M:%S", std::localtime(&now));
+    g_ipHist.push_back({buf, e.lastIp, e.lastLoc});
+    if (g_ipHist.size() > 50) g_ipHist.erase(g_ipHist.begin());
+}
+
+// Flat text tab with an accent bar under the selected one.
+static bool topTab(const char* label, bool selected) {
     ImGui::PushID(label);
     ImVec2 pos = ImGui::GetCursorScreenPos();
-    ImVec2 sz(ImGui::GetContentRegionAvail().x, 32.0f);
-    bool pressed = ImGui::InvisibleButton("##s", sz);
+    ImVec2 sz(ImGui::CalcTextSize(label).x + 28.0f, 34.0f);
+    bool pressed = ImGui::InvisibleButton("##tab", sz);
     bool hov = ImGui::IsItemHovered();
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImVec2 b(pos.x + sz.x, pos.y + sz.y);
-    if (selected) {
-        dl->AddRectFilled(pos, b, ImGui::GetColorU32(mul(g_accent, 0.22f)), 3.0f);
-        dl->AddRectFilled(pos, ImVec2(pos.x + 3, b.y), ImGui::GetColorU32(g_accent), 1.0f);
-    } else if (hov) {
-        dl->AddRectFilled(pos, b, kSurf3, 3.0f);
-    }
-    dl->AddText(ImVec2(pos.x + 14 + indent, pos.y + (sz.y - ImGui::GetTextLineHeight()) * 0.5f),
-                selected ? kText : (hov ? kText : IM_COL32(170, 180, 198, 255)), label);
-    ImGui::PopID();
+    if (hov && !selected) dl->AddRectFilled(pos, b, kSurf3, 3.0f);
+    if (selected) dl->AddRectFilled(ImVec2(pos.x, b.y - 2.0f), b, ImGui::GetColorU32(g_accent), 1.0f);
+    ImU32 col = (selected || hov) ? kText : kDim;
+    dl->AddText(ImVec2(pos.x + 14.0f, pos.y + (sz.y - ImGui::GetTextLineHeight()) * 0.5f), col, label);
     ImGui::PopID();
     return pressed;
 }
 
-static void drawSidebar(App& app) {
+// Top tab row, the mode/IP pill on the right, then a separator.
+static void drawTabs(App& app) {
     Screen cur = app.screen();
-    if (sideItem(T("Home"), cur == Screen::Home || cur == Screen::ModePicker || cur == Screen::Menu, 0))
-        app.setScreen(Screen::Home);
-    if (sideItem(T("Settings"), cur == Screen::Settings, 0)) app.setScreen(Screen::Settings);
-    if (cur == Screen::Settings) {
-        for (const auto& g : Config::groups())
-            if (sideItem(T(g.c_str()), g == g_group, 14.0f)) g_group = g;
-    }
-    if (sideItem(T("Chats"), cur == Screen::Chats, 0)) { app.refreshArchives(); app.setScreen(Screen::Chats); }
-    if (sideItem(T("Renew session"), cur == Screen::Renew, 0)) app.setScreen(Screen::Renew);
-    if (sideItem(T("Support"), cur == Screen::Support, 0)) app.setScreen(Screen::Support);
-    if (sideItem(T("Uninstall"), cur == Screen::Uninstall, 0)) app.setScreen(Screen::Uninstall);
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
-    if (sideItem(T("Exit"), false, 0)) app.requestQuit();
-}
-
-// ------------------------------------------------------------------ screens
-
-static void drawLogPanel(App& app) {
-    ImGui::BeginChild("##logs", ImVec2(0, 118), true, ImGuiWindowFlags_HorizontalScrollbar);
-    ImU32 cols[4] = {
-        IM_COL32(176, 184, 198, 255),
-        ImGui::GetColorU32(g_accentHi),
-        IM_COL32(230, 188, 96, 255),
-        IM_COL32(232, 100, 100, 255),
+    struct Tab { const char* label; Screen go; bool on; };
+    const Tab tabs[] = {
+        {T("Dashboard"), Screen::Home,     cur == Screen::Home || cur == Screen::ModePicker},
+        {T("Settings"),  Screen::Settings, cur == Screen::Settings},
+        {T("Chats"),     Screen::Chats,    cur == Screen::Chats},
+        {T("Support"),   Screen::Support,  cur == Screen::Support},
+        {T("More"),      Screen::Menu,     cur == Screen::Menu || cur == Screen::Renew || cur == Screen::Uninstall},
     };
-    std::vector<LogLine> lines = app.logLines();
-    for (const auto& l : lines) {
-        int k = (l.kind < 0 || l.kind > 3) ? 0 : l.kind;
-        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
-        ImGui::TextUnformatted(l.time.c_str());
-        ImGui::PopStyleColor();
-        ImGui::SameLine(92.0f);
-        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(cols[k]));
-        ImGui::TextWrapped("%s", l.text.c_str());
-        ImGui::PopStyleColor();
+    for (int i = 0; i < 5; ++i) {
+        if (i > 0) ImGui::SameLine(0.0f, 4.0f);
+        if (topTab(tabs[i].label, tabs[i].on)) {
+            if (tabs[i].go == Screen::Chats) app.refreshArchives();
+            app.setScreen(tabs[i].go);
+        }
     }
-    if (!lines.empty()) ImGui::SetScrollHereY(1.0f);
-    ImGui::EndChild();
-}
 
-static void drawHeader(App& app) {
-    // Right: state pill (the version is in the title bar).
     std::string mode = estModeName(app);
     if (mode.empty()) mode = "-";
     std::string ip = app.egress().lastIp.empty() ? std::string("-") : app.egress().lastIp;
@@ -502,15 +474,108 @@ static void drawHeader(App& app) {
     ImGui::PopStyleColor();
     ImGui::SameLine();
     ImGui::TextUnformatted(ip.c_str());
-
     if (app.busy()) {
         ImGui::SameLine();
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.90f, 0.74f, 0.38f, 1.0f));
         ImGui::TextUnformatted(T("working..."));
         ImGui::PopStyleColor();
     }
+    ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
+}
+
+// ------------------------------------------------------------------ screens
+
+// ------------------------------------------------------------------- log
+
+static const float kLogH = 190.0f;   // log card height
+static const float kBarH = 40.0f;    // bottom action row
+
+static int    g_logFilter = 0;       // 0 ALL, 1 INFO, 2 WARN, 3 ERR
+static bool   g_logPaused = false;
+static size_t g_lastLogCount = 0;
+static std::vector<LogLine> g_logSnap;   // frozen copy while paused
+
+static bool logKeep(int filter, int kind) {
+    if (filter == 1) return kind == 0 || kind == 1;
+    if (filter == 2) return kind == 2;
+    if (filter == 3) return kind == 3;
+    return true;
+}
+
+static void exportLog(App& app, const std::vector<LogLine>& lines) {
+    std::string path = stateDir() + "/opencode-infinite-log.txt";
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    if (!out) { app.log(3, "Export failed: " + path); return; }
+    for (const auto& l : lines) out << l.time << "  " << l.text << "\r\n";
+    app.log(1, "Log exported: " + path);
+}
+
+static void drawLogPanel(App& app) {
+    std::vector<LogLine> lines = g_logPaused ? g_logSnap : app.logLines();
+
+    ImGui::BeginChild("##logcard", ImVec2(0, kLogH), true, ImGuiWindowFlags_NoScrollbar);
+    ImGui::AlignTextToFramePadding();
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+    ImGui::TextUnformatted(T("Log"));
+    ImGui::PopStyleColor();
+
+    static const char* kFilters[4] = {"ALL", "INFO", "WARN", "ERR"};
+    for (int i = 0; i < 4; ++i) {
+        ImGui::SameLine(0.0f, i == 0 ? 18.0f : 4.0f);
+        if (UiButton(kFilters[i], ImVec2(0, 0), g_logFilter == i ? BtnKind::Primary : BtnKind::Quiet))
+            g_logFilter = i;
+    }
+
+    const char* rl[3] = {T(g_logPaused ? "Resume" : "Pause"), T("Clear"), T("Export")};
+    float total = ImGui::GetStyle().ItemSpacing.x * 2.0f;
+    for (const char* s : rl) total += ImGui::CalcTextSize(s).x + 34.0f;
+    ImGui::SameLine(ImGui::GetWindowWidth() - total - ImGui::GetStyle().WindowPadding.x);
+    if (UiButton(rl[0], ImVec2(0, 0), BtnKind::Ghost)) {
+        if (!g_logPaused) { g_logSnap = lines; g_logPaused = true; }
+        else { g_logPaused = false; g_logSnap.clear(); }
+    }
+    ImGui::SameLine();
+    if (UiButton(rl[1], ImVec2(0, 0), BtnKind::Ghost)) { app.clearLogs(); g_logSnap.clear(); lines.clear(); }
+    ImGui::SameLine();
+    if (UiButton(rl[2], ImVec2(0, 0), BtnKind::Ghost)) exportLog(app, lines);
+
+    ImGui::Spacing();
+    ImGui::BeginChild("##logs", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
+    ImU32 cols[4] = {
+        IM_COL32(176, 184, 198, 255),
+        ImGui::GetColorU32(g_accentHi),
+        IM_COL32(230, 188, 96, 255),
+        IM_COL32(232, 100, 100, 255),
+    };
+    for (const auto& l : lines) {
+        if (!logKeep(g_logFilter, l.kind)) continue;
+        int k = (l.kind < 0 || l.kind > 3) ? 0 : l.kind;
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+        ImGui::TextUnformatted(l.time.c_str());
+        ImGui::PopStyleColor();
+        ImGui::SameLine(92.0f);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(cols[k]));
+        ImGui::TextWrapped("%s", l.text.c_str());
+        ImGui::PopStyleColor();
+    }
+    // Follow new lines unless paused; a user who scrolls up is not pulled back until the next line.
+    if (!g_logPaused && lines.size() != g_lastLogCount) ImGui::SetScrollHereY(1.0f);
+    g_lastLogCount = lines.size();
+    ImGui::EndChild();
+    ImGui::EndChild();
+}
+
+// Bottom row: the three actions that matter most while OpenCode runs.
+static void drawActionBar(App& app) {
+    float gap = ImGui::GetStyle().ItemSpacing.x;
+    float w = (ImGui::GetContentRegionAvail().x - gap * 2.0f) / 3.0f;
+    if (PrimaryButton(T("Rotate IP"), ImVec2(w, kBarH))) app.newIpAndStart();
+    ImGui::SameLine();
+    if (GhostButton(T("Reconnect"), ImVec2(w, kBarH))) app.connectWith();
+    ImGui::SameLine();
+    if (GhostButton(T("More"), ImVec2(w, kBarH))) app.setScreen(Screen::Menu);
 }
 
 static std::string estModeName(App& app) {
@@ -525,32 +590,121 @@ static std::string estModeName(App& app) {
     return "";
 }
 
-static void drawHome(App& app) {
-    const EgressState& e = app.egress();
+// ------------------------------------------------------------- dashboard
 
-    // Status card.
-    ImGui::BeginChild("##homeStatus", ImVec2(0, 104), true);
+static void drawCard(const char* id, float w, const char* label, const std::string& value,
+                     const std::string& sub, bool accent) {
+    ImGui::PushID(id);
+    ImGui::BeginChild("##card", ImVec2(w, 78.0f), true, ImGuiWindowFlags_NoScrollbar);
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+    ImGui::TextUnformatted(label);
+    ImGui::PopStyleColor();
+    ImGui::SetWindowFontScale(1.2f);
+    ImGui::PushStyleColor(ImGuiCol_Text, accent ? g_accentHi : ImGui::ColorConvertU32ToFloat4(kText));
+    ImGui::TextUnformatted(value.c_str());
+    ImGui::PopStyleColor();
+    ImGui::SetWindowFontScale(1.0f);
+    if (!sub.empty()) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+        ImGui::TextUnformatted(sub.c_str());
+        ImGui::PopStyleColor();
+    }
+    ImGui::EndChild();
+    ImGui::PopID();
+}
+
+// Checkbox bound to a 0/1 config key; saves on change.
+static void toggleSetting(App& app, const std::string& key, const char* label) {
+    bool v = app.cfg().b(key);
+    ImGui::PushID(key.c_str());
+    if (ImGui::Checkbox(label, &v)) {
+        app.cfg().set(key, v ? "1" : "0");
+        app.saveCfg();
+    }
+    ImGui::PopID();
+}
+
+static void drawDashboard(App& app) {
+    const EgressState& e = app.egress();
+    std::string route = estModeName(app);
+    if (route.empty()) route = "-";
+    std::string ip = e.lastIp.empty() ? std::string("-") : e.lastIp;
+    std::string prev = g_ipHist.size() >= 2 ? g_ipHist[g_ipHist.size() - 2].ip : std::string();
+    bool running = app.appRunning();
+    std::string opencode = app.appExe().empty() ? std::string(T("not found"))
+                         : std::string(running ? T("running") : T("closed"));
+
+    // Row 1: four status cards.
+    float gap = ImGui::GetStyle().ItemSpacing.x;
+    float avail = ImGui::GetContentRegionAvail().x;
+    float cw = (avail - gap * 3.0f) / 4.0f;
+    drawCard("c1", cw, T("Exit IP"), ip, e.lastLoc, !e.lastIp.empty());
+    ImGui::SameLine();
+    drawCard("c2", cw, T("Route"), route, "", true);
+    ImGui::SameLine();
+    drawCard("c3", cw, T("OpenCode"), opencode, "", running);
+    ImGui::SameLine();
+    drawCard("c4", cw, T("Rotation"), app.cfg().b(std::string("AUTO_ROTATE")) ? T("automatic") : T("manual"),
+             app.busy() ? std::string(T("working...")) : std::string(), false);
+
+    // Row 2: egress panel and session IP history.
+    float half = (avail - gap) / 2.0f;
     ImGui::Spacing();
-    KeyValue(T("Exit IP"), e.lastIp.empty() ? std::string("-")
-                                            : e.lastIp + (e.lastLoc.empty() ? "" : "  (" + e.lastLoc + ")"),
-             !e.lastIp.empty());
-    KeyValue(T("Route"), estModeName(app).empty() ? std::string("-") : estModeName(app));
-    KeyValue(T("OpenCode"), app.appExe().empty() ? std::string(T("not found"))
-                                                 : (app.appRunning() ? std::string(T("running"))
-                                                                     : std::string(T("closed"))));
+    ImGui::BeginChild("##egress", ImVec2(half, 178.0f), true);
+    SectionHeader(T("Egress"));
+    ImGui::Spacing();
+    KeyValue(T("Route"), route);
+    KeyValue(T("Proxy"), !e.activeProxy.empty() ? e.activeProxy
+                         : (!e.proxyUrl.empty() ? e.proxyUrl : std::string("-")));
+    KeyValue(T("Exit IP"), ip);
+    KeyValue(T("Location"), e.lastLoc.empty() ? std::string("-") : e.lastLoc);
+    KeyValue(T("Previous IP"), prev.empty() ? std::string("-") : prev);
+    ImGui::Spacing();
+    if (GhostButton(T("Copy IP"), ImVec2(120, 28)) && !e.lastIp.empty()) ImGui::SetClipboardText(e.lastIp.c_str());
+    ImGui::SameLine();
+    if (GhostButton(T("Copy previous"), ImVec2(140, 28)) && !prev.empty()) ImGui::SetClipboardText(prev.c_str());
     ImGui::EndChild();
 
-    ImGui::Spacing();
-
-    // The one action that matters: new exit IP, then start OpenCode with it.
-    if (PrimaryButton(T("New IP and start OpenCode"), ImVec2(0, 38))) app.newIpAndStart();
     ImGui::SameLine();
-    if (GhostButton(T("Connect with opencode"), ImVec2(0, 38))) app.connectWith();
-    if (app.configured()) {
-        ImGui::SameLine();
-        Badge(T("Configured"), g_accent);
+    ImGui::BeginChild("##iphist", ImVec2(half, 178.0f), true);
+    SectionHeader(T("IP history (this session)"));
+    ImGui::Spacing();
+    if (g_ipHist.empty()) Muted(T("No IPs yet."));
+    for (size_t i = g_ipHist.size(); i-- > 0;) {
+        const IpEntry& h = g_ipHist[i];
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+        ImGui::TextUnformatted(h.time.c_str());
+        ImGui::PopStyleColor();
+        ImGui::SameLine(92.0f);
+        ImGui::TextUnformatted(h.ip.c_str());
+        if (!h.loc.empty()) {
+            ImGui::SameLine();
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+            ImGui::Text("(%s)", h.loc.c_str());
+            ImGui::PopStyleColor();
+        }
     }
+    ImGui::EndChild();
 
+    // Row 3: the settings that change how rotation behaves, and system paths.
+    ImGui::Spacing();
+    ImGui::BeginChild("##quick", ImVec2(half, 150.0f), true);
+    SectionHeader(T("Settings"));
+    ImGui::Spacing();
+    toggleSetting(app, "AUTO_ROTATE", T("Automatic rotation"));
+    toggleSetting(app, "WATCH", T("Watch the log"));
+    toggleSetting(app, "PROBE", T("Test every new IP"));
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+    ImGui::BeginChild("##system", ImVec2(half, 150.0f), true);
+    SectionHeader(T("System"));
+    ImGui::Spacing();
+    KeyValue(T("Launcher"), std::string(kLauncherVersion));
+    KeyValue(T("Desktop app"), app.appExe().empty() ? std::string(T("not found")) : app.appExe());
+    KeyValue(T("Probe CLI"), app.probeCli().empty() ? std::string(T("not found")) : app.probeCli());
+    KeyValue(T("Configured"), app.configured() ? std::string(T("yes")) : std::string(T("no")));
+    ImGui::EndChild();
 }
 
 static void drawModePicker(App& app) {
@@ -586,24 +740,28 @@ static void drawModePicker(App& app) {
     if (GhostButton(T("Back"), ImVec2(110, 30))) app.setScreen(Screen::Home);
 }
 
+// "More": the less frequent actions. Renew and Uninstall stay here, not on the dashboard.
 static void drawMenu(App& app) {
-    ImGui::BeginChild("##menuInfo", ImVec2(0, 104), true);
+    SectionHeader(T("More"));
+    ImGui::Spacing();
+    ImGui::Separator();
     ImGui::Spacing();
     KeyValue(T("App"), app.appExe().empty() ? std::string(T("not found")) : app.appExe());
     KeyValue(T("Connection"), estModeName(app).empty() ? std::string("-") : estModeName(app));
     KeyValue(T("Exit IP"), app.egress().lastIp.empty() ? std::string("-") : app.egress().lastIp + " " + app.egress().lastLoc);
-    KeyValue(T("OpenCode"), app.appRunning() ? T("running") : T("closed"));
-    ImGui::EndChild();
+    KeyValue(T("OpenCode"), app.appRunning() ? std::string(T("running")) : std::string(T("closed")));
+    ImGui::Spacing();
     ImGui::Spacing();
 
-    float w = 0.0f;
-    if (GhostButton(T("1  New IP and start OpenCode"), ImVec2(w, 32))) app.newIpAndStart();
-    if (GhostButton(T("2  Clear tokens, then start"), ImVec2(w, 32))) app.clearTokensAndStart();
-    if (GhostButton(T("3  Change IP (test)"), ImVec2(w, 32))) app.changeIpTest();
-    if (GhostButton(T("4  Deep reset or restore chats"), ImVec2(w, 32))) { app.refreshArchives(); app.setScreen(Screen::Chats); }
-    if (GhostButton(T("5  Settings"), ImVec2(w, 32))) app.setScreen(Screen::Settings);
-    if (GhostButton(T("6  Back"), ImVec2(w, 32))) app.setScreen(Screen::Home);
-    if (GhostButton(T("7  Exit"), ImVec2(w, 32))) app.requestQuit();
+    const ImVec2 w(280, 32);
+    if (GhostButton(T("New IP and start OpenCode"), w)) app.newIpAndStart();
+    if (GhostButton(T("Clear tokens, then start"), w)) app.clearTokensAndStart();
+    if (GhostButton(T("Change IP (test)"), w)) app.changeIpTest();
+    if (GhostButton(T("Deep reset or restore chats"), w)) { app.refreshArchives(); app.setScreen(Screen::Chats); }
+    if (GhostButton(T("Renew session"), w)) app.setScreen(Screen::Renew);
+    if (GhostButton(T("Uninstall"), w)) app.setScreen(Screen::Uninstall);
+    ImGui::Spacing();
+    if (GhostButton(T("Exit"), w)) app.requestQuit();
 }
 
 static void drawSettings(App& app) {
@@ -621,10 +779,19 @@ static void drawSettings(App& app) {
     ImGui::Separator();
     ImGui::Spacing();
 
-    ImGui::BeginChild("##cfgscroll", ImVec2(0, 0));
+    // Settings groups were in the sidebar; they are a tab row now.
     std::vector<std::string> groups = Config::groups();
     if (g_group.empty() || std::find(groups.begin(), groups.end(), g_group) == groups.end())
         g_group = groups.empty() ? std::string() : groups[0];
+    for (size_t i = 0; i < groups.size(); ++i) {
+        if (i > 0) ImGui::SameLine();
+        if (topTab(T(groups[i].c_str()), groups[i] == g_group)) g_group = groups[i];
+    }
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    ImGui::BeginChild("##cfgscroll", ImVec2(0, 0));
     for (const auto& g : groups) {
         if (g == g_group) {
             SectionHeader(T(g.c_str()));
@@ -703,7 +870,7 @@ static void drawRenew(App& app) {
     ImGui::Spacing();
     if (PrimaryButton(T("Renew session"), ImVec2(180, 32))) app.renewSession();
     ImGui::SameLine();
-    if (GhostButton(T("Back"), ImVec2(100, 32))) app.setScreen(Screen::Home);
+    if (GhostButton(T("Back"), ImVec2(100, 32))) app.setScreen(Screen::Menu);
 }
 
 static void drawUninstall(App& app) {
@@ -715,7 +882,7 @@ static void drawUninstall(App& app) {
     ImGui::Spacing();
     if (DangerButton(T("Uninstall"), ImVec2(180, 32))) app.doUninstall();
     ImGui::SameLine();
-    if (GhostButton(T("Back"), ImVec2(100, 32))) app.setScreen(Screen::Home);
+    if (GhostButton(T("Back"), ImVec2(100, 32))) app.setScreen(Screen::Menu);
 }
 
 static void drawSupport(App& app) {
@@ -831,16 +998,13 @@ void uiDraw(App& app) {
     ImGui::PopStyleVar();
 
     drawTitleBar();
-    drawHeader(app);
+    updateIpHistory(app);
+    drawTabs(app);
 
-    float logH = 118.0f + ImGui::GetStyle().ItemSpacing.y * 2;
-    ImGui::BeginChild("##side", ImVec2(kSideW, -logH), false);
-    drawSidebar(app);
-    ImGui::EndChild();
-    ImGui::SameLine();
-    ImGui::BeginChild("##body", ImVec2(0, -logH), false);
+    float reserve = kLogH + kBarH + ImGui::GetStyle().ItemSpacing.y * 2.0f;
+    ImGui::BeginChild("##body", ImVec2(0, -reserve), false);
     switch (app.screen()) {
-        case Screen::Home:       drawHome(app);       break;
+        case Screen::Home:       drawDashboard(app);  break;
         case Screen::ModePicker: drawModePicker(app);  break;
         case Screen::Menu:       drawMenu(app);        break;
         case Screen::Settings:   drawSettings(app);    break;
@@ -852,6 +1016,7 @@ void uiDraw(App& app) {
     ImGui::EndChild();
 
     drawLogPanel(app);
+    drawActionBar(app);
 
     drawTextEditPopup(app);
     drawClosePrompt(app);

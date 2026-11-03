@@ -2,7 +2,7 @@
 # OpenCode Infinite for Linux: the Windows launcher's flow in bash.
 # Egress WARP / TOR / PROXY / NONE, target IP hunt, probe, resume when a limit stops the chat.
 # Needs: bash 4.3+, curl, node + opencode. Optional: warp-cli, tor, privoxy, jq (menus in other languages).
-VERSION="linux-0.4.1"
+VERSION="linux-0.4.2"
 REPO="https://gitlab.com/jekooo/opencode-infinite"
 REPO_RAW="https://gitlab.com/jekooo/opencode-infinite/-/raw/main"
 
@@ -911,7 +911,7 @@ write_shims(){ # the commands: opencodeinf (menu), opencodeoc (plain OpenCode). 
 }
 find_real_opencode(){ # sets OC_REAL and OC_LINK to the Linux opencode, never a Windows one (/mnt/...) or our own command
   local d p
-  for d in ${PATH//:/ } "$HOME/.local/bin" "$HOME/.local/lib/node_modules/opencode-ai/bin"; do
+  for d in ${PATH//:/ } "$HOME/.local/bin" "$HOME/.opencode/bin" "${XDG_BIN_DIR:-}" "$HOME/.local/lib/node_modules/opencode-ai/bin"; do
     case $d in /mnt/*) continue;; esac
     for p in "$d"/opencode "$d"/opencode.exe; do
       [ -x "$p" ] || continue

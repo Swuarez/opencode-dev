@@ -19,7 +19,7 @@ The sections marked **Windows only** below are not on Linux.
 
 ### Windows: .bat or .exe?
 
-- The `.bat` has VPN Gate and WireGuard. The `.exe` (3.4.1) has the same modes in its code, not yet run against real servers (section 14).
+- The `.bat` has VPN Gate and WireGuard. The `.exe` (3.4.2) has the same modes in its code, not yet run against real servers (section 14).
 - The `.exe` and the `.bat` share the state folder and `config.json` (section 14).
 - An `OpenCode Infinite.exe` that sits next to the `.bat` is offered for update by the launcher (section 11).
 
@@ -436,7 +436,7 @@ A native Windows app with the same job as the `.bat`: a new exit IP, then OpenCo
 
 **Get it.** Download `OpenCode-Infinite.exe` from the [latest release](https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest). Rename it `OpenCode Infinite.exe` if you want the `.bat` updater to find it (section 11). A language is downloaded the first time it is chosen, or at start if it is missing; without a copy and without a connection the app runs in English.
 
-**Screens.** Home (New IP and start OpenCode, Connect with opencode, and the other pages), Settings, Chats, Renew session, Support and Uninstall. The log panel shows the time as HH:MM:SS.
+**Screens.** Top tabs: Dashboard, Settings, Chats, Support and More. The dashboard shows four cards (Exit IP, Route, OpenCode, Rotation), the egress panel with Copy IP and Copy previous, the IP history of this session, the switches for `AUTO_ROTATE`, `WATCH` and `PROBE`, and the system paths. The bottom row has Rotate IP (new IP, then start OpenCode), Reconnect (runs the Connect with opencode setup) and More. More holds New IP and start, Clear tokens, Change IP (test), Deep reset or restore chats, Renew session, Uninstall and Exit. The log has the filters ALL, INFO, WARN and ERR, and the buttons Pause, Clear and Export (Export writes `opencode-infinite-log.txt` to the state folder). The log panel shows the time as HH:MM:SS.
 
 **Connection.** WARP, Tor, proxy and NONE, with the same meaning as in section 4.
 
@@ -493,7 +493,7 @@ v2.55 is the latest release, 2026-11-03; v2.54 is the previous release.
 
 ### Windows C++ app
 
-**Windows C++ app (`OpenCode Infinite.exe`, 3.4.1):** part of the v2.55 release. 3.4.1 only moves the version into the title bar. 3.4.0 (v2.54) adds WireGuard and VPN Gate modes (the same helper as the `.bat`), the IP pool and the hunt caps. They are compiled but not yet run against real servers. Before it, 3.2.2 (v2.49; v2.48 had 3.2.1). 3.2.2 adds version metadata to the exe (VERSIONINFO in `OpenCodeInfinite.rc`: ProductName, FileDescription, CompanyName "jekooo", FileVersion 3.2.2.0), because VirusTotal flags the exe as a false positive and an exe with no metadata is a signal that usually hurts the heuristics. It also removes code nobody called (the download and silent run with `/S` of the OpenCode Desktop installer, whose SHA-256 check let the file pass if the hash was missing), and cache and folder deletion no longer use `cmd /c rmdir`: they use `std::filesystem::remove_all`, with a path check before deleting. The exe is not signed (there is no code-signing certificate yet). 3.2.1 (v2.48) no longer rotates the IP on "failed to drain session" (the `.bat` and the `.sh` already treated it as a no-op). The built exe is in the repo at `C++/bin/Release/OpenCodeInfinite.exe`, and it builds with Visual Studio (section 14). It has not been run against a real OpenCode install yet.
+**Windows C++ app (`OpenCode Infinite.exe`, 3.4.2):** new window layout (top tabs, status cards, egress panel, IP history, settings switches, log filters and a bottom action row; see section 14). 3.4.2 is not in a GitLab release yet and has not been seen on a real screen. Before it, 3.4.1 (v2.55) only moved the version into the title bar. 3.4.0 (v2.54) adds WireGuard and VPN Gate modes (the same helper as the `.bat`), the IP pool and the hunt caps. They are compiled but not yet run against real servers. Before it, 3.2.2 (v2.49; v2.48 had 3.2.1). 3.2.2 adds version metadata to the exe (VERSIONINFO in `OpenCodeInfinite.rc`: ProductName, FileDescription, CompanyName "jekooo", FileVersion 3.2.2.0), because VirusTotal flags the exe as a false positive and an exe with no metadata is a signal that usually hurts the heuristics. It also removes code nobody called (the download and silent run with `/S` of the OpenCode Desktop installer, whose SHA-256 check let the file pass if the hash was missing), and cache and folder deletion no longer use `cmd /c rmdir`: they use `std::filesystem::remove_all`, with a path check before deleting. The exe is not signed (there is no code-signing certificate yet). 3.2.1 (v2.48) no longer rotates the IP on "failed to drain session" (the `.bat` and the `.sh` already treated it as a no-op). The built exe is in the repo at `C++/bin/Release/OpenCodeInfinite.exe`, and it builds with Visual Studio (section 14). It has not been run against a real OpenCode install yet.
 
 ### Verified on a real Windows 11 PC
 
@@ -520,6 +520,7 @@ Checked on a real Windows 11 PC:
 
 ### Version history
 
+- **C++ 3.4.2 and Linux `linux-0.4.2`** (2026-11-03, not yet a GitLab release). The exe gets the new window layout described in section 14. The script fixes Ubuntu: `opencode` installed by the official installer in `~/.opencode/bin` was not found, so the install was reported as failed (the search now also checks `~/.opencode/bin` and `$XDG_BIN_DIR`). Neither was run on a real machine yet.
 - **v2.55** (latest release, 2026-11-03). Banner and log line say v2.55; the probe uses its own session (`ocinf-probe`); the saved-IP pool quoting fix (`%PSX%`). The C++ app is 3.4.1 (version in the title bar). Not run on a real machine yet (see Current state).
 - **v2.54** (previous release, 2026-11-02). VPN Gate asks for administrator once per launcher session. The `.bat` and the C++ app add an IP pool and the hunt caps (`TARGET_TRIES`, `TARGET_MINUTES`). The C++ app is 3.4.0 and adds WireGuard and VPN Gate modes. Not run against real servers yet (see Current state).
 - **v2.49** (2026-11-01). It changes: the single-instance lock is rewritten (bug 11): it stores PID + start time + executable + .bat path and checks all four; an orphan lock is deleted and logged; a valid lock shows the PID and path and offers [1] close the other instance and continue, [2] open anyway (own copy of the configuration) or [3] exit (exit after 60 s with no answer); new "Clear instance lock" option in the Deep reset submenu; the path of the official copy is quoted. Tested in an isolated harness; the real menu and option [2] with the real state were not tested. The same release ships `OpenCode Infinite.exe` 3.2.2 (version metadata, dead installer code removed, native deletion with `std::filesystem::remove_all`; still unsigned).
