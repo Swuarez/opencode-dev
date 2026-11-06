@@ -19,7 +19,7 @@
 
 namespace oi {
 
-const char* kLauncherVersion = "3.4.3";
+const char* kLauncherVersion = "3.4.4";
 
 App::App() {}
 App::~App() { shutdown(); }
@@ -184,6 +184,45 @@ void App::desktopIfStale() {
         detectDesktop("cache expired or app missing");
 }
 
+// v2.60.1: no desktop app: ask first, and install it only on Yes.
+bool App::ensureDesktop() {
+    if (!appExe_.empty()) return true;
+    std::wstring q = utf8ToWide(tx("The OpenCode desktop app is not installed. Download and install the official version now?"));
+    if (MessageBoxW(nullptr, q.c_str(), L"OpenCode Infinite", MB_YESNO | MB_ICONQUESTION | MB_TOPMOST | MB_SETFOREGROUND) != IDYES) {
+        log(2, tx("OpenCode desktop was not installed."));
+        return false;
+    }
+    if (!installDesktop()) return false;
+    detectDesktop("after install");
+    return !appExe_.empty();
+}
+
+// The official installer, the same source and checks as the .bat: release info, download, SHA-256, then /S.
+bool App::installDesktop() {
+    const char* arch = (iequals(envVar("PROCESSOR_ARCHITECTURE"), "ARM64") || iequals(envVar("PROCESSOR_ARCHITEW6432"), "ARM64")) ? "arm64" : "x64";
+    std::string file = std::string("opencode-desktop-win-") + arch + ".exe";
+    ReleaseInfo rel = fetchRelease(cfg_.s("OC_API_BASE"), "desktop");
+    auto it = rel.ok ? rel.files.find(file) : rel.files.end();
+    if (it == rel.files.end()) { log(3, tx("Could not find the OpenCode desktop installer.")); return false; }
+    std::string setup = joinPath(envVar("TEMP"), "opencode-desktop-setup.exe");
+    log(0, tx("Downloading OpenCode desktop {0}...", rel.version));
+    uint64_t size = 0;
+    bool got = httpDownload(it->second.url, setup, "", 900, &size);
+    if (!got || size < 50000000 || !iequals(sha256File(setup), it->second.sha256)) {
+        DeleteFileA(setup.c_str());
+        log(3, tx("The download failed or its checksum does not match. Nothing was installed."));
+        return false;
+    }
+    log(0, tx("Installing OpenCode desktop {0}...", rel.version));
+    Spawned sp = spawnDetached(setup, "/S", {}, "", true, true);
+    bool done = sp.ok && waitPid(sp.pid, 900000);
+    if (sp.process) closeProcHandle(sp.process);
+    DeleteFileA(setup.c_str());
+    if (!done) { log(3, tx("The OpenCode desktop installer did not finish.")); return false; }
+    log(1, tx("OpenCode desktop {0} installed.", rel.version));
+    return true;
+}
+
 void App::rescanDesktop() {
     runAsync([this] {
         detectDesktop("detect again");
@@ -342,7 +381,7 @@ void App::connectAndStart(const std::string& mode) {
                 log(2, tx("The IP hunt ended without a confirmed IP."));
         }
 
-        if (appExe_.empty()) {
+        if (!ensureDesktop()) {
             log(3, tx("The OpenCode desktop app was not found."));
             screen_ = Screen::Home;
             return;
@@ -579,7 +618,7 @@ void App::startNow() {
         return;
     }
     runAsync([this] {
-        if (appExe_.empty()) { log(3, tx("OpenCode was not found.")); return; }
+        if (!ensureDesktop()) { log(3, tx("OpenCode was not found.")); return; }
         log(0, tx("Starting OpenCode on the current connection."));
         if (startDesktop()) log(1, tx("OpenCode started."));
         else log(3, tx("OpenCode did not start."));

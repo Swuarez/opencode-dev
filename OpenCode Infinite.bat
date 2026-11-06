@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 title opencode-infinity
 REM ============================================================
-REM  OpenCode launcher  (v2.60)
+REM  OpenCode launcher  (v2.60.1)
 REM  Multi-egress (WARP / TOR / free HTTP) + dependency bootstrap
 REM  + auto-resume.
 REM  v2.22 - v2.29: every fixed bug carries an inline "REM v2.2x:"
@@ -794,6 +794,9 @@ set "T_383=Direct commands installed: opencode-warp, opencode-tor, opencode-prox
 set "T_384=Remove the direct commands?"
 set "T_385=The direct commands were removed."
 set "T_386=not installed"
+REM v2.60.1: the CLI is installed only after the user says yes.
+set "T_387=   OpenCode CLI is not installed. Install it now? [Y/N]: "
+set "T_388=  OpenCode CLI was not installed. Run the launcher again and answer Y, or install it by hand."
 REM Batch messages are translated from lang\<code>.json; the UI writes lang\messages.txt (data only).
 set "OC_TUI=mki18n"
 set "OC_STATE=%STATE_DIR%"
@@ -909,7 +912,7 @@ REM path) would reach launcher.log in clear and the support report masks no free
 set "LOG_ARGS=redacted"
 set "LOG_OSV="
 for /f "tokens=*" %%v in ('ver') do if not defined LOG_OSV set "LOG_OSV=%%v"
-call :log "start v2.60 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
+call :log "start v2.60.1 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
 REM v2.30: one official copy. Setup copies this file to STATE_DIR\app and the opencode
 REM command runs that copy. A duplicate (a second download, "(1)") hands over to it, or
 REM replaces it when it is the newer one.
@@ -1573,7 +1576,14 @@ if defined OC_CMD goto :ready
 REM v2.40: Desktop mode launches the app, not the CLI: no CLI is not an error there, so do not install it or quit.
 if /i "%APP_MODE%"=="DESKTOP" goto :ready
 
-REM Not found: install it (npm first, then the standalone build).
+REM Not found: ask first (v2.60.1). Auto and quiet runs never install on their own.
+if defined OPT_AUTO goto :oc_missing
+if defined OPT_QUIET goto :oc_missing
+echo.
+call :yn "%T_387%"
+if errorlevel 100 goto :quit
+if errorlevel 2 goto :oc_missing
+REM Yes: install it (npm first, then the standalone build).
 call echo %T_44%
 call :install_opencode
 REM v2.22: :install_opencode can abort (32-bit with no route) - exit from
@@ -1588,6 +1598,12 @@ REM The install failed: show a manual link and stop.
 call echo %T_46%
 call echo %T_47%
 call :pause_key
+goto :quit
+REM Declined, or an auto/quiet run: say how to get it, then stop.
+:oc_missing
+call echo %T_388%
+call echo %T_47%
+if not defined OPT_AUTO if not defined OPT_QUIET call :pause_key
 goto :quit
 
 REM Both dependencies are ready. Probe what this CLI build supports,
@@ -7522,7 +7538,7 @@ $Themes = @{
   mono   = @{ Title = '1'; Accent = '0'; Sel = '7'; Border = '0'; Panel = '' }
   rainbow = @{ Title = '1'; Accent = '36'; Sel = '30;46'; Border = '35'; Panel = ''; Rainbow = $true }
 }
-# v2.61: more themes are read from themes/themes.txt of the repository, cached in the state folder like the languages.
+# v2.60.1: more themes are read from themes/themes.txt of the repository, cached in the state folder like the languages.
 # The five built-in themes stay in this file, so the launcher still works offline.
 $BuiltinThemes = @('ocean', 'forest', 'sunset', 'mono', 'rainbow')
 $ThemeBase = if ($env:OC_THEME_BASE) { $env:OC_THEME_BASE } else { 'https://gitlab.com/jekooo/opencode-infinite/-/raw/main/themes' }
@@ -7584,7 +7600,7 @@ function Hue-Rgb([double]$h) {
 $Langs = @('en', 'es', 'fr', 'de', 'pt', 'it', 'tr', 'ru')
 $LangBase = if ($env:OC_LANG_BASE) { $env:OC_LANG_BASE } else { 'https://gitlab.com/jekooo/opencode-infinite/-/raw/main/langs' }
 # a cached language file is refreshed when it was downloaded by another launcher version (its .ver file)
-$LangVer = '2.61'
+$LangVer = '2.60.1'
 # T looks a text up in the selected language; no entry means the English text is shown. Leading
 # icons and spaces are kept. Tf fills {0} {1} after translating. OC_TUI_I18N_DUMP=<file> lists the misses.
 $script:TrCache = @{}
@@ -9004,7 +9020,7 @@ function New-Report {
   $total = 6
   & $A 'OpenCode Infinite - support report'
   & $A ('Generated   ' + (Get-Date).ToString('o'))
-  & $A 'Launcher    v2.60'
+  & $A 'Launcher    v2.60.1'
   & $A ('File        ' + $Self)
   try { $fi = Get-Item -LiteralPath $Self; & $A ('Size/date   ' + $fi.Length + ' bytes, ' + $fi.LastWriteTime.ToString('s')); & $A ('SHA-256     ' + (Get-FileHash -LiteralPath $Self -Algorithm SHA256).Hash) } catch { }
   & $A 'Personal data (user name, PC name, e-mails, tokens, passwords, and by default public IPs) is removed from this file. Read it before sharing.'
@@ -9199,7 +9215,7 @@ function Menu-Main {
     @{ L = ($script:I.back + ' Back'); C = 10; H = 'Return to the home screen.' },
     @{ L = ($script:I.err + ' Exit'); C = 6; H = 'Close the launcher.' })
   $head = Header-Lines
-  $r = Show-Menu 'OpenCode' $items ('v2.60   ' + $Repo) $head 0
+  $r = Show-Menu 'OpenCode' $items ('v2.60.1   ' + $Repo) $head 0
   if ($r -eq -1) { exit 10 }
   exit $items[$r].C
 }
@@ -9406,7 +9422,7 @@ function Home-Loop {
       $head += ''
     }
     if ($script:Notice) { $head += (P (Style $script:Notice[0]) ($script:I.warn + ' ' + (T $script:Notice[1]))); $head += ''; $script:Notice = $null }
-    $r = Show-Menu 'Main menu' $items ('v2.60   ' + $Self) $head $pos $true
+    $r = Show-Menu 'Main menu' $items ('v2.60.1   ' + $Self) $head $pos $true
     if ($r -eq -1) { continue }
     $pos = $r
     Log ('home -> ' + $acts[$r])

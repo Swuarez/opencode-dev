@@ -2,7 +2,7 @@
 # OpenCode Infinite for Linux: the Windows launcher's flow in bash.
 # Egress WARP / TOR / PROXY / NONE, target IP hunt, probe, resume when a limit stops the chat.
 # Needs: bash 4.3+, curl, node + opencode. Optional: warp-cli, tor, privoxy, jq (menus in other languages).
-VERSION="linux-0.4.3"
+VERSION="linux-0.4.4"
 REPO="https://gitlab.com/jekooo/opencode-infinite"
 REPO_RAW="https://gitlab.com/jekooo/opencode-infinite/-/raw/main"
 
@@ -166,7 +166,7 @@ load_lang(){
 }
 
 # ---------------------------------------------------------------- theme and drawing
-# v2.61: more themes are read from themes/themes.txt of the repository, cached in $STATE_DIR/themes (like the
+# v2.60.1: more themes are read from themes/themes.txt of the repository, cached in $STATE_DIR/themes (like the
 # languages). The five built-in themes are in set_theme, so the launcher works offline. Line format:
 # name|title|accent|border|selected|rainbow (codes are digits and ;; rainbow 1 or 0). Bad lines are skipped, max 30.
 THEMES_VER=1
@@ -1134,6 +1134,14 @@ ensure_deps(){ # installs what is missing, each step on its own: a failed step n
   command -v node >/dev/null || want+=(nodejs)
   command -v npm >/dev/null || want+=(npm)
   command -v xdg-user-dir >/dev/null || want+=(xdg-user-dirs)
+  local oc_need=0 what
+  find_real_opencode || oc_need=1
+  if [ "$warp_need" = 1 ] || [ ${#want[@]} -gt 0 ] || [ "$oc_need" = 1 ]; then
+    # v2.60.1: ask before anything is installed. Auto and quiet runs never install on their own.
+    what="${want[*]}"; [ "$warp_need" = 1 ] && what="WARP $what"; [ "$oc_need" = 1 ] && what="$what opencode"
+    if [ "$OPT_AUTO" = 1 ] || [ "${OPT_QUIET:-0}" = 1 ]; then say warn "missing, not installed in auto or quiet mode: ${what# }"; return 0; fi
+    if ! confirm "Install what is missing: ${what# }?"; then say warn "skipped, nothing installed: ${what# }"; return 0; fi
+  fi
   if [ "$warp_need" = 1 ] || [ ${#want[@]} -gt 0 ]; then
     did=1
     if [ -z "$m" ]; then say err "no apt, dnf, pacman or zypper here. Install by hand: WARP ${want[*]}"

@@ -19,7 +19,7 @@ The sections marked **Windows only** below are not on Linux.
 
 ### Windows: .bat or .exe?
 
-- The `.bat` has VPN Gate and WireGuard. The `.exe` (3.4.3) has the same modes (section 14).
+- The `.bat` has VPN Gate and WireGuard. The `.exe` (3.4.4) has the same modes (section 14).
 - The `.exe` and the `.bat` share the state folder and `config.json` (section 14).
 - An `OpenCode Infinite.exe` that sits next to the `.bat` is offered for update by the launcher (section 11).
 
@@ -532,8 +532,20 @@ A native Windows app with the same job as the `.bat`: a new exit IP, then OpenCo
 
 ## Versions
 
-**Latest version:** launcher 2.60 (`.bat`), app 3.4.3 (`.exe`), Linux script 0.4.3.
-**Latest published release:** 2.60 (2026-11-06). **Previous:** 2.59 (2026-11-03).
+**Latest version:** launcher 2.60.1 (`.bat`), app 3.4.4 (`.exe`), Linux script 0.4.4.
+**Latest published release:** 2.60.1 (2026-11-06). **Previous:** 2.60 (2026-11-06).
+
+### 2.60.1
+
+- **Asks first:** the launcher asks before it installs OpenCode CLI. With `--auto` or `--quiet` it installs nothing and tells you how to install it.
+
+### C++ app 3.4.4
+
+- **Asks first:** when the OpenCode desktop app is missing, the window asks before it downloads and installs the official version. The download is checked with SHA-256 before it runs.
+
+### Linux script 0.4.4
+
+- **Asks first:** before it installs what is missing (WARP, Tor, privoxy, jq, Node.js, npm, OpenCode), it asks once. `--auto` and `--quiet` install nothing and report what is missing.
 
 ### 2.60
 

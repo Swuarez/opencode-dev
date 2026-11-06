@@ -127,6 +127,8 @@ private:
     void     crashRetry(uint32_t code);   // same route after a short wait; 3 crashes in 10 min stop
     void     detectDesktop(const std::string& why);   // find the app now, reset the 10 min cache
     void     desktopIfStale();            // detect again when the cached result is older than 10 min
+    bool     ensureDesktop();             // v2.60.1: no desktop app: ask first, install only on Yes; true when it is there now
+    bool     installDesktop();            // official installer: download, SHA-256 check, then /S
     void     dropTokens(const std::string& why);      // clearTokens + UI log
     bool     autoRestartAllowed(const char* why);     // 3 automatic restarts per 10 min, then ask
 
