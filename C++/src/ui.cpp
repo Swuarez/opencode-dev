@@ -647,10 +647,15 @@ static void drawDashboard(App& app) {
     drawCard("c4", cw, T("Rotation"), app.cfg().b(std::string("AUTO_ROTATE")) ? T("automatic") : T("manual"),
              app.busy() ? std::string(T("working...")) : std::string(), false);
 
-    // Row 2: egress panel and session IP history.
+    // Rows 2 and 3 share the height left under the cards, so the panels show everything without a scrollbar.
     float half = (avail - gap) / 2.0f;
+    float gapY = ImGui::GetStyle().ItemSpacing.y;
+    float rowH = std::max(ImGui::GetFrameHeightWithSpacing() * 8.0f, (ImGui::GetContentRegionAvail().y - gapY * 5.0f) / 2.0f);
+    const ImGuiWindowFlags kPanel = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
+
+    // Row 2: egress panel and session IP history.
     ImGui::Spacing();
-    ImGui::BeginChild("##egress", ImVec2(half, 178.0f), true);
+    ImGui::BeginChild("##egress", ImVec2(half, rowH), true, kPanel);
     SectionHeader(T("Egress"));
     ImGui::Spacing();
     KeyValue(T("Route"), route);
@@ -666,7 +671,7 @@ static void drawDashboard(App& app) {
     ImGui::EndChild();
 
     ImGui::SameLine();
-    ImGui::BeginChild("##iphist", ImVec2(half, 178.0f), true);
+    ImGui::BeginChild("##iphist", ImVec2(half, rowH), true);   // a list: it may grow, so it keeps its scrollbar
     SectionHeader(T("IP history (this session)"));
     ImGui::Spacing();
     if (g_ipHist.empty()) Muted(T("No IPs yet."));
@@ -688,7 +693,7 @@ static void drawDashboard(App& app) {
 
     // Row 3: the settings that change how rotation behaves, and system paths.
     ImGui::Spacing();
-    ImGui::BeginChild("##quick", ImVec2(half, 150.0f), true);
+    ImGui::BeginChild("##quick", ImVec2(half, rowH), true, kPanel);
     SectionHeader(T("Settings"));
     ImGui::Spacing();
     toggleSetting(app, "AUTO_ROTATE", T("Automatic rotation"));
@@ -697,7 +702,7 @@ static void drawDashboard(App& app) {
     ImGui::EndChild();
 
     ImGui::SameLine();
-    ImGui::BeginChild("##system", ImVec2(half, 150.0f), true);
+    ImGui::BeginChild("##system", ImVec2(half, rowH), true, kPanel);
     SectionHeader(T("System"));
     ImGui::Spacing();
     KeyValue(T("Launcher"), std::string(kLauncherVersion));

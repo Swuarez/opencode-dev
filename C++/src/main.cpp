@@ -102,7 +102,7 @@ static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
         case WM_GETMINMAXINFO: {
             MINMAXINFO* mm = (MINMAXINFO*)lParam;
             mm->ptMinTrackSize.x = 760;
-            mm->ptMinTrackSize.y = 520;
+            mm->ptMinTrackSize.y = 960;   // the dashboard panels need this height without a scrollbar
             // maximise inside the work area (a popup would otherwise cover the taskbar)
             HMONITOR mon = ::MonitorFromWindow(hWnd, MONITOR_DEFAULTTONEAREST);
             MONITORINFO mi = { sizeof(mi) };
@@ -213,7 +213,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
     ::SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0);
     int waW = wa.right - wa.left;
     int waH = wa.bottom - wa.top;
-    int w = 1180, h = 760;
+    int w = 1180, h = 960;
     if (w > waW - 40) w = waW - 40;
     if (h > waH - 40) h = waH - 40;
     HWND hwnd = ::CreateWindowExW(WS_EX_APPWINDOW, wc.lpszClassName, L"opencode-infinity",
