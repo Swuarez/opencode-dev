@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 title opencode-infinity
 REM ============================================================
-REM  OpenCode launcher  (v2.60.2)
+REM  OpenCode launcher  (v2.60.3)
 REM  Multi-egress (WARP / TOR / free HTTP) + dependency bootstrap
 REM  + auto-resume.
 REM  v2.22 - v2.29: every fixed bug carries an inline "REM v2.2x:"
@@ -216,8 +216,8 @@ REM Seconds a single "where" lookup may take before it is killed. A PATH
 REM entry on a dead mapped drive or an offline UNC share makes where.exe
 REM block for minutes, and it does it before a single line is printed.
 set "WHERE_TIMEOUT=5"
-REM 1 = watch the log while opencode runs, rotate on any fatal error.
-set "WATCH=1"
+REM 1 = watch the log while opencode runs, rotate on any fatal error. Off by default since 2.60.3.
+set "WATCH=0"
 REM Message sent automatically so the chat continues where it stopped.
 set "RESUME_MSG=continue"
 REM 1 = the automatic resume runs unattended (auto-approves tool
@@ -917,7 +917,7 @@ REM path) would reach launcher.log in clear and the support report masks no free
 set "LOG_ARGS=redacted"
 set "LOG_OSV="
 for /f "tokens=*" %%v in ('ver') do if not defined LOG_OSV set "LOG_OSV=%%v"
-call :log "start v2.60.2 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
+call :log "start v2.60.3 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
 REM v2.30: one official copy. Setup copies this file to STATE_DIR\app and the opencode
 REM command runs that copy. A duplicate (a second download, "(1)") hands over to it, or
 REM replaces it when it is the newer one.
@@ -7333,7 +7333,7 @@ $Schema = @(
   S 'LIMIT_ACTION' 'IP rotation' 'When the free limit returns' 'enum' 'rotate' 'rotate = a new IP every time. provider = after the rotations below, switch to the fallback model. ask = stop and ask.' 'now' 0 0 @('rotate', 'provider', 'ask')
   S 'LIMIT_MODEL' 'IP rotation' 'Fallback model' 'ostring' '' 'Model used when the free limit keeps coming back, as provider/model. Type - to clear.' 'now'
   S 'LIMIT_ROT_MAX' 'IP rotation' 'Limit rotations in a row' 'int' 3 'Rotations in a row that end in the free limit again before the action above applies. 0 = never stop: keep rotating until a usable IP appears.' 'now' 0 50
-  S 'WATCH' 'Session' 'Watch the log' 'bool' 1 'Rotate when a fatal error appears while opencode runs.' 'now'
+  S 'WATCH' 'Session' 'Watch the log' 'bool' 0 'Rotate when a fatal error appears while opencode runs.' 'now'
   S 'RESUME_MSG' 'Session' 'Resume message' 'string' 'continue' 'Sent automatically after a rotation.' 'now'
   S 'RESUME_MODE' 'Session' 'Resume mode' 'enum' 'continue' 'continue = send the resume message. last = send your last message again. custom = send the custom text below.' 'now' 0 0 @('continue', 'last', 'custom')
   S 'RESUME_TEXT' 'Session' 'Custom resume text' 'ostring' '' 'Text sent when the resume mode is custom. Type - to clear.' 'now'
@@ -7622,7 +7622,7 @@ function Hue-Rgb([double]$h) {
 $Langs = @('en', 'es', 'fr', 'de', 'pt', 'it', 'tr', 'ru')
 $LangBase = if ($env:OC_LANG_BASE) { $env:OC_LANG_BASE } else { 'https://gitlab.com/jekooo/opencode-infinite/-/raw/main/langs' }
 # a cached language file is refreshed when it was downloaded by another launcher version (its .ver file)
-$LangVer = '2.60.2'
+$LangVer = '2.60.3'
 # T looks a text up in the selected language; no entry means the English text is shown. Leading
 # icons and spaces are kept. Tf fills {0} {1} after translating. OC_TUI_I18N_DUMP=<file> lists the misses.
 $script:TrCache = @{}
@@ -9042,7 +9042,7 @@ function New-Report {
   $total = 6
   & $A 'OpenCode Infinite - support report'
   & $A ('Generated   ' + (Get-Date).ToString('o'))
-  & $A 'Launcher    v2.60.2'
+  & $A 'Launcher    v2.60.3'
   & $A ('File        ' + $Self)
   try { $fi = Get-Item -LiteralPath $Self; & $A ('Size/date   ' + $fi.Length + ' bytes, ' + $fi.LastWriteTime.ToString('s')); & $A ('SHA-256     ' + (Get-FileHash -LiteralPath $Self -Algorithm SHA256).Hash) } catch { }
   & $A 'Personal data (user name, PC name, e-mails, tokens, passwords, and by default public IPs) is removed from this file. Read it before sharing.'
@@ -9237,7 +9237,7 @@ function Menu-Main {
     @{ L = ($script:I.back + ' Back'); C = 10; H = 'Return to the home screen.' },
     @{ L = ($script:I.err + ' Exit'); C = 6; H = 'Close the launcher.' })
   $head = Header-Lines
-  $r = Show-Menu 'OpenCode' $items ('v2.60.2   ' + $Repo) $head 0
+  $r = Show-Menu 'OpenCode' $items ('v2.60.3   ' + $Repo) $head 0
   if ($r -eq -1) { exit 10 }
   exit $items[$r].C
 }
@@ -9444,7 +9444,7 @@ function Home-Loop {
       $head += ''
     }
     if ($script:Notice) { $head += (P (Style $script:Notice[0]) ($script:I.warn + ' ' + (T $script:Notice[1]))); $head += ''; $script:Notice = $null }
-    $r = Show-Menu 'Main menu' $items ('v2.60.2   ' + $Self) $head $pos $true
+    $r = Show-Menu 'Main menu' $items ('v2.60.3   ' + $Self) $head $pos $true
     if ($r -eq -1) { continue }
     $pos = $r
     Log ('home -> ' + $acts[$r])

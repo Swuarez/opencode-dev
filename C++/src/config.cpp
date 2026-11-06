@@ -111,7 +111,7 @@ const std::vector<SettingDef>& Config::defs() {
           "A crash restarts OpenCode on the same connection after a short wait. More than 2 crashes in 10 minutes stop it.",
           SettingKind::BoolK, "1"),
         S("WATCH", "Watcher", "Watch the log",
-          "Rotate when a fatal error appears while opencode runs.", SettingKind::BoolK, "1"),
+          "Rotate when a fatal error appears while opencode runs. Off by default since 2.60.3.", SettingKind::BoolK, "0"),
         // Probe ------------------------------------------------------------
         S("PROBE", "Probe", "Test every new IP",
           "Send one cheap message through each candidate IP. Off by default: each probe uses the free quota and leaves a session.", SettingKind::BoolK, "0"),

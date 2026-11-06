@@ -8,9 +8,9 @@ resumes the same chat.
 
 | File | Platform | What it is | Latest release |
 |---|---|---|---|
-| `OpenCode Infinite.bat` | Windows 10 / 11 (x64, ARM64, x86 limited) | Full launcher: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages; single-instance lock that checks PID, start time, executable and .bat path | 2.60.2 |
-| `OpenCode Infinite.exe` | Windows 10 / 11 (x64) | Native C++ app: WARP, Tor, proxies, WireGuard, VPN Gate and direct connection; retries OpenCode after a crash; 7 languages. WireGuard and VPN Gate are included. See [section 14](#14-c-app-opencode-infiniteexe) | 3.4.5 |
-| `opencode-infinite.sh` | Linux (bash; Ubuntu 24.04 with apt; also dnf, pacman and zypper) | Full, including the desktop app, except the Windows-only items. See [Linux: what is different](#linux-what-is-different) | linux-0.4.5 |
+| `OpenCode Infinite.bat` | Windows 10 / 11 (x64, ARM64, x86 limited) | Full launcher: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages; single-instance lock that checks PID, start time, executable and .bat path | 2.60.3 |
+| `OpenCode Infinite.exe` | Windows 10 / 11 (x64) | Native C++ app: WARP, Tor, proxies, WireGuard, VPN Gate and direct connection; retries OpenCode after a crash; 7 languages. WireGuard and VPN Gate are included. See [section 14](#14-c-app-opencode-infiniteexe) | 3.4.6 |
+| `opencode-infinite.sh` | Linux (bash; Ubuntu 24.04 with apt; also dnf, pacman and zypper) | Full, including the desktop app, except the Windows-only items. See [Linux: what is different](#linux-what-is-different) | linux-0.4.6 |
 
 The sections marked **Windows only** below are not on Linux.
 
@@ -19,7 +19,7 @@ The sections marked **Windows only** below are not on Linux.
 
 ### Windows: .bat or .exe?
 
-- The `.bat` has VPN Gate and WireGuard. The `.exe` (3.4.5) has the same modes (section 14).
+- The `.bat` has VPN Gate and WireGuard. The `.exe` (3.4.6) has the same modes (section 14).
 - The `.exe` and the `.bat` share the state folder and `config.json` (section 14).
 - An `OpenCode Infinite.exe` that sits next to the `.bat` is offered for update by the launcher (section 11).
 
@@ -269,7 +269,7 @@ Setting names are the same on Windows (`config.json`) and Linux (`config.env`). 
 | `TARGET_TRIES` / `TARGET_MINUTES` / `TARGET_INTERVAL` | `5` / `15` / `15` | Attempts, minutes and seconds between attempts of one hunt | both |
 | `POOL_ENABLE` / `POOL_MAX` / `POOL_INTERVAL` | `1` / `5` / `60` | IP pool: on or off, saved IPs per mode (1-50), seconds between searches (5-3600). Section 5 | Windows only |
 | `ON_CLOSE` | `ask` | After OpenCode closes: `ask` (R new IP and resume, M menu, Q quit) or `quit` | both |
-| `WATCH` | `1` | Watch the OpenCode log for limit errors | both |
+| `WATCH` | `0` | Watch the OpenCode log for limit errors and rotate on a fatal error. Off by default since 2.60.3, so the launcher does not keep sending "continue" into a used-up IP | both |
 | `RESUME_MSG` | `continue` | Message sent when a chat is resumed | both |
 | `RESUME_AUTO` | `1` | The resume approves tool permissions (`opencode run --auto`) | both |
 | `RESUME_TIMEOUT` | `90` | Seconds before a stuck resume is stopped and the launcher rotates | both |
@@ -532,8 +532,21 @@ A native Windows app with the same job as the `.bat`: a new exit IP, then OpenCo
 
 ## Versions
 
-**Latest version:** launcher 2.60.2 (`.bat`), app 3.4.5 (`.exe`), Linux script 0.4.5.
-**Latest published release:** 2.60.2 (2026-11-06). **Previous:** 2.60.1 (2026-11-06).
+**Latest version:** launcher 2.60.3 (`.bat`), app 3.4.6 (`.exe`), Linux script 0.4.6.
+**Latest published release:** 2.60.3 (2026-11-06). **Previous:** 2.60.2 (2026-11-06).
+
+### 2.60.3
+
+- **Watch the log is off by default:** the automatic "continue" after a limit no longer runs unless you turn it on in Settings > Watcher. With it on, a used-up IP made the launcher send "continue" again and again. Turning it off stopped the loop for a user who reported it.
+- **Trade-off:** with the watcher off, a fatal error does not rotate the IP by itself. Use Rotate IP, or turn the watcher back on.
+
+### C++ app 3.4.6
+
+- **Watch the log is off by default**, as in the `.bat`.
+
+### Linux script 0.4.6
+
+- **Watch the log is off by default**, as in the `.bat`.
 
 ### 2.60.2
 

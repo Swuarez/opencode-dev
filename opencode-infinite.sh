@@ -2,7 +2,7 @@
 # OpenCode Infinite for Linux: the Windows launcher's flow in bash.
 # Egress WARP / TOR / PROXY / NONE, target IP hunt, probe, resume when a limit stops the chat.
 # Needs: bash 4.3+, curl, node + opencode. Optional: warp-cli, tor, privoxy, jq (menus in other languages).
-VERSION="linux-0.4.5"
+VERSION="linux-0.4.6"
 REPO="https://gitlab.com/jekooo/opencode-infinite"
 REPO_RAW="https://gitlab.com/jekooo/opencode-infinite/-/raw/main"
 
@@ -62,7 +62,7 @@ SETDEF=(
 'TARGET_MINUTES|Rotation|num|15|Max minutes per hunt|The hunt stops after this many minutes.|1:240'
 'TARGET_INTERVAL|Rotation|num|15|Seconds between attempts|Pause between two attempts, so Cloudflare is not hit too fast.|0:300'
 'ON_CLOSE|Rotation|enum|ask|After OpenCode closes|ask = R, M or Q: R new IP and resume the chat, M menu, Q quit. quit = leave the launcher at once.|ask,quit'
-'WATCH|Watcher|bool|1|Watch the log|Rotate when a fatal error appears while OpenCode runs.|'
+'WATCH|Watcher|bool|0|Watch the log|Rotate when a fatal error appears while OpenCode runs.|'
 'RESUME_MSG|Watcher|text|continue|Resume message|Sent automatically after a rotation.|'
 'RESUME_AUTO|Watcher|bool|1|Unattended resume|The resume auto-approves tool permissions (opencode run --auto).|'
 'RESUME_TIMEOUT|Watcher|num|90|Resume timeout (s)|Seconds before a silent resume counts as a dead IP.|10:900'
