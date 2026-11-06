@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 title opencode-infinity
 REM ============================================================
-REM  OpenCode launcher  (v2.59)
+REM  OpenCode launcher  (v2.60)
 REM  Multi-egress (WARP / TOR / free HTTP) + dependency bootstrap
 REM  + auto-resume.
 REM  v2.22 - v2.29: every fixed bug carries an inline "REM v2.2x:"
@@ -167,7 +167,7 @@ REM
 REM  - Deep reset archives across volumes with copy-verify-delete
 REM    before removing anything.
 REM
-REM  - Self-update [upd]: once per start the launcher checks the GitHub
+REM  - Self-update [upd]: once per start the launcher checks the GitLab
 REM    repo for a newer copy of itself. Silent when equal or offline;
 REM    when a new version is found it asks, backs this script up, and
 REM    swaps the new one in through a helper on a post-exit window.
@@ -178,6 +178,10 @@ REM  timings, log watching, the proxy port, the Tor bridge port, the
 REM  ProxyScrape URL, and the self-update.
 REM ============================================================
 
+REM v3.6: --help prints the commands and exits. It runs first, so it needs no setup.
+if /i "%~1"=="--help" goto :help_mode
+if /i "%~1"=="-h" goto :help_mode
+
 REM - settings (edit freely)
 REM Rotation attempts for infrastructure problems (tunnel not up).
 set "ROTATE_TRIES_MAX=4"
@@ -186,6 +190,8 @@ REM 0 = keep hunting until one works (Ctrl+C stops the launcher).
 set "IP_FIND_MAX=0"
 REM Seconds to wait after (re)connecting WARP.
 set "WARP_WAIT=6"
+REM v2.60 (N88): deadline of the trace after a connect; 45 s covers a cold MASQUE start.
+set "TUNNEL_WAIT=45"
 REM Seconds to WAIT between rotate attempts. Cloudflare throttles rapid
 REM "registration new" bursts (429 Too Many Requests); spacing them out
 REM keeps the attempts accepted, which is why a fast burst can end in
@@ -196,8 +202,8 @@ set "AUTO_ROTATE=1"
 REM Target of the hunt: a country code and/or an IP prefix. Both empty = any new IP.
 set "TARGET_COUNTRY="
 set "TARGET_PREFIX="
-REM v2.40: one attempt ended the hunt on the first infrastructure miss; default is 5 now.
-set "TARGET_TRIES=5"
+REM v2.40: one attempt ended the hunt on the first infrastructure miss. v3.4: default is 20 attempts.
+set "TARGET_TRIES=20"
 set "TARGET_MINUTES=15"
 set "TARGET_INTERVAL=15"
 REM v2.54: the IP pool (see :pool_start). POOL_ENABLE=0 turns the background search off.
@@ -220,9 +226,14 @@ set "RESUME_AUTO=1"
 REM Seconds the resume message may run before it is killed and treated
 REM as a dead exit IP. This is the hard stop that keeps the launcher
 REM from sitting on "sending continue" forever.
-set "RESUME_TIMEOUT=90"
-REM Model used by the IP probe: one cheap message per candidate IP.
-set "PROBE_MODEL=opencode/big-pickle"
+set "RESUME_TIMEOUT=600"
+REM v3.5: the resume is killed only after RESUME_IDLE seconds with no new output (a long turn keeps printing).
+set "RESUME_IDLE=60"
+REM Model used by the IP probe: one cheap message per candidate IP. It must be the
+REM model the chat uses (OC_MODEL overrides it when set): a probe on another model
+REM passes while the chat's free model is out of quota, and every "continue" then
+REM goes to a dead IP.
+set "PROBE_MODEL=opencode/deepseek-v4.1-flash-free"
 REM PROBE=0 skips the probe entirely (IPs are accepted without testing).
 REM Default ON so burned free-tier IPs are skipped before resume.
 set "PROBE=1"
@@ -382,6 +393,11 @@ REM v2.22: the original code page is saved here and restored in :quit.
 set "OC_OLDCP="
 for /f "tokens=2 delims=:" %%c in ('chcp') do set "OC_OLDCP=%%c"
 set "OC_OLDCP=%OC_OLDCP: =%"
+REM v3.1 (N20): some locales end the message with a dot ("Aktive Codepage: 850."), so only
+REM the digits are kept and the value is checked before it is used or written to the flag.
+for /f "delims=0123456789" %%c in ("%OC_OLDCP%") do set "OC_OLDCP="
+if defined OC_OLDCP if %OC_OLDCP% LSS 1 set "OC_OLDCP="
+if defined OC_OLDCP if %OC_OLDCP% GTR 65535 set "OC_OLDCP="
 chcp 65001 >nul 2>&1
 
 REM Where opencode keeps its data (chats, database, auth).
@@ -499,7 +515,7 @@ set "T_101=  [i] hunting for %%HUNT_GOAL%%: up to %%TARGET_TRIES%% attempts, %%T
 set "T_102=[%%ROTATE_TRIES%%/%%TARGET_TRIES%%] dropping the old registration..."
 set "T_103=[%%ROTATE_TRIES%%/%%TARGET_TRIES%%] new registration..."
 set "T_104=[%%ROTATE_TRIES%%] reconnect..."
-set "T_105=[%%ROTATE_TRIES%%] waiting %%WARP_WAIT%%s..."
+set "T_105=[%%ROTATE_TRIES%%] waiting %%TARGET_INTERVAL%%s..."
 set "T_106=[%%ROTATE_TRIES%%] %%IPN%% was already tried in this hunt, rotating again"
 set "T_107=[%%ROTATE_TRIES%%/%%TARGET_TRIES%%] exit IP %%IPN%% ^(country %%GLOC%%^), target %%TMATCHTXT%%, %%HUNT_LEFT%% attempt(s) left"
 set "T_108=[%%ROTATE_TRIES%%] probing if this IP can still talk..."
@@ -716,6 +732,9 @@ set "T_319=%%C_WARN%%OpenCode exited with code %%EC%%.%%C_RST%%"
 set "T_320=%%C_WARN%%Free quota reached on this egress.%%C_RST%%"
 set "T_321=Reopening on a new egress."
 set "T_322=%%C_WARN%%Fatal error caught by the watcher - switching egress.%%C_RST%%"
+REM v3.4: --auto prints only "Changing IP..." (translated). The reason stays in launcher.log.
+set "T_CHGIP=Changing IP..."
+set "T_GEO=%%C_WARN%%  [*] this model is not available from this IP's country - changing IP.%%C_RST%%"
 set "T_323=[%%ROTATE_TRIES%%] the daemon refused a new registration - see wcli.log"
 set "T_324=%%C_OK%%  [OK] target reached: %%HUNT_GOAL%%, IP %%IPN%%, attempt %%ROTATE_TRIES%% of %%TARGET_TRIES%%, %%HUNT_EL%% s.%%C_RST%%"
 set "T_325=%%C_WARN%%  [!] attempt limit reached: %%TARGET_TRIES%% attempts, no match for %%HUNT_GOAL%%. Last IP %%IPN%%.%%C_RST%%"
@@ -733,6 +752,11 @@ set "T_336=%%C_OK%%  [update] opencode now reports %%OC_VER%%%%C_RST%%"
 set "T_337=  [tor] tor is already installed: %%TOR_EXE%%"
 set "T_338=  [%%EN_TRIES%%] the daemon refused a new registration - see wcli.log"
 set "T_339=  [update] OpenCode desktop now reports %%DVER%%"
+REM v3.1 (N64): the four :yn questions were fixed English. They go through the table.
+set "T_373=   Download and install the OpenCode desktop app now? [Y/N]: "
+set "T_374=   Try again? [Y/N]: "
+set "T_375=   Use the system folder instead? [Y/N]: "
+set "T_376=   Try to download and install WARP now? [Y/N]: "
 set "T_340=a new IP"
 set "T_341=prefix %%TARGET_PREFIX%%"
 set "T_342=country %%TARGET_COUNTRY%%"
@@ -762,6 +786,14 @@ set "T_365=  Pending resume file is damaged. Discarded."
 set "T_366=  Pending resume kept: the exit IP cannot be read right now."
 set "T_367=  Pending resume kept: PROBE is off, so the quota cannot be confirmed."
 set "T_346=--- continue ------------------------------------------------"
+set "T_377=  opencode-%%PRESET_NAME%%: %%PMSG%% (code %%PCODE%%). Log: %%STATE_DIR%%\launcher.log"
+set "T_378=  opencode-%%PRESET_NAME%%: opencode exited with code %%PCODE%%. Log: %%STATE_DIR%%\launcher.log"
+set "T_379=  opencode-%%PRESET_NAME%%: could not bring the connection up (code %%PCODE%%). Log: %%STATE_DIR%%\launcher.log"
+set "T_380=  opencode-%%PRESET_NAME%%: opencode is not installed or cannot be started (code %%PCODE%%). Log: %%STATE_DIR%%\launcher.log"
+set "T_383=Direct commands installed: opencode-warp, opencode-tor, opencode-proxy."
+set "T_384=Remove the direct commands?"
+set "T_385=The direct commands were removed."
+set "T_386=not installed"
 REM Batch messages are translated from lang\<code>.json; the UI writes lang\messages.txt (data only).
 set "OC_TUI=mki18n"
 set "OC_STATE=%STATE_DIR%"
@@ -805,7 +837,7 @@ REM v2.44: patterns.conf, same format as the .sh: one rotate= / ask= / noop= lin
 REM alternatives joined by | (case-insensitive). Missing key or file = default; empty value = matches nothing;
 REM bad regex = that list's default. Only level=ERROR lines count: noop first, then rotate, then ask.
 set "OC_PLOAD=$rot='usage limit|out of usage|insufficient credits|payment required|ip (is )?blocked|blocked ip|403.*region|region.*403'; $ask='rate limit|rate_limit_exceeded|too many requests|status(Code)?[=: ]*429|HTTP 429'; $nop='compaction|context length exceeded|context_length_exceeded|maximum context|model not found|invalid model|ProviderModelNotFound|content filter|content policy|content_policy'; foreach($ln in @(Get-Content -LiteralPath $env:OC_PATF -ErrorAction SilentlyContinue)){ if(([string]$ln).Trim() -match '^(rotate|ask|noop)=(.*)$'){ $k=$matches[1]; $v=$matches[2].Trim(); $ok=$true; if($v){ try{ [void][regex]::new($v) }catch{ $ok=$false } } else { $v=$null }; if($ok){ if($k -eq 'rotate'){ $rot=$v } elseif($k -eq 'ask'){ $ask=$v } else { $nop=$v } } } }"
-set "OC_CLS=param($l) if($l -notmatch 'level=ERROR'){ return '' }; if($nop -and $l -match $nop){ return 'noop' }; if($rot -and $l -match $rot){ return 'rotate' }; if($ask -and $l -match $ask){ return 'ask' }; return ''"
+set "OC_CLS=param($l) if($l -notmatch 'level=ERROR'){ return '' }; if($env:OC_T0 -and $l -match 'timestamp=(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)' -and [string]::CompareOrdinal($matches[1], $env:OC_T0) -lt 0){ return '' }; if($nop -and $l -match $nop){ return 'noop' }; if($rot -and $l -match $rot){ return 'rotate' }; if($ask -and $l -match $ask){ return 'ask' }; return ''"
 REM v2.22: the watcher paths used to be defined only inside :watch_start, so
 REM with WATCH=0 (and in NONE / WARP-without-WARP) :scan_log read an empty
 REM OC_LOGF and always answered NOHIT. They are defined here, once, for the
@@ -829,7 +861,7 @@ call set "PATH=%%PATH:%STATE_DIR%\bin;=%%"
 call set "PATH=%%PATH:;%STATE_DIR%\bin=%%"
 
 REM Validate the numeric settings: invalid values fall back to defaults.
-call :numcfg ROTATE_TRIES_MAX 4
+call :numcfg ROTATE_TRIES_MAX 4 20
 call :numcfg WARP_WAIT 6
 call :numcfg ROTATE_COOLDOWN 10
 call :numcfg TARGET_TRIES 5
@@ -838,7 +870,7 @@ call :numcfg0 TARGET_INTERVAL 15
 call :numcfg WARP_CALL_TIMEOUT 15
 call :numcfg WHERE_TIMEOUT 5
 call :numcfg RESUME_TIMEOUT 90
-call :numcfg PROXY_TRY_MAX 40
+call :numcfg PROXY_TRY_MAX 40 500
 call :numcfg PROXY_ROT_MAX 10
 call :numcfg PROXY_PROBE_TIMEOUT 8
 call :numcfg POOL_MAX 5
@@ -856,7 +888,8 @@ call :numcfg0 LIMIT_ROT_MAX 3
 REM the model of the settings, restored by a fresh start after the limit action switched it
 set "OC_MODEL_CFG=%OC_MODEL%"
 call :numcfg TOR_BOOTSTRAP_WAIT 120
-call :numcfg LOG_MAX_KB 1024
+REM v3.1 (N41): capped below the point where LOG_MAXB (KB*1024) overflows.
+call :numcfg LOG_MAX_KB 1024 2097151
 
 REM Create the state folder if it is missing, then check the single-instance lock.
 if not exist "%STATE_DIR%" mkdir "%STATE_DIR%" >nul 2>&1
@@ -871,11 +904,12 @@ call :trim_log "%STATE_DIR%\wcli.log" 200000 400
 set /a LOG_MAXB=LOG_MAX_KB*1024
 set /a LOG_KEEP=LOG_MAX_KB*8
 if exist "%STATE_DIR%\launcher.log" for %%L in ("%STATE_DIR%\launcher.log") do if %%~zL GTR %LOG_MAXB% call :trim_log "%STATE_DIR%\launcher.log" %LOG_MAXB% %LOG_KEEP%
-set "LOG_ARGS=%*"
-if defined LOG_ARGS set "LOG_ARGS=%LOG_ARGS:"='%"
+REM v3.1 (N62): only that arguments were given. The values (a --run prompt, a client
+REM path) would reach launcher.log in clear and the support report masks no free text.
+set "LOG_ARGS=redacted"
 set "LOG_OSV="
 for /f "tokens=*" %%v in ('ver') do if not defined LOG_OSV set "LOG_OSV=%%v"
-call :log "start v2.59 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
+call :log "start v2.60 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
 REM v2.30: one official copy. Setup copies this file to STATE_DIR\app and the opencode
 REM command runs that copy. A duplicate (a second download, "(1)") hands over to it, or
 REM replaces it when it is the newer one.
@@ -891,7 +925,7 @@ if not "%VGT%"=="1" goto :official_hand
 REM v2.40: cmd re-reads a running .bat by byte offset, so never overwrite the official copy while a live lock owner or a cmd started on it runs.
 set "OC_LOCK=%STATE_DIR%\lock"
 set "OC_OFF=%OFFICIAL%"
-"%PSX%" -NoProfile -Command "$a=$false; try{ $me=(Get-CimInstance Win32_Process -Filter ('ProcessId='+$PID)).ParentProcessId; $of=Join-Path $env:OC_LOCK 'owner'; if(Test-Path -LiteralPath $of){ $o=[int](@((Get-Content -LiteralPath $of -TotalCount 1) -split '\|')[0]); $p=Get-Process -Id $o -ErrorAction SilentlyContinue; if($p -and $o -ne $me -and $p.ProcessName -eq 'cmd'){ $a=$true } }; $id=Join-Path (Split-Path -Parent $env:OC_LOCK) 'instances'; foreach($f2 in @(Get-ChildItem -LiteralPath $id -Filter owner -Recurse -File -ErrorAction SilentlyContinue)){ try{ $v=@((Get-Content -LiteralPath $f2.FullName -TotalCount 1) -split '\|'); $q=Get-Process -Id ([int]$v[0]) -ErrorAction SilentlyContinue; if($q -and $v.Count -gt 3 -and $q.Id -ne $me -and [string]$q.StartTime.Ticks -eq $v[1] -and $q.Path -eq $v[2]){ $a=$true } }catch{} }; foreach($c in @(Get-CimInstance Win32_Process -Filter \"Name='cmd.exe'\")){ if($c.ProcessId -ne $me -and $c.CommandLine -and $c.CommandLine.ToLower().Contains($env:OC_OFF.ToLower())){ $a=$true } } }catch{}; if($a){ exit 1 }; exit 0" >nul 2>&1
+"%PSX%" -NoProfile -Command "$a=$false; try{ $me=(Get-CimInstance Win32_Process -Filter ('ProcessId='+$PID)).ParentProcessId; $of=Join-Path $env:OC_LOCK 'owner'; if(Test-Path -LiteralPath $of){ $o=[int](@((Get-Content -LiteralPath $of -TotalCount 1) -split '\|')[0]); $p=Get-Process -Id $o -ErrorAction SilentlyContinue; if($p -and $o -ne $me -and $p.ProcessName -eq 'cmd'){ $a=$true } }; $id=Join-Path (Split-Path -Parent $env:OC_LOCK) 'instances'; foreach($f2 in @(Get-ChildItem -LiteralPath $id -Filter owner -Recurse -File -ErrorAction SilentlyContinue)){ try{ $v=@((Get-Content -LiteralPath $f2.FullName -TotalCount 1) -split '\|'); $q=Get-Process -Id ([int]$v[0]) -ErrorAction SilentlyContinue; if($q -and $v.Count -gt 3 -and $q.Id -ne $me -and [string]$q.StartTime.Ticks -eq $v[1] -and $q.Path -eq $v[2]){ $a=$true } }catch{} }; foreach($c in @(Get-CimInstance Win32_Process -Filter ('Name=''cmd.exe'''))){ if($c.ProcessId -ne $me -and $c.CommandLine -and $c.CommandLine.ToLower().Contains($env:OC_OFF.ToLower())){ $a=$true } } }catch{}; if($a){ exit 1 }; exit 0" >nul 2>&1
 if errorlevel 1 goto :official_inuse
 copy /y "%~f0" "%OFFICIAL%" >nul 2>&1
 REM v2.39: the log depended on nothing; now it reflects the copy result.
@@ -908,14 +942,118 @@ exit /b %errorlevel%
 :official_ok
 REM --allow-direct: the only way to run OpenCode on the real IP when WARP is not usable.
 set "ALLOW_DIRECT="
-echo %*| findstr /i /c:"--allow-direct" >nul && set "ALLOW_DIRECT=1"
+REM v3.1 (N01): the arguments are read as data. Passing %* back to a command
+REM re-parsed a path with & | < > and also matched --allow-direct-algo.
+"%PSX%" -NoProfile -Command "try{ $me=(Get-CimInstance Win32_Process -Filter ('ProcessId='+$PID)).ParentProcessId; $cl=[string](Get-CimInstance Win32_Process -Filter ('ProcessId='+$me)).CommandLine; if($cl -match '(^|\s)--allow-direct(\s|$)'){ exit 0 } }catch{}; exit 1" >nul 2>&1
+if not errorlevel 1 set "ALLOW_DIRECT=1"
 if /i "%~1"=="--verify" goto :verify_mode
 if /i "%~1"=="--renew" goto :renew_mode
+REM v3.6: --install writes opencodeinf and opencode-auto and adds their folder to PATH (Settings, Launch, Install commands).
+if /i "%~1"=="--install" goto :install_mode
+REM D01: direct commands (opencode-warp, opencode-tor, opencode-proxy) and
+REM the flags they add. Everything is read here, before the TUI and before
+REM the lock, so a preset never draws a menu nor asks a question. An argument
+REM that is not a known flag stops the scan, so a folder dropped on the .bat
+REM still reaches %1 for :mode_folder.
+set "PRESET_MODE="
+set "PRESET_NAME="
+set "OPT_HERE="
+set "OPT_QUIET="
+set "OPT_VERBOSE="
+set "OPT_NOUPDATE="
+set "OPT_NOPROBE="
+set "OPT_SAMEIP="
+set "OPT_NEWIP="
+:ps_args
+if "%~1"=="" goto :ps_parsed
+if /i "%~1"=="--preset" goto :ps_name
+if /i "%~1"=="--here" (set "OPT_HERE=1" & shift & goto :ps_args)
+if /i "%~1"=="--quiet" (set "OPT_QUIET=1" & shift & goto :ps_args)
+if /i "%~1"=="--verbose" (set "OPT_VERBOSE=1" & shift & goto :ps_args)
+if /i "%~1"=="--no-update" (set "OPT_NOUPDATE=1" & shift & goto :ps_args)
+if /i "%~1"=="--no-probe" (set "OPT_NOPROBE=1" & shift & goto :ps_args)
+if /i "%~1"=="--same-ip" (set "OPT_SAMEIP=1" & shift & goto :ps_args)
+if /i "%~1"=="--new-ip" (set "OPT_NEWIP=1" & shift & goto :ps_args)
+if /i "%~1"=="--auto" (set "OPT_AUTO=1" & shift & goto :ps_args)
+REM v3.7: --warp, --tor and --proxy are the same as the direct commands opencode-warp, opencode-tor and opencode-proxy.
+if /i "%~1"=="--warp" (set "PRESET_MODE=1" & set "PRESET_NAME=warp" & set "OPT_HERE=1" & set "OPT_SAMEIP=1" & set "OPT_QUIET=1" & shift & goto :ps_args)
+if /i "%~1"=="--tor" (set "PRESET_MODE=1" & set "PRESET_NAME=tor" & set "OPT_HERE=1" & set "OPT_SAMEIP=1" & set "OPT_QUIET=1" & shift & goto :ps_args)
+if /i "%~1"=="--proxy" (set "PRESET_MODE=1" & set "PRESET_NAME=proxy" & set "OPT_HERE=1" & set "OPT_SAMEIP=1" & set "OPT_QUIET=1" & shift & goto :ps_args)
+goto :ps_parsed
+:ps_name
+set "PRESET_MODE=1"
+set "PRESET_NAME=%~2"
+if not defined PRESET_NAME goto :ps_bad
+shift
+shift
+goto :ps_args
+:ps_parsed
+REM v3.1 (D14): how much reaches the console. quiet prints nothing and only
+REM logs; normal is what the script always did; debug also logs every line.
+set "CONSOLE_MODE=normal"
+if defined OPT_QUIET set "CONSOLE_MODE=quiet"
+if defined OPT_VERBOSE set "CONSOLE_MODE=debug"
+REM v2.60 (A1): --auto skips every menu: the current folder, CLI, and the saved
+REM connection (WARP when none is saved). It goes through the same :folder_ok path as --run.
+if defined OPT_AUTO (
+  set "AUTO_RUN=1"
+  set "APP_MODE=CLI"
+  set "OPFOLDER=%CD%"
+  set "RESUME="
+  REM set /p "VAR=<file" would print "<file" as a prompt and wait on stdin; the input redirect goes after the quotes.
+  call :auto_pick
+  REM v2.60 A3: auto uses only WARP, TOR and PROXY, no VPN Gate and no admin; console stays short, details go to launcher.log.
+  call :auto_method_ok
+  set "AUTO_ROTATE=1"
+  set "AUTO_FAILS=0"
+  set "AUTO_GIVEUPS=0"
+  if defined OPT_NOPROBE set "PROBE=0"
+  if defined OPT_NOUPDATE set "UPDATE_CHECK=0"
+  if not defined OPT_VERBOSE set "CONSOLE_MODE=quiet"
+  call :log "auto: folder=%CD% egress=%OC_EGRESS_DEFAULT%" boot
+  REM Same road as a preset: the lock check runs, then :ps_go skips the update prompt.
+  goto :ps_locked
+)
+if not defined PRESET_MODE goto :ps_locked
+REM The preset owns folder, mode and egress: :home_start, :mode_menu, :folder
+REM and the picker of :egress_menu are all skipped below. OC_EGRESS_DEFAULT
+REM makes :egress_cfg take the value as it is, without asking.
+if /i "%PRESET_NAME%"=="warp" set "EGRESS=WARP"
+if /i "%PRESET_NAME%"=="warp" goto :ps_have
+if /i "%PRESET_NAME%"=="tor" set "EGRESS=TOR"
+if /i "%PRESET_NAME%"=="tor" goto :ps_have
+if /i "%PRESET_NAME%"=="proxy" set "EGRESS=PROXY"
+if /i "%PRESET_NAME%"=="proxy" goto :ps_have
+:ps_bad
+echo opencode-preset: unknown preset "%PRESET_NAME%" (warp, tor, proxy) - code 2
+exit /b 2
+:ps_have
+set "OC_EGRESS_DEFAULT=%EGRESS%"
+set "OPFOLDER=%CD%"
+set "APP_MODE=%OC_MODE_DEFAULT%"
+if /i "%APP_MODE%"=="ASK" set "APP_MODE=CLI"
+if not defined APP_MODE set "APP_MODE=CLI"
+if /i "%APP_MODE%"=="DESKTOP" call :find_desktop_app
+if defined OPT_NOPROBE set "PROBE=0"
+if defined OPT_NOUPDATE set "UPDATE_CHECK=0"
+REM AUTO_RUN takes :ready straight to :run, past :ready_menu and :menu_loop;
+REM it also silences :oc_update_check. --same-ip/--new-ip are read and logged
+REM only: the rotation decision belongs to D05/D06.
+set "AUTO_RUN=1"
+set "RESUME="
+call :log "preset=%PRESET_NAME% egress=%EGRESS% mode=%APP_MODE% here=%OPT_HERE% same-ip=%OPT_SAMEIP% new-ip=%OPT_NEWIP% quiet=%OPT_QUIET% verbose=%OPT_VERBOSE% no-update=%OPT_NOUPDATE% no-probe=%OPT_NOPROBE%" boot
+:ps_locked
 call :lock_check
 REM v2.22: :lock_check no longer jumps to :quit from inside a called
 REM subroutine (that returned to this caller with an emptied scope). It
 REM sets LOCK_BUSY and returns; the exit happens here, at top level.
-if defined LOCK_BUSY goto :quit
+if not defined LOCK_BUSY goto :ps_go
+if not defined PRESET_MODE goto :quit
+echo opencode-preset: another launcher is running - code 5
+exit /b 5
+:ps_go
+if defined PRESET_MODE goto :folder_ok
+if defined OPT_AUTO goto :folder_ok
 
 REM Once per start: check the repo for a newer launcher. Silent when
 REM nothing to do or offline; asks before ever replacing this file.
@@ -937,12 +1075,38 @@ call :tui home
 set "TUIRC=%errorlevel%"
 call :log "ui home rc=%TUIRC%" ui
 set "TUI_PROBED=1"
-if not "%TUIRC%"=="20" set "TUI_OK=1"
+REM v3.1 (N63): only a UI that answered marks itself usable; 21 (unreadable file) does not.
+if "%TUIRC%"=="0" set "TUI_OK=1"
+if "%TUIRC%"=="10" set "TUI_OK=1"
 REM v2.58: "Start again" on the home screen (11): the last folder, CLI, the saved connection.
 if "%TUIRC%"=="11" goto :quick_start
+REM v3.6: Auto opencode (12): a new IP and a new session, no screens.
+if "%TUIRC%"=="12" goto :auto_menu
 call :cfg_import
 if "%TUIRC%"=="0" goto :quit
 goto :mode_menu
+
+REM v3.6: the Auto button. The --auto road with two differences: the last folder is used
+REM (no folder screen) and AUTO_COLD makes :ready start a fresh session on a new IP.
+:auto_menu
+set "AUTO_COLD=1"
+set "OPT_AUTO=1"
+set "AUTO_RUN=1"
+set "APP_MODE=CLI"
+set "RESUME="
+set "OPFOLDER="
+set "AQ="
+if exist "%LASTFOLDER%" set /p AQ=<"%LASTFOLDER%"
+if defined AQ set "AQ=%AQ:"=%"
+if defined AQ if exist "%AQ%\" set "OPFOLDER=%AQ%"
+if not defined OPFOLDER goto :home_start
+call :auto_pick
+set "AUTO_ROTATE=1"
+set "AUTO_FAILS=0"
+set "AUTO_GIVEUPS=0"
+set "CONSOLE_MODE=quiet"
+call :log "auto button: folder=%OPFOLDER% egress=%OC_EGRESS_DEFAULT% new session" boot
+goto :ps_locked
 
 REM v2.58: the last folder again. Mode is CLI (the home row exists only for CLI); folder and connection follow as usual.
 :quick_start
@@ -953,6 +1117,9 @@ if defined QLAST set "QLAST=%QLAST:"=%"
 if not defined QLAST goto :home_start
 if not exist "%QLAST%\" goto :home_start
 set "OPFOLDER=%QLAST%"
+REM v2.60 (A2): "Start again" reuses the saved connection (see :egress_menu).
+set "QUICK_START=1"
+if exist "%STATE_DIR%\last_method.txt" set /p "OC_EGRESS_DEFAULT="<"%STATE_DIR%\last_method.txt"
 call :log "quick start in the last folder" menu
 goto :folder_ok
 
@@ -1029,7 +1196,7 @@ call :find_desktop_app
 if defined OC_DESKTOP goto :mode_desktop_ok
 echo.
 call echo %T_7%
-call :yn "   Download and install it now? [Y/N]: "
+call :yn "%T_373%"
 if errorlevel 100 goto :quit
 if errorlevel 2 goto :mode_menu
 call :install_desktop
@@ -1187,7 +1354,7 @@ call :run_picker
 if defined OPFOLDER goto :pick_done
 echo.
 call echo %T_19%
-call :yn "   Try again? [Y/N]: "
+call :yn "%T_374%"
 if not errorlevel 2 goto :pick_folder
 goto :folder
 :pick_done
@@ -1234,10 +1401,11 @@ REM quoted write + quote-strip on read: survives & and () in the path
 >"%LASTFOLDER%" echo "%CD%"
 call :folder_remember
 title opencode-infinity
-echo.
-call echo %T_22%
+REM v2.60 (A3): auto prints nothing from the folder, egress and dependency steps.
+if not defined OPT_AUTO echo.
+if not defined OPT_AUTO if not defined OPT_QUIET call echo %T_22%
 call :trace folder "%CD%"
-echo.
+if not defined OPT_AUTO echo.
 
 REM ============================================================
 REM  1b) EGRESS MODE (process-only for opencode)
@@ -1245,6 +1413,9 @@ REM ============================================================
 REM Asks once after the folder is fixed. The choice lives in EGRESS and
 REM ACTIVE_PROXY. Only the opencode process tree inherits the proxy env.
 :egress_menu
+REM v2.60 (A2): the saved connection is taken only by --run/--auto and by "Start again".
+REM "Launch OpenCode" always shows every method, even when one is saved.
+if not defined AUTO_RUN if not defined QUICK_START goto :egress_ask
 if /i "%OC_EGRESS_DEFAULT%"=="WARP" goto :egress_cfg
 if /i "%OC_EGRESS_DEFAULT%"=="TOR" goto :egress_cfg
 if /i "%OC_EGRESS_DEFAULT%"=="PROXY" goto :egress_cfg
@@ -1260,7 +1431,7 @@ if /i "%EGRESS%"=="TOR" set "ACTIVE_PROXY=http://127.0.0.1:%TOR_HTTP_PORT%"
 if /i "%EGRESS%"=="TOR" set "TOR_TRIES=0"
 if /i "%EGRESS%"=="WIREGUARD" call :vpn_labels
 if /i "%EGRESS%"=="VPNGATE" call :vpn_labels
-call echo %T_23%
+if not defined OPT_AUTO if not defined OPT_QUIET call echo %T_23%
 goto :egress_done
 :egress_ask
 call :tui_init
@@ -1291,6 +1462,9 @@ echo.
 call echo %T_6%
 echo.
 call :pick 123456 "Pick egress: "
+REM v3.1 (N21): :pick answers 0 on Ctrl+C. No "if errorlevel" matched it, so the flow fell
+REM through to EGRESS=WARP and offered to install WARP. Back to the egress chooser instead.
+if not errorlevel 1 goto :egress_ask
 :egress_pick
 REM v2.25: stdin closed answers 255; do not silently pick NONE.
 if errorlevel 100 goto :quit
@@ -1336,9 +1510,9 @@ if errorlevel 2 (
 )
 set "EGRESS=WARP"
 set "ACTIVE_PROXY="
-call echo %T_33%
+if not defined OPT_QUIET call echo %T_33%
 :egress_done
-echo.
+if not defined OPT_AUTO echo.
 call :trace egress %EGRESS%
 
 REM ============================================================
@@ -1348,7 +1522,7 @@ REM Each stage names itself before it runs. They are silent when they work,
 REM and a silent console cannot be told apart from a frozen one.
 REM HAVE_CURL=1 when curl.exe is available (it is used for downloads and IP checks).
 call :trace dep_curl
-call echo %T_34%
+if not defined OPT_AUTO if not defined OPT_QUIET call echo %T_34%
 call :have_exe curl.exe
 set "HAVE_CURL=%HAVE%"
 
@@ -1356,9 +1530,11 @@ REM - WARP (optional, only when EGRESS=WARP)
 if /i not "%EGRESS%"=="WARP" goto :check_opencode
 REM Look for warp-cli. If found, skip the WARP setup and go to opencode.
 call :trace dep_warp
-call echo %T_35%
+if not defined OPT_AUTO if not defined OPT_QUIET call echo %T_35%
 call :find_warp
 if defined WARP goto :check_opencode
+REM v2.60 (A3): auto never offers the WARP installer; a missing WARP moves on to Tor (see :auto_connect).
+if defined OPT_AUTO goto :check_opencode
 
 REM 32-bit systems cannot run the WARP installer: skip the offer.
 if "%REAL86%"=="1" goto :no_warp_32
@@ -1367,7 +1543,7 @@ call echo %T_36%
 call echo %T_37%
 echo.
 REM Offer the install. Answering N continues without rotation.
-call :yn "   Try to download and install WARP now? [Y/N]: "
+call :yn "%T_376%"
 if errorlevel 2 goto :check_opencode
 call :install_warp
 call :find_warp
@@ -1390,7 +1566,7 @@ REM - opencode
 REM Look for the opencode command. If found, go to the menu.
 :check_opencode
 call :trace dep_opencode
-call echo %T_43%
+if not defined OPT_AUTO if not defined OPT_QUIET call echo %T_43%
 call :find_opencode
 call :db_guard
 if defined OC_CMD goto :ready
@@ -1424,6 +1600,8 @@ if /i not "%APP_MODE%"=="DESKTOP" call :oc_update_check
 call :trace ready
 if not defined AUTO_RUN goto :ready_menu
 set "COLD=0"
+REM v3.6: the Auto button asks for a new IP and starts a new session.
+if defined AUTO_COLD set "COLD=1"
 goto :run
 :ready_menu
 timeout /t 1 /nobreak >nul 2>&1
@@ -1520,7 +1698,9 @@ if "%TUIRC%"=="20" set "TUI_OK="
 if "%TUIRC%"=="20" goto :menu_loop
 REM v3.1: Esc (10) on the main menu goes back to the home screen.
 if "%TUIRC%"=="10" goto :home_start
-if %TUIRC% GTR 9 goto :menu_loop
+REM v3.1 (N02): any other out-of-range code (255/1 when the TUI fails or stdin is closed)
+REM returned to :menu_loop with TUI_OK still set and relaunched the TUI in a loop.
+if %TUIRC% GTR 9 goto :quit
 cmd /c exit %TUIRC%
 goto :menu_dispatch
 :menu_old_list
@@ -1604,9 +1784,16 @@ REM first: the stack stays at one level and :quit's single popd balances it.
 if not defined SESSDIR goto :ms_dir_done
 if not exist "%SESSDIR%\" goto :ms_dir_done
 if /i "%SESSDIR%"=="%CD%" goto :ms_dir_done
+REM v3.1 (N22): the pushd is checked. A failed one leaves POPPED alone (the stack was
+REM already popped) and the menu comes back instead of running in the wrong folder.
 if defined POPPED popd
-pushd "%SESSDIR%"
+pushd "%SESSDIR%" 2>nul || goto :ms_dir_fail
 set "POPPED=1"
+goto :ms_dir_done
+:ms_dir_fail
+call echo "  [*] could not open the chat folder: %SESSDIR%"
+call :pause_key
+goto :menu_loop
 :ms_dir_done
 if defined SESSDIR call :folder_remember
 set "RUNARGS=--session %SESSID%"
@@ -1692,16 +1879,28 @@ echo.
 call :yn "  Restore now? [Y/N] "
 if errorlevel 2 goto :menu_deep
 call :stop_opencode restore-chats
+REM v3.1 (N03): an archive that only brings storage keeps the live database. It is
+REM copied aside like the rest, never deleted, and the operator is told.
+set "RS_NODB="
+if not exist "%RS_SRC%\opencode.db" set "RS_NODB=1"
 set "RS_KEEP=%DESKTOP%\opencode_chats_before_restore\%RANDOM%%RANDOM%"
 if not exist "%RS_KEEP%" mkdir "%RS_KEEP%" >nul 2>&1
-for %%F in (opencode.db opencode.db-wal opencode.db-shm) do if exist "%DATA_DIR%\%%F" move /y "%DATA_DIR%\%%F" "%RS_KEEP%\%%F" >nul
+if not defined RS_NODB for %%F in (opencode.db opencode.db-wal opencode.db-shm) do if exist "%DATA_DIR%\%%F" move /y "%DATA_DIR%\%%F" "%RS_KEEP%\%%F" >nul
 if exist "%DATA_DIR%\storage" robocopy "%DATA_DIR%\storage" "%RS_KEEP%\storage" /e /move /r:1 /w:1 /nfl /ndl /njh /njs /np >nul
+REM v3.1 (N23): a failed move leaves the live storage incomplete, so the database is
+REM not touched and the restore stops here.
+set "RS_ABORT="
+if errorlevel 8 set "RS_ABORT=1"
+if defined RS_ABORT call echo %T_273%
+if defined RS_ABORT goto :menu_deep
 REM v2.39: a failed database copy is reported, not announced as restored.
 set "RS_FAIL="
 for %%F in (opencode.db opencode.db-wal opencode.db-shm) do if exist "%RS_SRC%\%%F" copy /y "%RS_SRC%\%%F" "%DATA_DIR%\%%F" >nul || set "RS_FAIL=1"
 if exist "%RS_SRC%\storage" robocopy "%RS_SRC%\storage" "%DATA_DIR%\storage" /e /r:1 /w:1 /nfl /ndl /njh /njs /np >nul
 if errorlevel 8 call echo %T_273%
 if defined RS_FAIL call echo %T_273%
+REM v3.1 (N03): the live database stayed in place because the archive has none.
+if defined RS_NODB call echo %T_270%
 call echo %T_274%
 echo     "%RS_KEEP%"
 set "RESUME="
@@ -1790,11 +1989,13 @@ goto :eof
 REM Launch step. Checks the egress first, then starts opencode.
 :run
 call :token_guard
+REM v2.60 (A3): auto skips the start banner; its short messages come from :asay.
+if defined OPT_AUTO goto :run_auto
 echo.
-if "%COLD%"=="1" call echo %T_345%
-if not "%COLD%"=="1" call echo %T_346%
-echo     "%CD%"
-call echo %T_78%
+if not defined OPT_QUIET if "%COLD%"=="1" call echo %T_345%
+if not defined OPT_QUIET if not "%COLD%"=="1" call echo %T_346%
+if not defined OPT_QUIET echo     "%CD%"
+if not defined OPT_QUIET call echo %T_78%
 
 REM never launch through a dead proxy, and never "rotate" into a
 REM direct connection: the gate asks instead of leaking silently.
@@ -1814,7 +2015,7 @@ if /i "%EGRESS%"=="WARP" (
     call :yn "   Continue without WARP? [Y/N]: "
     if errorlevel 2 goto :menu_loop
     if not defined ALLOW_DIRECT (
-      call echo %T_WB_REFUSE%
+      call :msg %T_WB_REFUSE%
       call :pause_key
       goto :menu_loop
     )
@@ -1840,7 +2041,7 @@ set "ACTIVE_PROXY=http://127.0.0.1:%TOR_HTTP_PORT%"
 call :export_proxy_active
 goto :run_gate_ok
 :run_tor_fail
-call echo %T_81%
+call :msg %T_81%
 call :yn "   Continue direct? [Y/N]: "
 if errorlevel 2 goto :menu_loop
 goto :run_noproxy
@@ -1852,7 +2053,9 @@ set "ACTIVE_PROXY="
 if "%COLD%"=="1" goto :run_vpn_new
 call :vpn_run status
 if /i not "%VPN_STATUS%"=="OK" goto :run_vpn_new
-set "ACTIVE_PROXY=http://127.0.0.1:%VPN_PORT%"
+REM N04: VPNGATE status writes PORT=0 (no local proxy; the tunnel works by routes),
+REM so only a real WireGuard port may become ACTIVE_PROXY. Same guard as :vpn_r_ok.
+if not "%VPN_PORT%"=="0" set "ACTIVE_PROXY=http://127.0.0.1:%VPN_PORT%"
 call :export_proxy_active
 goto :run_gate_ok
 :run_vpn_new
@@ -1884,7 +2087,7 @@ if errorlevel 1 goto :run_free_pick
 call :export_proxy_active
 goto :run_gate_ok
 :run_free_fail
-call echo %T_82%
+call :msg %T_82%
 call :yn "   Continue direct? [Y/N]: "
 if errorlevel 2 goto :menu_loop
 goto :run_noproxy
@@ -1903,7 +2106,16 @@ if not defined CAP_SERVICE goto :run_marked
 if not defined ACTIVE_PROXY goto :run_marked
 if /i "%ACTIVE_PROXY%"=="%SVC_PROXIED%" goto :run_marked
 call "%OC_CMD%" service restart >nul 2>&1
+REM v2.56 (N05): the marker only records a restart that returned 0. A failed
+REM restart leaves it empty, so the next pass retries instead of trusting the
+REM old sockets while the UI claims the new proxy is in use.
+set "GATESVC=%ERRORLEVEL%"
+if not "%GATESVC%"=="0" goto :run_svc_bad
 set "SVC_PROXIED=%ACTIVE_PROXY%"
+goto :run_marked
+:run_svc_bad
+set "SVC_PROXIED="
+call :log "service restart failed rc=%GATESVC% proxy=%ACTIVE_PROXY% egress=%EGRESS%" run
 :run_marked
 REM v2.22: delete the obsolete marker once; nothing reads it anymore.
 if exist "%STATE_DIR%\svc_proxied" del /f /q "%STATE_DIR%\svc_proxied" >nul 2>&1
@@ -1941,6 +2153,10 @@ REM Remember the log size before launch, so the watcher and the quota
 REM check only read what this run writes.
 set "SIZE_BEFORE=0"
 for %%S in ("%LOGFILE%") do if not "%%~zS"=="" set "SIZE_BEFORE=%%~zS"
+REM The log is shared by every OpenCode run, so old limit lines stay in it. Only lines stamped after this start count.
+"%PSX%" -NoProfile -Command "[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss') | Set-Content -LiteralPath '%STATE_DIR%\run_t0.txt' -Encoding ASCII" >nul 2>&1
+set "OC_T0="
+if exist "%STATE_DIR%\run_t0.txt" set /p "OC_T0="<"%STATE_DIR%\run_t0.txt"
 REM WHY records the reason the run ended (exit, quota, stop, watcher).
 set "WHY="
 
@@ -1950,7 +2166,7 @@ set "RL_RENEWED="
 if defined RESUME set "RL_RENEWED=1"
 REM v2.39: a chat picked in menu [9] stays pinned across rotation/crash resumes (PIN_SESS is cleared in :menu_loop).
 if defined RESUME if defined PIN_SESS (set "FLAGS=--session %PIN_SESS%") else (set "FLAGS=--continue")
-if defined RESUME call echo %T_318%
+if defined RESUME call :msg %T_318%
 REM v2.36: a fresh start continues the newest chat of the folder while it is still empty, instead of piling up empty chats
 if /i "%APP_MODE%"=="DESKTOP" goto :rl_reuse_done
 if not "%REUSE_EMPTY%"=="1" goto :rl_reuse_done
@@ -1966,7 +2182,7 @@ if /i "%APP_MODE%"=="DESKTOP" goto :rl_typed_done
 if not "%TYPE_AHEAD%"=="1" goto :rl_typed_done
 call :chat_run typed
 if defined CHAT_TYPED set "OC_PROMPT=%CHAT_TYPED%"
-if defined CHAT_TYPED call echo %T_304%
+if defined CHAT_TYPED call :msg %T_304%
 :rl_typed_done
 set "RESUME="
 if defined RUNARGS set "FLAGS=%FLAGS% %RUNARGS%"
@@ -1975,6 +2191,13 @@ set "RUNARGS="
 REM Start the watcher, open the TUI, and stop the watcher when it closes.
 call :watch_start
 call :log "starting opencode: %OC_CMD% mode=%APP_MODE% egress=%EGRESS% cold=%COLD% continue=%FLAGS%" run
+REM v2.60 (A2): remember the connection that opened OpenCode; "Start again" and --auto reuse it.
+if defined EGRESS (> "%STATE_DIR%\last_method.txt" <nul set /p "=%EGRESS%")
+REM v2.60 (A3): auto says it once, and from now on a failure resumes this chat instead of starting over.
+if defined OPT_AUTO set "AUTO_FAILS=0"
+if defined OPT_AUTO set "AUTO_GIVEUPS=0"
+if defined OPT_AUTO call :asay "OpenCode open"
+if defined OPT_AUTO set "AUTO_STARTED=1"
 REM v2.43: a resumed chat (--continue / --session) logs its egress facts too; the typed prompt is not logged.
 if defined FLAGS call :resume_facts
 if defined FLAGS call :log "resume tui: flags=%FLAGS% ip=%IP% proxy=%RPX% svc=%SVC_PROXIED% auth=%RAUTH%" run
@@ -1996,8 +2219,8 @@ REM v2.22: the watcher can flag a dead proxy/tunnel while the TUI is open
 REM (WARP/TOR/PROXY). It never kills the TUI; the note is shown here.
 if not exist "%STATE_DIR%\proxy_warn.txt" goto :run_warn_done
 echo.
-call echo %T_83%
-call echo %T_84%
+call :msg %T_83%
+call :msg %T_84%
 >"%STATE_DIR%\renew_needed.txt" echo the egress proxy stopped answering
 call :log "the egress proxy stopped answering while opencode was open" rotate
 del /f /q "%STATE_DIR%\proxy_warn.txt" >nul 2>&1
@@ -2009,7 +2232,7 @@ REM nonzero, but the marker tells us WHY and where to go.
 REM If the watcher left a hit marker, it killed the TUI because of a fatal error.
 if not exist "%STATE_DIR%\watch_hit.txt" goto :run_no_hit
 del /f /q "%STATE_DIR%\watch_hit.txt" >nul 2>&1
-call echo %T_85%
+call :msg %T_85%
 set "WHY=watcher"
 goto :quota_rotate
 REM No watcher hit. A nonzero exit code means opencode crashed.
@@ -2017,6 +2240,13 @@ REM No watcher hit. A nonzero exit code means opencode crashed.
 REM 9009 = the launch guard found no opencode: rotating the IP cannot fix that.
 if "%EC%"=="9009" goto :menu_loop
 REM v2.44: a rate limit (ask= line) seen by the watcher: ask now, never rotate on our own.
+REM v2.60 (A3): auto never asks: a rate limit rotates the IP at once.
+REM Only a rate-limit line the watcher saw rotates here. A plain exit (code 0, you closed OpenCode) must not rotate.
+if defined OPT_AUTO if exist "%STATE_DIR%\watch_ask.txt" (
+  del /f /q "%STATE_DIR%\watch_ask.txt" >nul 2>&1
+  set "WHY=ratelimit"
+  goto :quota_rotate
+)
 if exist "%STATE_DIR%\watch_ask.txt" goto :rl_ask
 REM v2.42: a clean exit resets the crash streak. A crash retries on the same egress first (:crash_retry).
 if "%EC%"=="0" set "CRASH_STREAK=0"
@@ -2039,6 +2269,8 @@ goto :closed
 REM v2.44: rate limit: one question at most every 10 minutes (stamp file), 60 s, default No.
 :rl_ask
 if exist "%STATE_DIR%\watch_ask.txt" del /f /q "%STATE_DIR%\watch_ask.txt" >nul 2>&1
+REM v2.60 (A3): same for the check_quota path.
+if defined OPT_AUTO (set "WHY=ratelimit" & goto :quota_rotate)
 set "OC_ASKT=%STATE_DIR%\ratelimit_ask.txt"
 "%PSX%" -NoProfile -Command "try{ if((Test-Path -LiteralPath $env:OC_ASKT) -and (((Get-Date)-(Get-Item -LiteralPath $env:OC_ASKT).LastWriteTime).TotalMinutes -lt 10)){ exit 1 }; Set-Content -LiteralPath $env:OC_ASKT -Value (Get-Date -Format o); exit 0 }catch{ exit 0 }" >nul 2>&1
 if not errorlevel 1 goto :rl_ask_now
@@ -2057,13 +2289,17 @@ call :log "category=ask action=none reason=user said no or timed out" rotate
 
 REM Normal close: R/M/Q, or quit at once when ON_CLOSE=quit.
 :closed
-call echo %T_86%
+REM v3.1 (D07): a clean preset close prints nothing and returns opencode's own code.
+if defined PRESET_MODE goto :closed_preset
+REM v2.60 (A3): in auto a normal close ends the launcher, no R/M/Q question.
+if defined OPT_AUTO goto :quit
+call :msg %T_86%
 set /a QUOTA_STREAK=0
 if /i "%ON_CLOSE%"=="quit" goto :quit
 if /i "%EGRESS%"=="NONE" goto :menu_loop
 if /i "%EGRESS%"=="WARP" if not defined WARP goto :menu_loop
 echo.
-call echo %T_87%
+call :msg %T_87%
 REM v2.30: no timeout and no default: the prompt waits for a deliberate key.
 call :flush_keys
 call :pick %KEY_ROTATE%%KEY_MENU%%KEY_QUIT% "Pick: "
@@ -2075,6 +2311,43 @@ if errorlevel 1 (
 )
 REM errorlevel 0 is Ctrl+C
 goto :quit
+:closed_preset
+set /a QUOTA_STREAK=0
+if /i "%EGRESS%"=="NONE" goto :run_no_egress
+if /i "%EGRESS%"=="WARP" if not defined WARP goto :run_no_egress
+set "PCODE=%EC%"
+if not defined PCODE set "PCODE=0"
+set "PMSG="
+goto :preset_exit
+:run_no_egress
+if not defined PRESET_MODE goto :menu_loop
+set "PCODE=3"
+set "PMSG=%EGRESS% is not available"
+goto :preset_exit
+REM v3.1 (D07): the only exit of a preset. One line, the code and the log path;
+REM T_377-T_382 take these texts over when D15 lands. The lock, the folder and the
+REM environment are released here, which is what :quit would have done.
+:preset_exit
+set /a QUOTA_STREAK=0
+call :log "preset code=%PCODE% %PMSG%" boot
+REM v2.60 (D15): one line per preset failure, with the reason, the code and the
+REM log path. The raw warp-cli, where and PowerShell output stays in wcli.log,
+REM launcher.log and the other logs, never on the console.
+if not "%PCODE%"=="0" goto :preset_say
+goto :preset_clean
+:preset_say
+set "PTXT=%T_378%"
+if defined PMSG set "PTXT=%T_377%"
+if "%PCODE%"=="3" set "PTXT=%T_379%"
+if "%PCODE%"=="9009" set "PTXT=%T_380%"
+call :msg %PTXT%
+:preset_clean
+call :restore_env
+call :watch_stop
+if defined POPPED popd
+if exist "%STATE_DIR%\lock\" rmdir /s /q "%STATE_DIR%\lock" >nul 2>&1
+if defined OC_OLDCP chcp %OC_OLDCP% >nul 2>&1
+endlocal & exit /b %PCODE%
 
 REM v2.30: drops the keys already waiting in the console. Keys typed inside opencode,
 REM and the terminal's replies to its queries (a cursor report ends in R), would pick
@@ -2099,7 +2372,7 @@ exit /b %PKRC%
 
 REM v2.30: "Press any key" for pause. Ctrl+C here is only a key, it does not quit.
 :pause_key
-call echo %T_88%
+call :msg %T_88%
 "%PSX%" -NoProfile -Command "$prev=$null; try{ $prev=[Console]::TreatControlCAsInput; [Console]::TreatControlCAsInput=$true; [void][Console]::ReadKey($true); [Console]::TreatControlCAsInput=$prev }catch{ try{ [Console]::TreatControlCAsInput=$prev }catch{} }" >nul 2>&1
 echo.
 exit /b 0
@@ -2126,13 +2399,15 @@ call :log "opencode crashed: code %EC% streak %CRASH_STREAK% egress=%EGRESS%" ru
 if %CRASH_STREAK% GTR 2 goto :crash_stop
 if /i "%EGRESS%"=="NONE" goto :eof
 set /a CRASH_WAIT=CRASH_STREAK*2
-call echo %T_350%
+call :msg %T_350%
 timeout /t %CRASH_WAIT% /nobreak >nul 2>&1
 set "RESUME=1"
 set "COLD=0"
 set "CRASH_RETRY=1"
 goto :eof
 :crash_stop
+REM v2.60 (A3): auto does not stop on a crash streak: it clears it and the caller rotates the IP (:exit_rotate).
+if defined OPT_AUTO (set "CRASH_STREAK=0" & goto :eof)
 set "CRASH_STOP=1"
 call echo %T_349%
 call :pause_key
@@ -2161,11 +2436,14 @@ REM v2.44 anti-loop cap (5 rotations in 30 minutes) removed: keep trying until a
 if "%WHY%"=="quota" set /a QUOTA_STREAK+=1
 REM LIMIT_ROT_MAX=0 means never stop (the user chose it in Settings)
 if not "%LIMIT_ROT_MAX%"=="0" if "%WHY%"=="quota" if %QUOTA_STREAK% GTR %LIMIT_ROT_MAX% goto :limit_action
-if "%WHY%"=="exit" call echo %T_319%
-if "%WHY%"=="quota" call echo %T_320%
-if "%WHY%"=="stop" call echo %T_321%
-if "%WHY%"=="watcher" call echo %T_322%
-if "%TYPE_AHEAD%"=="1" if /i not "%APP_MODE%"=="DESKTOP" call echo %T_303%
+REM v3.4: --auto prints one line, "Changing IP...", whatever the reason. The reason is in launcher.log (rotating: reason=...).
+if defined OPT_AUTO call :asay "%T_CHGIP%"
+if not defined OPT_AUTO if "%WHY%"=="exit" call echo %T_319%
+if not defined OPT_AUTO if "%WHY%"=="quota" call echo %T_320%
+if not defined OPT_AUTO if "%WHY%"=="stop" call echo %T_321%
+if not defined OPT_AUTO if "%WHY%"=="watcher" call echo %T_322%
+if not defined OPT_AUTO if "%WHY%"=="geo" call echo %T_GEO%
+if not defined OPT_AUTO if "%TYPE_AHEAD%"=="1" if /i not "%APP_MODE%"=="DESKTOP" call echo %T_303%
 
 REM Non-WARP modes: pick a new free proxy or just resume on TOR/NONE.
 REM NEW: PROXY used to pick the SAME first live proxy every time and loop
@@ -2191,10 +2469,14 @@ set "RESUME=1"
 set "COLD=0"
 goto :resume_and_run
 :tor_rotate_fail
+REM v2.60 (A3): auto never pauses on a failed Tor renewal.
+if defined OPT_AUTO goto :auto_giveup
 call echo %T_91%
 call :pause_key
 goto :menu_loop
 :tor_exhausted
+REM v2.60 (A3): auto does not stop here.
+if defined OPT_AUTO goto :auto_giveup
 call echo %T_92%
 call echo %T_93%
 call echo %T_94%
@@ -2253,6 +2535,8 @@ set "RESUME=1"
 set "COLD=0"
 goto :resume_and_run
 :proxy_exhausted
+REM v2.60 (A3): auto does not ask to switch to Tor: it moves on by itself.
+if defined OPT_AUTO goto :auto_giveup
 call echo %T_97%
 call echo %T_98%
 call :yn "   Switch to Tor and keep going? [Y/N]: "
@@ -2297,6 +2581,15 @@ set /a ROTATE_TRIES=0
 set /a PROBE_TRIES=0
 set "PBROKEN=0"
 set "HUNT_SEEN="
+REM v3.4: the first new IP is compared with the IP the hunt leaves. After a watcher hit that IP is
+REM often still empty or "unknown" (only a manual start sets it), so read the live one first.
+echo %IP%| findstr /r /c:"^[0-9a-fA-F:.][0-9a-fA-F:.]*$" >nul
+if errorlevel 1 (
+    set "TUNNEL_WAIT=10"
+    call :warp_poll BASEIP BASEFLAG
+    set "TUNNEL_WAIT="
+    if defined BASEIP set "IP=%BASEIP%"
+)
 call set "HUNT_GOAL=%T_340%"
 if defined TARGET_PREFIX call set "HUNT_GOAL=%T_341%"
 if defined TARGET_COUNTRY call set "HUNT_GOAL=%T_342%"
@@ -2305,20 +2598,11 @@ set /a HUNT_LIM=TARGET_MINUTES*60
 call :nowsecs
 set "HUNT_START=%NOWS%"
 call :flush_keys
-call echo %T_101%
+if not defined OPT_AUTO call echo %T_101%
 :rotate_loop
 if %ROTATE_TRIES% GEQ %TARGET_TRIES% (
     set "HUNT_WHY=tries"
     goto :rotate_fail
-)
-REM Space the attempts out: a plain burst of "registration new" is what
-REM Cloudflare throttles. The wait is cancellable.
-if %ROTATE_TRIES% GTR 0 (
-    if %TARGET_INTERVAL% GTR 0 (
-        call :napkey %TARGET_INTERVAL%
-        if errorlevel 2 goto :quit
-        if errorlevel 1 goto :hunt_stop
-    )
 )
 call :hunt_clock
 if %HUNT_EL% GEQ %HUNT_LIM% (
@@ -2326,17 +2610,69 @@ if %HUNT_EL% GEQ %HUNT_LIM% (
     goto :rotate_fail
 )
 set /a ROTATE_TRIES+=1
+REM v2.60 (N89): this hunt drops the registration at most once. A new registration on
+REM every retry restarts the MASQUE handshake from zero with the same short deadline,
+REM so the tunnel never gets to finish connecting.
+if %ROTATE_TRIES% EQU 1 (
+    set "HUNT_DROP="
+    set "HUNT_TRACE="
+    REM v3.5: the first try follows a limit on the current IP, so it always takes a new registration.
+    set "HUNT_FORCE=1"
+)
+REM v3.5: a retry after a same or already judged IP needs a new registration. Reconnecting alone keeps the same exit IP.
+set "HUNT_NEED_IP="
+if defined HUNT_FORCE set "HUNT_NEED_IP=1"
+set "HUNT_FORCE="
+if defined HUNT_NEED_IP goto :rot_drop
+if defined HUNT_DROP goto :rot_reconnect
+if defined HUNT_TRACE goto :rot_drop
+REM v2.60 (N89): bounded status before any drop. Connected or Connecting means the tunnel
+REM is still coming up: nothing is deleted, TARGET_INTERVAL is waited and only the trace
+REM is repeated.
+set "OC_RSF=%TEMP%\oc_wst_%RANDOM%%RANDOM%.txt"
+set "OC_RSF_TO=%WARP_CALL_TIMEOUT%"
+"%PSX%" -NoProfile -Command "try{ $p=Start-Process -FilePath $env:WARP -ArgumentList @('--accept-tos','status') -NoNewWindow -PassThru -RedirectStandardOutput $env:OC_RSF -RedirectStandardError ($env:OC_RSF+'.err') }catch{ exit 1 }; if(-not $p){ exit 1 }; $null=$p.Handle; if(-not $p.WaitForExit([int]$env:OC_RSF_TO*1000)){ Start-Process taskkill.exe -ArgumentList @('/T','/F','/PID',$p.Id) -WindowStyle Hidden -Wait; exit 124 }; exit 0" >nul 2>&1
+set "WST_UP="
+findstr /i /b /c:"Status update: Connected" "%OC_RSF%" >nul 2>&1
+if not errorlevel 1 set "WST_UP=1"
+findstr /i /b /c:"Status update: Connecting" "%OC_RSF%" >nul 2>&1
+if not errorlevel 1 set "WST_UP=1"
+del /f /q "%OC_RSF%" "%OC_RSF%.err" >nul 2>&1
+if defined WST_UP (
+    set "HUNT_TRACE=1"
+    goto :rot_wait
+)
+:rot_drop
 REM Drop the current WARP connection and its registration.
-call echo %T_102%
+if not defined OPT_AUTO call echo %T_102%
 call :reg_drop
+set "HUNT_DROP=1"
 REM A new registration gets a new exit IP from Cloudflare.
-call echo %T_103%
+if not defined OPT_AUTO call echo %T_103%
 call :reg_new
-if "%REGNEW%"=="0" call echo %T_323%
-call echo %T_104%
+if "%REGNEW%"=="0" if not defined OPT_AUTO call echo %T_323%
+if not defined OPT_AUTO call echo %T_104%
 call :warp_up
 set "WARP_UP=1"
-call echo %T_105%
+goto :rot_wait
+:rot_reconnect
+REM v2.60 (N89): later retries keep the registration: connect only, no registration new.
+if not defined OPT_AUTO call echo %T_104%
+call :wcli connect
+if errorlevel 1 call :log "rotation reconnect failed rc=%WCLIRC%" rotate
+set "WARP_UP=1"
+:rot_wait
+if not defined OPT_AUTO call echo %T_105%
+REM v2.60 (N89): the pause moved here, after connect, so TARGET_INTERVAL is time the
+REM tunnel gets to finish its handshake instead of a wait before its delete.
+REM v3.4: --auto pauses 3 s only: the trace poll below already waits for the tunnel.
+set "PAUSE_S=%TARGET_INTERVAL%"
+if defined OPT_AUTO set "PAUSE_S=3"
+if %PAUSE_S% GTR 0 (
+    call :napkey %PAUSE_S%
+    if errorlevel 2 goto :quit
+    if errorlevel 1 goto :hunt_stop
+)
 REM v2.43: poll the IP every second (up to WARP_WAIT) instead of a fixed sleep.
 REM an IP counts only when the trace came back through the proxy AND
 REM says warp=on. anything else is a retry, never a silent launch.
@@ -2351,17 +2687,22 @@ call :log "rotation try %ROTATE_TRIES%: old=%IP% new=%IPN% wait=%WP_SECS%s resul
 if not defined IPN goto :rotate_retry
 if not "%WFLAG%"=="on" goto :rotate_retry
 REM An IP equal to the previous one does not count: retry for a new one.
+if "%IPNK%"=="%IPK%" set "HUNT_FORCE=1"
 if "%IPNK%"=="%IPK%" goto :rotate_retry
 REM An IP already judged in this hunt does not count again.
 echo ;%HUNT_SEEN%;| findstr /l /c:";%IPNK%;" >nul
 if not errorlevel 1 (
-    call echo %T_106%
+    if not defined OPT_AUTO call echo %T_106%
+    set "HUNT_FORCE=1"
     goto :rotate_loop
 )
 set "HUNT_SEEN=%HUNT_SEEN%;%IPNK%;"
+REM v3.4: after "model not available in your country", an IP from that same country is skipped. Any other country counts.
+if defined HUNT_AVOID if /i "%GLOC%"=="%HUNT_AVOID%" set "HUNT_FORCE=1"
+if defined HUNT_AVOID if /i "%GLOC%"=="%HUNT_AVOID%" goto :rotate_loop
 call :target_ok
 set /a HUNT_LEFT=TARGET_TRIES-ROTATE_TRIES
-call echo %T_107%
+if not defined OPT_AUTO call echo %T_107%
 if "%TMATCH%"=="0" goto :rotate_loop
 
 REM probe: one cheap message on the throwaway session. burned IP ->
@@ -2369,7 +2710,7 @@ REM rotate again. With PROBE=0 the probe is skipped and the IP is accepted direc
 if "%PROBE%"=="0" goto :rotate_good
 REM v2.40: Desktop mode without the CLI has nothing to probe with.
 if not defined OC_CMD goto :rotate_good
-call echo %T_108%
+if not defined OPT_AUTO call echo %T_108%
 call :probe_once
 if not errorlevel 1 goto :rotate_good
 REM Classify the miss: only a limit-shaped answer marks the IP burned.
@@ -2380,7 +2721,7 @@ REM counts as a burned IP.
 if /i "%PCLASS%"=="nosession" goto :probe_no_session
 if /i not "%PCLASS%"=="broken" goto :probe_miss_burned
 set /a PBROKEN+=1
-call echo %T_109%
+if not defined OPT_AUTO call echo %T_109%
 call :probe_print
 if %PBROKEN% GEQ %PROBE_BROKEN_MAX% goto :probe_broken_stop
 goto :rotate_loop
@@ -2393,24 +2734,26 @@ REM IP_FIND_MAX=0 means no limit on burned IPs. Otherwise stop after the limit.
 if "%IP_FIND_MAX%"=="0" goto :probe_endless
 if %PROBE_TRIES% GTR %IP_FIND_MAX% goto :probe_exhausted
 :probe_endless
-call echo %T_110%
+if not defined OPT_AUTO call echo %T_110%
 goto :rotate_loop
 :probe_exhausted
 echo.
-call echo %T_111%
+if not defined OPT_AUTO call echo %T_111%
 set "HUNT_WHY=burned"
 goto :rotate_fail
 :probe_broken_stop
+REM v2.60 (A3): auto accepts IPs untested instead of asking.
+if defined OPT_AUTO (set "PROBE=0" & set "PBROKEN=0" & goto :rotate_loop)
 echo.
-call echo %T_112%
-call echo %T_113%
-call echo %T_114%
-call echo %T_115%
-call echo %T_116%
+if not defined OPT_AUTO call echo %T_112%
+if not defined OPT_AUTO call echo %T_113%
+if not defined OPT_AUTO call echo %T_114%
+if not defined OPT_AUTO call echo %T_115%
+if not defined OPT_AUTO call echo %T_116%
 call :yn "   Continue WITHOUT the probe this session (IPs accepted untested)? [Y/N]: "
 if errorlevel 2 goto :pbs_quit
-call echo %T_117%
-call echo %T_118%
+if not defined OPT_AUTO call echo %T_117%
+if not defined OPT_AUTO call echo %T_118%
 set "PROBE=0"
 set "PBROKEN=0"
 goto :rotate_loop
@@ -2426,13 +2769,13 @@ REM "all IPs burned": the probe is switched off for this session, the
 REM current IP is kept, and the reason is printed in plain text.
 :probe_no_session
 echo.
-call echo %T_119%
-call echo %T_120%
-call echo %T_121%
-call echo %T_122%
-call echo %T_123%
-call echo %T_124%
-call echo %T_125%
+if not defined OPT_AUTO call echo %T_119%
+if not defined OPT_AUTO call echo %T_120%
+if not defined OPT_AUTO call echo %T_121%
+if not defined OPT_AUTO call echo %T_122%
+if not defined OPT_AUTO call echo %T_123%
+if not defined OPT_AUTO call echo %T_124%
+if not defined OPT_AUTO call echo %T_125%
 set "PROBE=0"
 set "PBROKEN=0"
 REM v2.23: the IP itself was fine, only the probe could not run. Rotating
@@ -2442,7 +2785,7 @@ goto :rotate_good
 
 REM A verified IP that passed the probe: save it, mark the resume, and resume the chat.
 :rotate_good
-call echo %T_126%
+if not defined OPT_AUTO call echo %T_126%
 set "HUNT_WHY=success"
 call :hunt_summary
 call :log "rotation ok: new IP verified on try %ROTATE_TRIES%" rotate
@@ -2450,6 +2793,7 @@ if exist "%STATE_DIR%\renew_needed.txt" del /f /q "%STATE_DIR%\renew_needed.txt"
 set "PBROKEN=0"
 >"%STATE_DIR%\lastip.txt" echo %IPN%
 set "IP=%IPN%"
+set "HUNT_AVOID="
 set "RESUME=1"
 set "COLD=0"
 REM the background service holds sockets from the old tunnel, and its env
@@ -2462,31 +2806,58 @@ if not defined CAP_SERVICE goto :rg_svc_done
 if not defined OC_CMD goto :rg_svc_done
 call :export_proxy
 call "%OC_CMD%" service restart >nul 2>&1
+set "RGSVC=%ERRORLEVEL%"
 call :restore_env
+REM v2.56 (N05): mark only a clean restart; otherwise forget the marker so the
+REM next gate pass restarts again instead of running on the old tunnel.
+if not "%RGSVC%"=="0" goto :rg_svc_bad
 if defined ACTIVE_PROXY set "SVC_PROXIED=%ACTIVE_PROXY%"
+goto :rg_svc_done
+:rg_svc_bad
+set "SVC_PROXIED="
+call :log "service restart failed after rotation rc=%RGSVC% proxy=%ACTIVE_PROXY%" rotate
 :rg_svc_done
 goto :resume_and_run
 
 REM Not a usable IP yet (no answer, or WARP not on): try again.
 :rotate_retry
-call echo %T_127%
+if not defined OPT_AUTO call echo %T_127%
 goto :rotate_loop
 
-REM The hunt is over without a usable IP: summary, then the menu.
+REM v2.60 (N90): the hunt is over, but the last tunnel may still be coming up. One last
+REM full poll before giving up: a cold MASQUE start can answer after the attempt cap, and
+REM that IP is the one the operator wanted.
 :rotate_fail
+if not defined OPT_AUTO call echo %T_105%
+call :warp_poll IPN WFLAG
+call :ipkey IPNK "%IPN%"
+call :ipkey IPK "%IP%"
+set "RWHY=last poll: no warp answer"
+if defined IPN set "RWHY=last poll: same ip or /64"
+if defined IPN if /i "%WFLAG%"=="on" if not "%IPNK%"=="%IPK%" set "RWHY=last poll: new ip"
+call :log "rotation last poll: old=%IP% new=%IPN% wait=%WP_SECS%s result=%RWHY%" rotate
+if not defined IPN goto :rf_summary
+if /i not "%WFLAG%"=="on" goto :rf_summary
+if "%IPNK%"=="%IPK%" goto :rf_summary
+REM The tunnel came up after the cap: keep this IP instead of losing it.
+call :log "rotation ok: last tunnel adopted on try %ROTATE_TRIES%" rotate
+goto :rotate_good
+:rf_summary
 call :hunt_summary
 goto :rotate_pause
 :rotate_pause
 REM never leave the probe session behind as the last session
 call "%OC_CMD%" session delete %OC_PROBE_ID% >nul 2>&1
-call echo %T_128%
+if not defined OPT_AUTO call echo %T_128%
 >"%STATE_DIR%\renew_needed.txt" echo rotation hunt ended: %HUNT_WHY%
 call :log "ROTATION HUNT ENDED (%HUNT_WHY%), see wcli.log" rotate
-call echo %T_296%
+if not defined OPT_AUTO call echo %T_296%
 REM v2.36: the hunt used to end on "press any key". Now it says what happened and offers the next step.
 :rotate_ask
+REM v2.60 (A3): auto never waits for a key after a failed hunt or a limit loop.
+if defined OPT_AUTO goto :auto_giveup
 echo.
-call echo %T_297%
+if not defined OPT_AUTO call echo %T_297%
 call :flush_keys
 call :pick %KEY_ROTATE%E%KEY_MENU% "Pick: "
 if errorlevel 100 goto :menu_loop
@@ -2506,12 +2877,12 @@ goto :menu_loop
 REM The summary of a hunt. HUNT_WHY says how it ended.
 :hunt_summary
 call :hunt_clock
-echo.
-if "%HUNT_WHY%"=="success" call echo %T_324%
-if "%HUNT_WHY%"=="tries" call echo %T_325%
-if "%HUNT_WHY%"=="time" call echo %T_326%
-if "%HUNT_WHY%"=="burned" call echo %T_327%
-if "%HUNT_WHY%"=="user" call echo %T_328%
+if not defined OPT_AUTO echo.
+if "%HUNT_WHY%"=="success" if not defined OPT_AUTO call echo %T_324%
+if "%HUNT_WHY%"=="tries" if not defined OPT_AUTO call echo %T_325%
+if "%HUNT_WHY%"=="time" if not defined OPT_AUTO call echo %T_326%
+if "%HUNT_WHY%"=="burned" if not defined OPT_AUTO call echo %T_327%
+if "%HUNT_WHY%"=="user" if not defined OPT_AUTO call echo %T_328%
 exit /b 0
 
 REM Seconds since midnight in NOWS. The time string has a leading space before 10 o'clock.
@@ -2559,21 +2930,59 @@ for %%g in (!IS!) do (
 endlocal & set "%~1=%IK%"
 exit /b 0
 
-REM v2.43: replaces the fixed WARP_WAIT sleep after a reconnect. Polls :getip2 every second and
-REM returns as soon as WARP answers warp=on, or after WARP_WAIT seconds. usage: call :warp_poll IPVAR FLAGVAR
-REM WP_SECS = seconds it took; exit 1 = no WARP IP in time.
+REM v2.60 (N88): two phases. (a) wait up to 2 s for PROXY_PORT to accept TCP, so a
+REM closed proxy is told apart from a tunnel that is still handshaking. (b) poll the
+REM trace every second until TUNNEL_WAIT (45 s default, 5-180). A cold MASQUE start
+REM needs much more than WARP_WAIT; "no trace yet" is not a bad IP.
+REM Exit: 0 = IP + warp=on, 1 = proxy closed, 2 = proxy open without a trace,
+REM 3 = trace answered with an error. WP_PHASE mirrors the exit code; WP_SECS is
+REM the polling time, which the callers log as wait=%WP_SECS%s.
 :warp_poll
+if not defined TUNNEL_WAIT set "TUNNEL_WAIT=45"
+set "TW_NUM=1"
+for /f "delims=0123456789" %%d in ("%TUNNEL_WAIT%") do set "TW_NUM=0"
+if "%TW_NUM%"=="0" set "TUNNEL_WAIT=45"
+if %TUNNEL_WAIT% LSS 5 set "TUNNEL_WAIT=5"
+if %TUNNEL_WAIT% GTR 180 set "TUNNEL_WAIT=180"
+set "TW_SEEN="
+REM (a) the proxy port has to answer before any trace can come back.
+set /a TW_P1=0
+:wp_port
+call :port_up %PROXY_PORT%
+if not errorlevel 1 goto :wp_start
+set /a TW_P1+=1
+if %TW_P1% GEQ 2 goto :wp_noport
+ping -n 2 127.0.0.1 >nul
+goto :wp_port
+REM (b) poll the trace once per second up to TUNNEL_WAIT.
+:wp_start
 call :nowsecs
 set /a WP_T0=NOWS
 :wp_loop
-timeout /t 1 /nobreak >nul 2>&1
+REM v3.1 (N67): timeout /t 1 returns at once with stdin redirected; ping is a real clock.
+ping -n 2 127.0.0.1 >nul
 call :getip2 %1 %2
 call :nowsecs
 set /a WP_SECS=NOWS-WP_T0
 if %WP_SECS% LSS 0 set /a WP_SECS+=86400
-if defined GIP if /i "%GFLAG%"=="on" exit /b 0
-if %WP_SECS% LSS %WARP_WAIT% goto :wp_loop
+if defined GIP if /i "%GFLAG%"=="on" goto :wp_ok
+if defined GFLAG set "TW_SEEN=1"
+if %WP_SECS% LSS %TUNNEL_WAIT% goto :wp_loop
+if defined TW_SEEN goto :wp_bad
+goto :wp_notrace
+:wp_ok
+set "WP_PHASE=0"
+exit /b 0
+:wp_noport
+set "WP_PHASE=1"
+set /a WP_SECS=0
 exit /b 1
+:wp_notrace
+set "WP_PHASE=2"
+exit /b 2
+:wp_bad
+set "WP_PHASE=3"
+exit /b 3
 
 REM TMATCH=1 when the trace country and IP prefix match the target (empty = no test).
 :target_ok
@@ -2626,7 +3035,7 @@ goto :resume_envdone
 :resume_envdone
 if errorlevel 1 (
     call echo %T_131%
-    call :resume_tail
+    if not defined OPT_AUTO call :resume_tail
     set "WHY=quota"
     goto :quota_rotate
 )
@@ -2662,7 +3071,7 @@ if "%REC%"=="9009" goto :menu_loop
 REM 124 is the watchdog code: the resume was killed for taking too long.
 if "%REC%"=="124" (
     call echo %T_132%
-    call :resume_tail
+    if not defined OPT_AUTO call :resume_tail
     set "WHY=quota"
     goto :quota_rotate
 )
@@ -2689,10 +3098,145 @@ set "PROXY_ROT=0"
 goto :run
 REM The resume hit a limit: go back to the rotation with WHY=quota.
 :resume_fatal
-call echo %T_134%
-call :resume_tail
+REM v3.4: "not available in your country" is a country block, not a usage limit. It gets its own
+REM reason. Rotating can still help, because the next IP may be in another country.
+set "GEOHIT="
+if exist "%STATE_DIR%\resume.err" findstr /i /c:"not available in your country" "%STATE_DIR%\resume.err" >nul 2>&1 && set "GEOHIT=1"
+if exist "%STATE_DIR%\resume.out" if not defined GEOHIT findstr /i /c:"not available in your country" "%STATE_DIR%\resume.out" >nul 2>&1 && set "GEOHIT=1"
+if defined GEOHIT call :log "resume refused: model not available from this IP country, ip=%IP% egress=%EGRESS%" resume
+if defined GEOHIT if not defined OPT_AUTO call :resume_tail
+if defined GEOHIT set "WHY=geo"
+if defined GEOHIT if defined GLOC set "HUNT_AVOID=%GLOC%"
+if defined GEOHIT goto :quota_rotate
+if not defined OPT_AUTO call echo %T_134%
+if not defined OPT_AUTO call :resume_tail
 set "WHY=quota"
 goto :quota_rotate
+
+REM v2.60 (A3): --auto connection chain. Order WARP, Tor, PROXY and back to WARP; VPN Gate is never used,
+REM no admin prompt, no question. The technical output of every attempt goes to launcher.log only.
+:run_auto
+set "AUTO_LOG=NUL"
+if exist "%STATE_DIR%\" set "AUTO_LOG=%STATE_DIR%\launcher.log"
+if not defined AUTO_STARTED call :asay "Connecting..."
+:auto_try
+REM v3.6: the time each method takes to connect is kept, so Auto can pick the fastest installed one.
+call :now_cs
+set "AUTO_T0=%NOW_CS%"
+call :auto_connect >>"%AUTO_LOG%" 2>&1
+if not errorlevel 1 goto :auto_ok
+REM v2.60 (A3): this method did not connect: take the next one of the chain (every 3rd failure waits 5 s first).
+:auto_next
+set /a AUTO_FAILS+=1
+call :log "auto: %EGRESS% did not connect, failure %AUTO_FAILS%" auto
+call :restore_env
+if /i "%EGRESS%"=="WARP" (set "EGRESS=TOR") else if /i "%EGRESS%"=="TOR" (set "EGRESS=PROXY") else (set "EGRESS=WARP")
+set "WARP="
+set "ACTIVE_PROXY="
+if /i "%EGRESS%"=="TOR" set "ACTIVE_PROXY=http://127.0.0.1:%TOR_HTTP_PORT%"
+if /i "%EGRESS%"=="TOR" set "TOR_TRIES=0"
+set "PROXY_ROT=0"
+set /a AUTO_M=AUTO_FAILS%%3
+if "%AUTO_M%"=="0" timeout /t 5 /nobreak >nul 2>&1
+REM v2.60 (A3): once OpenCode has been open, the new connection also sends the resume message (same chat).
+if defined AUTO_STARTED set "AUTO_SENDRESUME=1"
+call :asay "Trying %EGRESS%..."
+goto :auto_try
+:auto_ok
+if defined AUTO_T0 call :auto_record
+set "AUTO_FAILS=0"
+if not defined AUTO_SENDRESUME goto :run_gate_ok
+set "AUTO_SENDRESUME="
+set "RESUME=1"
+set "COLD=0"
+goto :resume_and_run
+
+REM v2.60 (A3): the rotation machinery ended without a usable IP (hunt, Tor, proxies or limit loop). Auto rotates
+REM again on the same connection; the second time in a row it moves to the next connection of the chain.
+:auto_giveup
+set /a AUTO_GIVEUPS+=1
+call :log "auto: rotation ended without a usable IP (%AUTO_GIVEUPS%) egress=%EGRESS%" auto
+set /a QUOTA_STREAK=0
+set /a TOR_TRIES=0
+set /a VPN_TRIES=0
+set "PROXY_ROT=0"
+timeout /t 5 /nobreak >nul 2>&1
+if %AUTO_GIVEUPS% GEQ 2 (set "AUTO_GIVEUPS=0" & goto :auto_next)
+set "WHY=stop"
+goto :quota_rotate
+
+REM v2.60 (A3): one connection attempt for the current EGRESS, errorlevel 0 = ready. Called with its output sent to the log.
+:auto_connect
+if /i "%EGRESS%"=="WARP" goto :ac_warp
+if /i "%EGRESS%"=="TOR" goto :ac_tor
+goto :ac_proxy
+:ac_warp
+if not defined WARP call :find_warp
+if not defined WARP exit /b 1
+call :proxy_ok
+if not errorlevel 1 goto :ac_warp_x
+REM The proxy answers nothing: WARP is off or in another mode. Start it in proxy mode (no register, no installer, no admin).
+call :warp_ensure_on
+if errorlevel 1 exit /b 1
+:ac_warp_x
+set "ACTIVE_PROXY=%PROXY%"
+call :export_proxy
+exit /b %errorlevel%
+:ac_tor
+call :tor_gate
+if errorlevel 1 exit /b 1
+set "ACTIVE_PROXY=http://127.0.0.1:%TOR_HTTP_PORT%"
+call :export_proxy_active
+exit /b %errorlevel%
+:ac_proxy
+if not defined ACTIVE_PROXY goto :ac_proxy_new
+call :proxy_alive "%ACTIVE_PROXY%"
+if errorlevel 1 goto :ac_proxy_new
+call :export_proxy_active
+exit /b %errorlevel%
+:ac_proxy_new
+call :pick_free_proxy
+if errorlevel 1 exit /b 1
+call :export_proxy_active
+exit /b %errorlevel%
+
+REM v2.60 (A3): a saved NONE, WIREGUARD or VPNGATE becomes WARP (called at run time: the auto block is parsed as one unit).
+:auto_method_ok
+if /i "%OC_EGRESS_DEFAULT%"=="WARP" exit /b 0
+if /i "%OC_EGRESS_DEFAULT%"=="TOR" exit /b 0
+if /i "%OC_EGRESS_DEFAULT%"=="PROXY" exit /b 0
+set "OC_EGRESS_DEFAULT=WARP"
+exit /b 0
+
+REM v3.6: Auto picks the installed method that connected fastest. Unmeasured methods use a default time
+REM (WARP 5 s, PROXY 8 s, TOR 120 s). A method counts as installed when its program is on disk (PROXY always).
+REM The times and the Tor folder are shared by every window, so they live in the base folder, not in STATE_DIR.
+:auto_pick
+set "OC_EGRESS_DEFAULT="
+for /f "usebackq delims=" %%M in (`powershell -NoProfile -Command "$s='%LOCALAPPDATA%\opencode-infinite';$t=@{WARP=5000;PROXY=8000;TOR=120000}; foreach($m in @($t.Keys)){ $f=Join-Path $s ('method_'+$m+'.ms'); if(Test-Path -LiteralPath $f){ $v=0; if([int]::TryParse((Get-Content -LiteralPath $f -Raw).Trim(),[ref]$v)){ $t[$m]=$v } } }; $w=$false; foreach($b in @($env:ProgramFiles,${env:ProgramFiles(x86)},$env:ProgramW6432,$env:LOCALAPPDATA)){ if($b -and (Test-Path -LiteralPath (Join-Path $b 'Cloudflare\Cloudflare WARP\warp-cli.exe'))){ $w=$true } }; $tor=$false; $td=Join-Path $s 'tor'; if(Test-Path -LiteralPath $td){ if(Get-ChildItem -LiteralPath $td -Recurse -Filter tor.exe -ErrorAction SilentlyContinue | Select-Object -First 1){ $tor=$true } }; $ok=@{PROXY=$true;WARP=$w;TOR=$tor}; $t.Keys | Where-Object { $ok[$_] } | Sort-Object { $t[$_] } | Select-Object -First 1"`) do set "OC_EGRESS_DEFAULT=%%M"
+if not defined OC_EGRESS_DEFAULT set "OC_EGRESS_DEFAULT=WARP"
+call :log "auto picks %OC_EGRESS_DEFAULT% (fastest installed)" boot
+exit /b 0
+
+REM v3.6: connect time of the method that just worked, in milliseconds. %time% has centiseconds and a midnight wrap.
+:now_cs
+set "NT=%time: =0%"
+set /a NOW_CS=(1%NT:~0,2%-100)*360000+(1%NT:~3,2%-100)*6000+(1%NT:~6,2%-100)*100+(1%NT:~9,2%-100)
+exit /b 0
+
+:auto_record
+call :now_cs
+set /a AUTO_MS=(NOW_CS-AUTO_T0)*10
+if %AUTO_MS% LSS 0 set /a AUTO_MS+=86400000
+> "%LOCALAPPDATA%\opencode-infinite\method_%EGRESS%.ms" <nul set /p "=%AUTO_MS%"
+set "AUTO_T0="
+exit /b 0
+
+REM v2.60 (A3): the only console lines of auto: short and plain, also written to launcher.log.
+:asay
+call :log "%~1" auto
+echo   %~1
+exit /b 0
 
 REM v2.43: RPX = proxy handed to the child (user:pass@ hidden), RAUTH = auth.json present (yes/no).
 :resume_facts
@@ -2857,23 +3401,46 @@ set "POOL_STARTED="
 if /i not "%POOL_ENABLE%"=="1" goto :eof
 set "OC_STATE=%STATE_DIR%"
 md "%STATE_DIR%\pool" >nul 2>&1
-del /f /q "%STATE_DIR%\pool\stop.flag" "%STATE_DIR%\pool\done.flag" >nul 2>&1
-start "" /b "%PSX%" -NoProfile -Command "$l=Get-Content -LiteralPath $env:OCI_SELF; $i=[Array]::IndexOf($l,'#>>>OC_POOL_PS'); $e=[Array]::IndexOf($l,'#>>>OC_ENDPOOL'); if(($i -lt 0) -or ($e -le $i)){exit 30}; Invoke-Expression (($l[($i+1)..($e-1)]) -join [Environment]::NewLine)" >nul 2>&1
+REM N26: a worker left behind by a crashed launcher is adopted, never doubled.
+call :pool_alive
+if not defined POOL_ALIVE goto :pool_start_new
+set "POOL_STARTED=1"
+goto :eof
+:pool_start_new
+del /f /q "%STATE_DIR%\pool\stop.flag" "%STATE_DIR%\pool\done.flag" "%STATE_DIR%\pool\worker.pid" >nul 2>&1
+REM N26: the worker writes pool\worker.pid (PID, start ticks, launcher path) before
+REM it starts working, so :pool_stop can see what it is waiting for.
+start "" /b "%PSX%" -NoProfile -Command "$l=Get-Content -LiteralPath $env:OCI_SELF; $i=[Array]::IndexOf($l,'#>>>OC_POOL_PS'); $e=[Array]::IndexOf($l,'#>>>OC_ENDPOOL'); if(($i -lt 0) -or ($e -le $i)){exit 30}; [IO.File]::WriteAllText((Join-Path $env:OC_STATE 'pool\worker.pid'),([string]$PID+[Environment]::NewLine+[string](Get-Process -Id $PID).StartTime.Ticks+[Environment]::NewLine+$env:OCI_SELF)); Invoke-Expression (($l[($i+1)..($e-1)]) -join [Environment]::NewLine)" >nul 2>&1
 set "POOL_STARTED=1"
 goto :eof
 :pool_stop
 if not defined POOL_STARTED goto :eof
 set "POOL_STARTED="
+set "OC_STATE=%STATE_DIR%"
 type nul > "%STATE_DIR%\pool\stop.flag"
+REM v3.1 (N59): the fill child holds the pool for 10-16 min; kill the pid recorded by
+REM Run-Vpn so :pool_stop does not have to give up after 120 s.
+"%PSX%" -NoProfile -Command "try{ $f='%STATE_DIR%\pool\fill.pid'; if(Test-Path -LiteralPath $f){ $t=[int](Get-Content -LiteralPath $f -TotalCount 1); if($t){ & taskkill.exe /PID $t /T /F | Out-Null } } }catch{}" >nul 2>&1
 set /a POOL_WAIT=0
 :pool_wait
 if exist "%STATE_DIR%\pool\done.flag" goto :pool_stopped
 set /a POOL_WAIT+=1
-if %POOL_WAIT% GEQ 120 goto :pool_stopped
+if %POOL_WAIT% GEQ 120 goto :pool_kill
 ping -n 2 127.0.0.1 >nul
 goto :pool_wait
+:pool_kill
+REM N26: 2 min without honouring stop.flag: kill only the PID whose start ticks
+REM match worker.pid and whose command line still carries the pool marker.
+"%PSX%" -NoProfile -Command "try{ $t=@(Get-Content -LiteralPath (Join-Path $env:OC_STATE 'pool\worker.pid')); if($t.Count -lt 3){exit 1}; $p=[int]$t[0]; $q=Get-Process -Id $p -ErrorAction Stop; if([string]$q.StartTime.Ticks -ne $t[1]){exit 1}; $cl=[string](Get-CimInstance Win32_Process -Filter ('ProcessId='+$p)).CommandLine; if(-not $cl -or -not $cl.Contains('OC_POOL_PS')){exit 1}; & taskkill.exe /PID $p /T /F | Out-Null; exit 0 }catch{ exit 1 }" >nul 2>&1
+if errorlevel 1 goto :eof
 :pool_stopped
-if exist "%STATE_DIR%\pool\done.flag" del /f /q "%STATE_DIR%\pool\stop.flag" "%STATE_DIR%\pool\done.flag" >nul 2>&1
+del /f /q "%STATE_DIR%\pool\stop.flag" "%STATE_DIR%\pool\done.flag" "%STATE_DIR%\pool\worker.pid" >nul 2>&1
+goto :eof
+REM N26: sets POOL_ALIVE when pool\worker.pid names a live worker with the marker.
+:pool_alive
+set "POOL_ALIVE="
+if not exist "%STATE_DIR%\pool\worker.pid" goto :eof
+for /f "usebackq delims=" %%i in (`%PSX% -NoProfile -Command "try{ $t=@(Get-Content -LiteralPath (Join-Path $env:OC_STATE 'pool\worker.pid')); if($t.Count -lt 3){exit 1}; $p=[int]$t[0]; $q=Get-Process -Id $p -ErrorAction Stop; if([string]$q.StartTime.Ticks -ne $t[1]){exit 1}; $cl=[string](Get-CimInstance Win32_Process -Filter ('ProcessId='+$p)).CommandLine; if($cl -and $cl.Contains('OC_POOL_PS')){ [Console]::Out.Write('1') } }catch{}"`) do set "POOL_ALIVE=%%i"
 goto :eof
 REM takes one saved entry for the mode in the first argument (VPNGATE, WIREGUARD, PROXY) whose IP is not the current one.
 REM Its id goes to OC_POOL_PREFER; empty = none.
@@ -2917,6 +3484,9 @@ if not "%VPN_PORT%"=="0" set "ACTIVE_PROXY=http://127.0.0.1:%VPN_PORT%"
 REM Node picks IPv6 first, and an IPv6 request leaves by the physical route. VPN Gate routes only IPv4,
 REM so the Node processes of this tree (opencode and its service) are told to use IPv4.
 REM v2.40: NODE_OPTIONS is set anyway; whether Bun honours it is not verified; Build-Ovpn now routes and blocks its IPv6 in the tunnel.
+REM v3.1 (N27): NODE_OPTIONS was set for VPN Gate and never saved, so a later switch
+REM to WARP, Tor or direct inherited --dns-result-order=ipv4first.
+if /i "%EGRESS%"=="VPNGATE" set "OC_NODE_OPTIONS_PREV=%NODE_OPTIONS%"
 if /i "%EGRESS%"=="VPNGATE" set "NODE_OPTIONS=--no-network-family-autoselection --dns-result-order=ipv4first"
 call echo %T_284%
 call :log "vpn up: %EGRESS% %VPN_NAME% ip=%VPN_IP% port=%VPN_PORT%" vpn
@@ -2927,8 +3497,16 @@ if not defined CAP_SERVICE exit /b 0
 if not defined OC_CMD exit /b 0
 call :export_proxy_active >nul
 call "%OC_CMD%" service restart >nul 2>&1
+set "VPNSVC=%ERRORLEVEL%"
 call :restore_env
+REM v2.56 (N05): only a restart that returned 0 sets the marker. A failure
+REM leaves it empty so the next pass retries and the log records why.
+if not "%VPNSVC%"=="0" goto :vpn_r_svc_bad
 set "SVC_PROXIED=%ACTIVE_PROXY%"
+exit /b 0
+:vpn_r_svc_bad
+set "SVC_PROXIED="
+call :log "service restart failed after vpn up rc=%VPNSVC% egress=%EGRESS% port=%VPN_PORT%" vpn
 exit /b 0
 :vpn_r_noconf
 if /i "%EGRESS%"=="VPNGATE" if defined VPNGATE_COUNTRY call echo %T_289%
@@ -2951,7 +3529,7 @@ exit /b 1
 REM Stops the proxy this launcher started. No administrator prompt.
 :vpn_stop
 call :vpn_run stop
-if /i "%EGRESS%"=="VPNGATE" set "NODE_OPTIONS="
+if /i "%EGRESS%"=="VPNGATE" set "NODE_OPTIONS=%OC_NODE_OPTIONS_PREV%"
 exit /b 0
 
 REM v2.36: the folders worked in, newest first (15 kept). Menu-Folder and Menu-Sessions read them.
@@ -3027,13 +3605,15 @@ if "%WHY%"=="watcher" if not defined FHIT goto :eof
 REM rotation has not run yet, so this is still the IP that hit the quota
 call :getip2 ARIP ARFL
 if not defined ARIP set "ARIP=unknown"
+REM v3.5: the hit IP is the reference for the rotation. Without it an empty old IP accepted the next IP even when it was the same one.
+if not "%ARIP%"=="unknown" set "IP=%ARIP%"
 set "OC_ARSID=continue"
 call :chat_run sid
 if defined CHAT_SID set "OC_ARSID=%CHAT_SID%"
 set "OC_ARF=%ARF%"
 set "OC_ARFOLDER=%CD%"
 set "OC_ARIP=%ARIP%"
-"%PSX%" -NoProfile -Command "try{ $t=$env:OC_ARF+'.tmp'; $v=@('FOLDER='+$env:OC_ARFOLDER,'SESSION='+$env:OC_ARSID,'IP='+$env:OC_ARIP,'TIME='+[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()); [IO.File]::WriteAllLines($t,[string[]]$v,(New-Object Text.UTF8Encoding($false))); Move-Item -LiteralPath $t -Destination $env:OC_ARF -Force; exit 0 }catch{ exit 1 }" >nul 2>&1
+"%PSX%" -NoProfile -Command "try{ $t=$env:OC_ARF+'.tmp'; $v=@(('FOLDER='+$env:OC_ARFOLDER),('SESSION='+$env:OC_ARSID),('IP='+$env:OC_ARIP),('TIME='+[DateTimeOffset]::UtcNow.ToUnixTimeSeconds())); [IO.File]::WriteAllLines($t,[string[]]$v,(New-Object Text.UTF8Encoding($false))); Move-Item -LiteralPath $t -Destination $env:OC_ARF -Force; exit 0 }catch{ exit 1 }" >nul 2>&1
 if errorlevel 1 goto :ar_mark_fail
 call :log "pending resume saved: session=%OC_ARSID% ip=%ARIP% folder=%CD%" resume
 goto :eof
@@ -3125,7 +3705,7 @@ goto :eof
 REM v2.54: any resume of this folder's chat consumes the record. A record of another folder stays.
 :ar_clear
 if not exist "%ARF%" goto :eof
-findstr /l /b /c:"FOLDER=%CD%" "%ARF%" >nul 2>&1
+findstr /l /b /e /c:"FOLDER=%CD%" "%ARF%" >nul 2>&1
 if errorlevel 1 goto :eof
 del /f /q "%ARF%" >nul 2>&1
 call :log "pending resume consumed by a resume of this folder" resume
@@ -3182,7 +3762,7 @@ REM v2.25: the .cmd/.bat branch used to pass @('/c',$exe)+$a, which never
 REM quotes $exe: a path with a space ("C:\Users\John Smith\...") ran as
 REM "C:\Users\John" and died. The whole line is now one string, wrapped in
 REM the extra quote pair that /s strips, with the exe quoted inside it.
-"%PSX%" -NoProfile -Command "$exe=$env:OC_EXE; if(-not $exe -or -not (Test-Path -LiteralPath $exe)){ exit 9009 }; $a=@(); if($env:OC_FLAGS){ $a=([string]$env:OC_FLAGS) -split [char]32; $a=@($a | Where-Object { $_ }) }; if($env:OC_PROMPT){ $a+=@('--prompt',([char]34+$env:OC_PROMPT+[char]34)) }; $p=$null; if($exe -match '[.](cmd|bat)$'){ $q=[char]34; $cl='/s /c '+$q+$q+$exe+$q; foreach($x in $a){ $cl+=' '+$x }; $cl+=$q; $p=Start-Process cmd.exe -ArgumentList $cl -NoNewWindow -PassThru } elseif($a.Count){ $p=Start-Process $exe -ArgumentList @($a) -NoNewWindow -PassThru } else { $p=Start-Process $exe -NoNewWindow -PassThru }; if(-not $p){ exit 1 }; $null=$p.Handle; Set-Content -LiteralPath $env:OC_PIDF -Value $p.Id; try{ Set-Content -LiteralPath $env:OC_LPIDF -Value ([string]$p.Id + ' ' + $p.StartTime.Ticks); if($env:LOG_ENABLED -ne '0'){ Add-Content -LiteralPath $env:OC_LAUNCHLOG -Encoding OEM -Value ('[' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '] [' + $env:OC_SID + '] [proc] start pid=' + $p.Id + ' exe=' + (Split-Path -Leaf $exe)) } }catch{}; [void]$p.WaitForExit(); if($p.ExitCode -ne $null){ exit $p.ExitCode }; exit 1"
+"%PSX%" -NoProfile -Command "$exe=$env:OC_EXE; if(-not $exe -or -not (Test-Path -LiteralPath $exe)){ exit 9009 }; $a=@(); if($env:OC_FLAGS){ $a=([string]$env:OC_FLAGS) -split [char]32; $a=@($a | Where-Object { $_ }) }; if($env:OC_PROMPT){ $pvp=[string]$env:OC_PROMPT; foreach($ch in '&','|','<','>','^',[string][char]37,[string][char]34){ $pvp=$pvp.Replace($ch,' ') }; $a+=@('--prompt',([char]34+$pvp+[char]34)) }; $p=$null; if($exe -match '[.](cmd|bat)$'){ $q=[char]34; $cl='/s /c '+$q+$q+$exe+$q; foreach($x in $a){ $cl+=' '+$x }; $cl+=$q; $p=Start-Process cmd.exe -ArgumentList $cl -NoNewWindow -PassThru } elseif($a.Count){ $p=Start-Process $exe -ArgumentList @($a) -NoNewWindow -PassThru } else { $p=Start-Process $exe -NoNewWindow -PassThru }; if(-not $p){ exit 1 }; $null=$p.Handle; Set-Content -LiteralPath $env:OC_PIDF -Value $p.Id; try{ Set-Content -LiteralPath $env:OC_LPIDF -Value ([string]$p.Id + ' ' + $p.StartTime.Ticks); if($env:LOG_ENABLED -ne '0'){ Add-Content -LiteralPath $env:OC_LAUNCHLOG -Encoding OEM -Value ('[' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '] [' + $env:OC_SID + '] [proc] start pid=' + $p.Id + ' exe=' + (Split-Path -Leaf $exe)) } }catch{}; [void]$p.WaitForExit(); if($p.ExitCode -ne $null){ exit $p.ExitCode }; exit 1"
 set "EC=%errorlevel%"
 if defined OC_NODE_OPTS set "NODE_OPTIONS=%OC_NODE_OPTS%"
 set "OC_NODE_OPTS="
@@ -3203,9 +3783,10 @@ if not defined OC_MSG set "OC_MSG=%RESUME_MSG%"
 set "OC_OUTF=%STATE_DIR%\resume.out"
 set "OC_ERRF=%STATE_DIR%\resume.err"
 set "OC_TO=%RESUME_TIMEOUT%"
+set "OC_IDLE=%RESUME_IDLE%"
 if exist "%OC_OUTF%" del /f /q "%OC_OUTF%" >nul 2>&1
 if exist "%OC_ERRF%" del /f /q "%OC_ERRF%" >nul 2>&1
-"%PSX%" -NoProfile -Command "$exe=$env:OC_EXE; if(-not $exe -or -not (Test-Path -LiteralPath $exe)){ exit 9009 }; $a=@('run'); if($env:OC_FL){ $a+=@($env:OC_FL -split [char]32 | Where-Object { $_ }) }; if($env:OC_MSG){ $mm=$env:OC_MSG; if($exe -match '[.](cmd|bat)$'){ $mm=$mm -replace '[&|<>^%%]',' ' }; $a+=([char]34 + $mm + [char]34) }; $a=@($a | Where-Object { $_ }); $o=$env:OC_OUTF; $e=$env:OC_ERRF; if($exe -match '[.](cmd|bat)$'){ $q=[char]34; $cl='/s /c '+$q+$q+$exe+$q; foreach($x in $a){ $cl+=' '+$x }; $cl+=$q; $p=Start-Process cmd.exe -ArgumentList $cl -NoNewWindow -PassThru -RedirectStandardOutput $o -RedirectStandardError $e } else { $p=Start-Process $exe -ArgumentList $a -NoNewWindow -PassThru -RedirectStandardOutput $o -RedirectStandardError $e }; if(-not $p){ exit 1 }; $null=$p.Handle; if(-not $p.WaitForExit([int]$env:OC_TO*1000)){ Start-Process taskkill.exe -ArgumentList @('/T','/F','/PID',$p.Id) -WindowStyle Hidden -Wait; exit 124 }; exit $p.ExitCode"
+"%PSX%" -NoProfile -Command "$exe=$env:OC_EXE; if(-not $exe -or -not (Test-Path -LiteralPath $exe)){ exit 9009 }; $a=@('run'); if($env:OC_FL){ $a+=@($env:OC_FL -split [char]32 | Where-Object { $_ }) }; if($env:OC_MSG){ $mm=$env:OC_MSG; if($exe -match '[.](cmd|bat)$'){ $mm=$mm -replace '[&|<>^%%]',' ' }; $a+=([char]34 + $mm + [char]34) }; $a=@($a | Where-Object { $_ }); $o=$env:OC_OUTF; $e=$env:OC_ERRF; if($exe -match '[.](cmd|bat)$'){ $q=[char]34; $cl='/s /c '+$q+$q+$exe+$q; foreach($x in $a){ $cl+=' '+$x }; $cl+=$q; $p=Start-Process cmd.exe -ArgumentList $cl -NoNewWindow -PassThru -RedirectStandardOutput $o -RedirectStandardError $e } else { $p=Start-Process $exe -ArgumentList $a -NoNewWindow -PassThru -RedirectStandardOutput $o -RedirectStandardError $e }; if(-not $p){ exit 1 }; $null=$p.Handle; $lim=[int]$env:OC_TO; $idle=[int]$env:OC_IDLE; $t=0; $last=-1; $lastT=0; $ok=$false; while($t -lt $lim){ if($p.WaitForExit(1000)){ $ok=$true; break }; $t++; $sz=0; if(Test-Path -LiteralPath $o){ $sz=(Get-Item -LiteralPath $o).Length }; if($sz -ne $last){ $last=$sz; $lastT=$t }; if(($t-$lastT) -ge $idle){ break } }; if(-not $ok){ if(-not $p.HasExited){ Start-Process taskkill.exe -ArgumentList @('/T','/F','/PID',$p.Id) -WindowStyle Hidden -Wait }; exit 124 }; exit $p.ExitCode"
 exit /b %errorlevel%
 
 REM - print what the resume actually said
@@ -3310,13 +3891,17 @@ REM exists (v2), the probe gets its own server born with THIS proxy env,
 REM exactly like the resume does; v1 has no such flag and keeps the old call.
 :probe_once
 set "PCLASS=burned"
+set "PROBE_TMO="
+set "PROBE_RTO="
 set "HTTP_PROXY=%PROXY%"
 set "HTTPS_PROXY=%PROXY%"
 set "POUTF=%STATE_DIR%\probe.out"
 set "PERRF=%STATE_DIR%\probe.err"
 REM The probe creates its own session (a fixed -s id is refused by some builds).
 REM :probe_cleanup then deletes only that session.
-set "PARGS=-m %PROBE_MODEL% --title ocinf-probe --auto"
+set "PRB_M=%PROBE_MODEL%"
+if defined OC_MODEL set "PRB_M=%OC_MODEL%"
+set "PARGS=-m %PRB_M% --title ocinf-probe --auto"
 if defined CAP_STANDALONE set "PARGS=%PARGS% --standalone"
 if exist "%POUTF%" del /f /q "%POUTF%" >nul 2>&1
 if exist "%PERRF%" del /f /q "%PERRF%" >nul 2>&1
@@ -3328,6 +3913,10 @@ REM v2.40: the probe runs through :resume_run, so a hung IP is killed after RESU
 call :probe_newest PROBE_N0
 set "PRB_MSG0=%OC_MSG%"
 set "OC_MSG=reply with just: ok"
+REM v2.60 (N91): without CAP_STANDALONE the probe rides the service born with the old
+REM tunnel, so its verdict belongs to the burned route. The service is restarted with
+REM this proxy exported first; a failure is logged and the probe still runs.
+call :probe_svc_guard
 call :resume_run %PARGS%
 set "PEC=%errorlevel%"
 set "OC_MSG=%PRB_MSG0%"
@@ -3336,20 +3925,30 @@ move /y "%STATE_DIR%\resume.out" "%POUTF%" >nul 2>&1
 move /y "%STATE_DIR%\resume.err" "%PERRF%" >nul 2>&1
 REM v2.23: restore the user's own proxy variables instead of deleting them.
 call :restore_env
-REM A timeout means the exit IP is hung: count it as burned, not as a broken probe.
-if "%PEC%"=="124" set "PBURNED=1"
-if "%PEC%"=="124" goto :probe_bad
-if not "%PEC%"=="0" goto :probe_classify
-REM The CLI exited clean, but a limit answer can still reach the log a
-REM moment later (flush race). Settle once, then judge only what arrived:
-REM the log delta, and limit text inside the probe's own captured output.
+REM v2.60 (N91): a timeout (124) is not evidence that the IP is burned: the limit was
+REM never seen. One retry with double RESUME_TIMEOUT, then broken. burned is only ever
+REM set by a limit answer.
 set "PBURNED="
-if defined PZB call :scan_log %PZB%
-if defined FHIT set "PBURNED=1"
-REM v2.44: inside a hunt a rate-limited IP is no use either.
-if defined FASK set "PBURNED=1"
-if not defined PBURNED if exist "%POUTF%" findstr /i /c:"free usage limit" /c:"usage limit reached" /c:"out of usage" /c:"insufficient credits" /c:"payment required" "%POUTF%" >nul 2>&1 && set "PBURNED=1"
-if defined PBURNED goto :probe_bad
+if not "%PEC%"=="124" goto :probe_judge
+if defined PROBE_TMO goto :probe_bad
+set "PROBE_TMO=1"
+set "PROBE_RTO=%RESUME_TIMEOUT%"
+set /a RESUME_TIMEOUT=RESUME_TIMEOUT*2
+call :log "probe timeout: retrying with resume timeout %RESUME_TIMEOUT%s" probe
+call :resume_run %PARGS%
+set "PEC=%errorlevel%"
+set "RESUME_TIMEOUT=%PROBE_RTO%"
+set "PROBE_RTO="
+move /y "%STATE_DIR%\resume.out" "%POUTF%" >nul 2>&1
+move /y "%STATE_DIR%\resume.err" "%PERRF%" >nul 2>&1
+call :restore_env
+if "%PEC%"=="124" goto :probe_bad
+:probe_judge
+if not "%PEC%"=="0" goto :probe_classify
+REM v2.60: a clean exit is a good IP. The answer may quote limit words ("usage limit
+REM reached") and the shared log may hold another chat's limit line, so neither marks
+REM the IP burned here. Only a failed run reads limit text (:probe_classify).
+set "PBURNED="
 REM pass: delete the probe session so --continue points at the chat
 call :probe_cleanup
 exit /b 0
@@ -3358,6 +3957,9 @@ REM Failure: decide whether it was a limit error or a broken probe.
 set "PBURNED="
 if exist "%PERRF%" findstr /i /c:"free usage limit" /c:"usage limit reached" /c:"out of usage" /c:"insufficient credits" /c:"payment required" "%PERRF%" >nul 2>&1 && set "PBURNED=1"
 if not defined PBURNED if exist "%POUTF%" findstr /i /c:"free usage limit" /c:"usage limit reached" /c:"out of usage" /c:"insufficient credits" /c:"payment required" "%POUTF%" >nul 2>&1 && set "PBURNED=1"
+REM v3.6: a country block on this model is a burned IP too (it was filed as a broken probe).
+if not defined PBURNED if exist "%PERRF%" findstr /i /c:"not available in your country" "%PERRF%" >nul 2>&1 && set "PBURNED=1"
+if not defined PBURNED if exist "%POUTF%" findstr /i /c:"not available in your country" "%POUTF%" >nul 2>&1 && set "PBURNED=1"
 REM v2.22 (defensive): a CLI that refuses the fixed probe session says so
 REM in its own words. Catch that shape before the miss is filed as a
 REM "broken probe", so the rotation loop can report it as what it is.
@@ -3373,20 +3975,61 @@ REM newest session while the hunt keeps going.
 call :probe_cleanup
 exit /b 1
 
+REM v2.60 (N91): restart the long-lived service with the probe's proxy, so an IP is not
+REM probed through the sockets of the old tunnel when CAP_STANDALONE is missing.
+:probe_svc_guard
+if defined CAP_STANDALONE goto :eof
+if not defined CAP_SERVICE goto :eof
+call :export_proxy
+call "%OC_CMD%" service restart >nul 2>&1
+set "PSVC=%ERRORLEVEL%"
+call :restore_env
+if not "%PSVC%"=="0" call :log "probe: service restart failed rc=%PSVC%, the probe may ride the old service" probe
+set "PSVC="
+goto :eof
+
+REM v2.60 (N30): a session list call with a deadline, so a hung CLI cannot freeze the
+REM launcher after a rotation. usage: call :sess_list_bounded OUTFILE COUNT
+REM errorlevel 124 = the call was killed after WHERE_TIMEOUT seconds.
+:sess_list_bounded
+set "OC_SLB_F=%~1"
+set "OC_SLB_N=%~2"
+set "OC_SLB_TO=%WHERE_TIMEOUT%"
+"%PSX%" -NoProfile -Command "try{ $p=Start-Process -FilePath $env:OC_CMD -ArgumentList @('session','list','--format','json','-n',$env:OC_SLB_N) -NoNewWindow -PassThru -RedirectStandardOutput $env:OC_SLB_F -RedirectStandardError ($env:OC_SLB_F+'.err') }catch{ exit 1 }; if(-not $p){ exit 1 }; $null=$p.Handle; if(-not $p.WaitForExit([int]$env:OC_SLB_TO*1000)){ Start-Process taskkill.exe -ArgumentList @('/T','/F','/PID',$p.Id) -WindowStyle Hidden -Wait; exit 124 }; exit 0" >nul 2>&1
+exit /b %errorlevel%
+
 REM - newest top-level session id, empty when none or unreadable. usage: call :probe_newest VAR
 :probe_newest
 set "%~1="
 set "OC_PLJ=%STATE_DIR%\probe_list.json"
-call "%OC_CMD%" session list --format json -n 1 > "%OC_PLJ%" 2>nul
+REM v2.60 (N30): bounded; a timeout reads as "no id" instead of freezing the launcher.
+call :sess_list_bounded "%OC_PLJ%" 1
+if errorlevel 124 call :log "probe_newest: session list timed out after %WHERE_TIMEOUT%s" probe
 for /f "usebackq delims=" %%i in (`%PSX% -NoProfile -Command "try{ $r=@(Get-Content -LiteralPath $env:OC_PLJ -Raw | ConvertFrom-Json); if($r.Count -and $r[0].id){ [string]$r[0].id } }catch{}"`) do set "%~1=%%i"
 if exist "%OC_PLJ%" del /f /q "%OC_PLJ%" >nul 2>&1
 exit /b 0
 
 REM - delete the session this probe created; an older one is never deleted (the id must change)
 :probe_cleanup
+REM v3.1 (N31): the newest id was deleted whenever it differed from PROBE_N0, without
+REM proof that this probe had created it. When the first read failed, PROBE_N0 was empty
+REM and this deleted the user's newest chat. Now it needs PROBE_N0 and the probe title.
+if not defined PROBE_N0 goto :pc_done
 call :probe_newest PROBE_N1
-if defined PROBE_N1 if not "%PROBE_N1%"=="%PROBE_N0%" call "%OC_CMD%" session delete %PROBE_N1% >nul 2>&1
+if not defined PROBE_N1 goto :pc_done
+if "%PROBE_N1%"=="%PROBE_N0%" goto :pc_done
+set "OC_PN1=%PROBE_N1%"
+set "OC_PLJ2=%STATE_DIR%\probe_del.json"
+REM v2.60 (N30): bounded like :probe_newest; a timeout leaves no id, so nothing is deleted.
+call :sess_list_bounded "%OC_PLJ2%" 5
+if errorlevel 124 call :log "probe_cleanup: session list timed out after %WHERE_TIMEOUT%s" probe
+set "OC_PCL="
+for /f "usebackq delims=" %%t in (`%PSX% -NoProfile -Command "try{ $r=@(Get-Content -LiteralPath $env:OC_PLJ2 -Raw | ConvertFrom-Json); $m=@($r | Where-Object { [string]$_.id -eq $env:OC_PN1 }); if($m.Count -and ([string]$m[0].title) -like 'ocinf-probe*'){ 'ok' } }catch{}"`) do set "OC_PCL=%%t"
+if exist "%OC_PLJ2%" del /f /q "%OC_PLJ2%" >nul 2>&1
+if /i "%OC_PCL%"=="ok" call "%OC_CMD%" session delete %PROBE_N1% >nul 2>&1
+:pc_done
 set "PROBE_N1="
+set "OC_PCL="
 exit /b 0
 
 REM - show the last output the probe produced (failure reports only)
@@ -3429,8 +4072,16 @@ REM keeps whatever was found before the kill.
 set "OC_WN=%~1"
 set "OC_WF=%~2"
 set "OC_WTO=%WHERE_TIMEOUT%"
+set "OC_BWRC="
+set "OC_BWF="
 if exist "%OC_WF%" del /f /q "%OC_WF%" >nul 2>&1
 "%PSX%" -NoProfile -Command "$names=@($env:OC_WN -split ' ' | Where-Object { $_ }); $f=$env:OC_WF; $to=[int]$env:OC_WTO*1000; $p=Start-Process where.exe -ArgumentList $names -NoNewWindow -PassThru -RedirectStandardOutput $f -RedirectStandardError ($f+'.err'); if(-not $p){ exit 1 }; $null=$p.Handle; if(-not $p.WaitForExit($to)){ Start-Process taskkill.exe -ArgumentList @('/T','/F','/PID',$p.Id) -WindowStyle Hidden -Wait; exit 124 }; exit 0" >nul 2>&1
+REM v3.1 (N32): a killed where left half a line in the file and a non-zero exit still
+REM counted as "found". Only a clean exit is trusted and every line must be a real file.
+set "OC_BWRC=%errorlevel%"
+if not "%OC_BWRC%"=="0" if exist "%OC_WF%" del /f /q "%OC_WF%" >nul 2>&1
+if "%OC_BWRC%"=="0" if exist "%OC_WF%" set "OC_BWF=%OC_WF%"
+if defined OC_BWF "%PSX%" -NoProfile -Command "try{ $f=$env:OC_BWF; $l=@(Get-Content -LiteralPath $f -ErrorAction SilentlyContinue | Where-Object { $_ -and (Test-Path -LiteralPath $_) }); [IO.File]::WriteAllLines($f, [string[]]$l) }catch{}" >nul 2>&1
 if exist "%OC_WF%.err" del /f /q "%OC_WF%.err" >nul 2>&1
 goto :eof
 
@@ -3504,17 +4155,42 @@ set "HTTP_PROXY=%KEEP_HP%"
 set "HTTPS_PROXY=%KEEP_SP%"
 set "MSIOK=0"
 if exist "%MSI%" for %%M in ("%MSI%") do if not "%%~zM"=="" if %%~zM GTR 5000000 set "MSIOK=1"
-if "%MSIOK%"=="1" goto :iw_install
+if "%MSIOK%"=="1" goto :iw_sign
 call echo %T_152%
 call echo %T_153%
 if exist "%MSI%" del /f /q "%MSI%" >nul 2>&1
 goto :eof
-REM Install silently; the UAC prompt appears here. Remove the MSI afterwards.
+REM v2.60 (N06): the size only proves the file is big, and this MSI runs elevated.
+REM A valid Authenticode signature from Cloudflare is required before the UAC prompt;
+REM otherwise any content served in place of the MSI installed as administrator.
+:iw_sign
+set "OC_MSI=%MSI%"
+"%PSX%" -NoProfile -Command "try{ $s=Get-AuthenticodeSignature -LiteralPath $env:OC_MSI; if($s.Status -ne 'Valid'){ exit 1 }; if(-not $s.SignerCertificate){ exit 2 }; if([string]$s.SignerCertificate.Subject -notmatch 'O=Cloudflare, Inc[.]'){ exit 2 }; exit 0 }catch{ exit 1 }" >nul 2>&1
+if errorlevel 1 goto :iw_badsig
+goto :iw_install
+:iw_badsig
+call :log "warp msi rejected: signature check failed" install
+call echo %T_152%
+call echo %T_153%
+if exist "%MSI%" del /f /q "%MSI%" >nul 2>&1
+goto :eof
+REM Install silently from a random name; the UAC prompt appears here. Remove both afterwards.
+REM v2.60 (N06): the file is renamed before it is used, so a file swapped into %TEMP%
+REM under the announced name is not the one that runs elevated.
 :iw_install
 call echo %T_154%
-set "OC_MSI=%MSI%"
-"%PSX%" -NoProfile -Command "try{Start-Process msiexec.exe -ArgumentList ('/i ' + [char]34 + $env:OC_MSI + [char]34 + ' /qn') -Verb RunAs -Wait}catch{}" >nul 2>&1
+set "MSIRND=%TEMP%\warp_%RANDOM%%RANDOM%.msi"
+move /y "%MSI%" "%MSIRND%" >nul 2>&1
+if not errorlevel 1 set "OC_MSI=%MSIRND%"
+REM v3.1 (N07): -PassThru and the exit code. A cancelled UAC prompt, a corrupt MSI or a
+REM 1603 used to end here looking exactly like a successful install.
+"%PSX%" -NoProfile -Command "$p=$null; try{ $p=Start-Process msiexec.exe -ArgumentList ('/i ' + [char]34 + $env:OC_MSI + [char]34 + ' /qn /norestart') -Verb RunAs -Wait -PassThru }catch{}; if(-not $p){ exit 9009 }; exit $p.ExitCode" >nul 2>&1
+set "MSIRC=%errorlevel%"
 del /f /q "%MSI%" >nul 2>&1
+if defined MSIRND del /f /q "%MSIRND%" >nul 2>&1
+if not "%MSIRC%"=="0" if not "%MSIRC%"=="3010" call :log "warp msi exit %MSIRC%" install
+set "MSIRC="
+call :find_warp
 goto :eof
 
 REM - install opencode: official winget channel first, npm next, else the
@@ -3549,17 +4225,17 @@ if /i "%PROCESSOR_ARCHITECTURE%"=="ARM64" set "OCARCH=arm64"
 if not "%REAL86%"=="1" goto :sa_ok
 REM 32-bit: opencode publishes no x86 Windows binary. The JS package
 REM runs fine on 32-bit node, so the npm route is the supported path.
-call echo %T_156%
+call :msg %T_156%
 call :install_node_x86
 call :npm_install opencode-ai
 call :find_opencode
 if defined OC_CMD (
-  call echo %T_157%
+  call :msg %T_157%
   goto :eof
 )
-call echo %T_158%
-call echo %T_159%
-call echo %T_160%
+call :msg %T_158%
+call :msg %T_159%
+call :msg %T_160%
 call :pause_key
 REM v2.22: :standalone runs inside "call :install_opencode". A "goto :quit"
 REM from here jumped out of the call, ran :quit and then returned into the
@@ -3572,13 +4248,13 @@ REM Download the standalone zip from the latest GitHub release.
 call :oc_cli_file
 call :oc_api cli "%OC_AFILE%"
 if defined OCA_URL goto :sa_have
-call echo %T_161%
+call :msg %T_161%
 goto :eof
 :sa_have
 set "OC_URL=%OCA_URL%"
 set "OCZIP=%TEMP%\opencode-windows.zip"
 set "OCBIN=%LOCALAPPDATA%\opencode\bin"
-call echo %T_162%
+call :msg %T_162%
 echo     %OC_URL%
 if exist "%OCZIP%" del /f /q "%OCZIP%" >nul 2>&1
 REM Clear the proxy during the download, as in install_warp.
@@ -3604,15 +4280,15 @@ if exist "%OCZIP%" for %%Z in ("%OCZIP%") do if not "%%~zZ"=="" if %%~zZ GTR 500
 if not "%ZOK%"=="1" goto :sa_bad
 call :oc_sha "%OCZIP%" "%OCA_SHA%"
 if "%SHAOK%"=="1" goto :sa_unzip
-call echo %T_163%
+call :msg %T_163%
 :sa_bad
-call echo %T_164%
+call :msg %T_164%
 if exist "%OCZIP%" del /f /q "%OCZIP%" >nul 2>&1
 goto :eof
 REM Unpack the zip into the bin folder, then add that folder to PATH for this session.
 :sa_unzip
 if not exist "%OCBIN%" mkdir "%OCBIN%" >nul 2>&1
-call echo %T_165%
+call :msg %T_165%
 set "OC_ZIP=%OCZIP%"
 set "OC_BIN=%OCBIN%"
 "%PSX%" -NoProfile -Command "try{Expand-Archive -LiteralPath $env:OC_ZIP -DestinationPath $env:OC_BIN -Force}catch{}" >nul 2>&1
@@ -3636,7 +4312,7 @@ REM it bin\opencode.exe stays a 229-byte stub that prints "postinstall script
 REM was not run". The flag is harmless on older npm (an unknown-config warning).
 set "NPMPKG=%~1"
 if not defined NPMPKG set "NPMPKG=@opencode/cli"
-call echo %T_166%
+call :msg %T_166%
 call npm install -g %NPMPKG%@latest --allow-scripts=@opencode/cli
 set "PATH=%PATH%;%ProgramFiles%\nodejs;%APPDATA%\npm"
 call :npm_fixbin
@@ -3650,7 +4326,7 @@ if not defined NPMROOT set "NPMROOT=%APPDATA%\npm\node_modules"
 set "NPMCLI=%NPMROOT%\@opencode\cli"
 if not exist "%NPMCLI%\postinstall.mjs" goto :eof
 if exist "%NPMCLI%\bin\opencode.exe" for %%F in ("%NPMCLI%\bin\opencode.exe") do if %%~zF GTR 100000 goto :eof
-call echo %T_167%
+call :msg %T_167%
 node "%NPMCLI%\postinstall.mjs" >nul 2>&1
 goto :eof
 REM - 32-bit support: make sure npm exists, installing node if not
@@ -3663,16 +4339,16 @@ REM Windows proxy settings. /qn installs silently after the UAC prompt.
 :install_node_x86
 call :have_exe npm
 if "%HAVE%"=="1" goto :eof
-call echo %T_168%
+call :msg %T_168%
 call :have_exe winget.exe
 if "%HAVE%"=="1" goto :node_winget
 goto :node_msi
 :node_winget
-call echo %T_169%
-call echo %T_170%
+call :msg %T_169%
+call :msg %T_170%
 "%PSX%" -NoProfile -Command "$p=Start-Process -FilePath winget.exe -ArgumentList @('install','--id','OpenJS.NodeJS.LTS','--silent','--accept-package-agreements','--accept-source-agreements','--disable-interactivity') -NoNewWindow -PassThru; $null=$p.Handle; if(-not $p.WaitForExit(600000)){ try{$p.Kill()}catch{}; exit 1 }; exit $p.ExitCode" >nul 2>&1
 if not errorlevel 1 goto :node_done
-call echo %T_171%
+call :msg %T_171%
 :node_msi
 REM Pinned: the pin moves with the LTS line; bump the version tag when
 REM nodejs.org retires v22 (the MSI filename embeds the version).
@@ -3685,14 +4361,14 @@ set "HTTP_PROXY="
 set "HTTPS_PROXY="
 set "OC_URL=%NODE_MSI_URL%"
 set "OC_OUT=%NODE_MSI%"
-call echo %T_172%
+call :msg %T_172%
 if "%HAVE_CURL%"=="1" goto :nx_curl
 "%PSX%" -NoProfile -Command "try{[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri $env:OC_URL -OutFile $env:OC_OUT -TimeoutSec 900}catch{}" >nul 2>&1
 goto :nx_check
 :nx_curl
 curl.exe -L -f -s --max-time 900 --noproxy "*" -o "%NODE_MSI%" "%NODE_MSI_URL%"
 if not errorlevel 1 goto :nx_check
-call echo %T_173%
+call :msg %T_173%
 "%PSX%" -NoProfile -Command "try{[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri $env:OC_URL -OutFile $env:OC_OUT -TimeoutSec 900}catch{}" >nul 2>&1
 REM Restore the proxy variables and check the MSI size.
 :nx_check
@@ -3701,7 +4377,7 @@ set "HTTPS_PROXY=%KEEP_SP%"
 set "NOK=0"
 if exist "%NODE_MSI%" for %%M in ("%NODE_MSI%") do if not "%%~zM"=="" if %%~zM GTR 1000000 set "NOK=1"
 if not "%NOK%"=="1" goto :node_done
-call echo %T_174%
+call :msg %T_174%
 set "OC_MSI=%NODE_MSI%"
 "%PSX%" -NoProfile -Command "try{Start-Process msiexec.exe -ArgumentList ('/i ' + [char]34 + $env:OC_MSI + [char]34 + ' /qn /norestart') -Verb RunAs -Wait}catch{}" >nul 2>&1
 del /f /q "%NODE_MSI%" >nul 2>&1
@@ -3709,7 +4385,7 @@ REM Either route: refresh the session PATH with the standard homes.
 :node_done
 set "PATH=%PATH%;%ProgramFiles%\nodejs;%APPDATA%\npm"
 call :have_exe npm
-if "%HAVE%"=="0" call echo %T_335%
+if "%HAVE%"=="0" call :msg %T_335%
 exit /b 0
 
 REM - what this opencode build actually supports
@@ -3763,8 +4439,22 @@ REM Sets OC_CMD to the newest working binary and OC_VER to its version.
 REM A failed re-scan must not blank OC_CMD: the launch then passed an empty path to Start-Process.
 set "OC_PREV=%OC_CMD%"
 set "OC_PREV_VER=%OC_VER%"
+REM D10: 24 h cache keyed by the binary path and its mtime. The second start of
+REM the day pays neither "where" nor "opencode --version" while the binary did
+REM not change. The WARP and CAP_* entries share the same caps_cache.txt file.
+set "OC_CCF=%STATE_DIR%\caps_cache.txt"
+set "OC_CC_TTL=86400"
 set "OC_CMD="
 set "OC_VER="
+if not exist "%OC_CCF%" goto :fo_scan
+REM A missing opencode_path.txt means "Re-detect": force the full scan.
+if not exist "%STATE_DIR%\opencode_path.txt" goto :fo_scan
+for /f "usebackq tokens=1,2 delims=*" %%a in (`%PSX% -NoProfile -Command "$f=$env:OC_CCF; $ttl=[int]$env:OC_CC_TTL; $now=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); try{ foreach($l in [IO.File]::ReadAllLines($f)){ if($l -like 'OC_CMD=*'){ $v=$l.Substring(7); $p,$ticks,$at,$ver=$v -split '\*',4; if($p -and (Test-Path -LiteralPath $p)){ $t=(Get-Item -LiteralPath $p).LastWriteTimeUtc.Ticks; if(([string]$t -eq $ticks) -and (($now-[int64]$at) -lt $ttl)){ $p+'*'+$ver } } } } }catch{}"`) do (
+    set "OC_CMD=%%a"
+    set "OC_VER=%%b"
+)
+if defined OC_CMD goto :fo_cache_hit
+:fo_scan
 set "OCCAND=%TEMP%\oc_cand_%RANDOM%%RANDOM%.txt"
 if exist "%OCCAND%" del /f /q "%OCCAND%" >nul 2>&1
 REM One bounded lookup for all three names instead of three unbounded ones.
@@ -3777,11 +4467,11 @@ call :add_cand "%USERPROFILE%\.opencode\bin\opencode.exe"
 call :add_cand "%LOCALAPPDATA%\Microsoft\WinGet\Links\opencode.exe"
 if exist "%STATE_DIR%\opencode_path.txt" for /f "usebackq delims=" %%p in ("%STATE_DIR%\opencode_path.txt") do call :add_cand "%%p"
 if not exist "%OCCAND%" goto :fo_ver
-REM One candidate: take it without paying the cost of a version probe.
+REM v3.1 (N08): a single candidate used to be taken without --version, so a stub or a
+REM broken exe read as "opencode ready" and the reinstall below never ran. It is probed
+REM like any other candidate.
 set "OCN=0"
 for /f "usebackq delims=" %%c in ("%OCCAND%") do set /a OCN+=1
-if %OCN% LEQ 1 for /f "usebackq delims=" %%c in ("%OCCAND%") do set "OC_CMD=%%c"
-if defined OC_CMD goto :fo_ver
 REM Several candidates: probe each one, the highest version wins.
 for /f "usebackq delims=" %%c in ("%OCCAND%") do call :oc_probe "%%c"
 :fo_ver
@@ -3797,7 +4487,13 @@ if defined OC_CMD if not defined OC_VER (
     REM v2.39: %CVER% inside the block expanded before :oc_version set it; call re-expands it.
     if defined CVER call set "OC_VER=%%CVER%%"
 )
-if defined OC_CMD >"%STATE_DIR%\opencode_path.txt" echo %OC_CMD%
+if not defined OC_CMD goto :fo_cache_hit
+>"%STATE_DIR%\opencode_path.txt" echo %OC_CMD%
+REM D10: refresh only this entry; the WARP= and CAP_*= lines are left untouched.
+set "OC_CCP=%OC_CMD%"
+set "OC_CCV=%OC_VER%"
+"%PSX%" -NoProfile -Command "$f=$env:OC_CCF; $k='OC_CMD'; $p=$env:OC_CCP; $v=$p+'*'+[string](Get-Item -LiteralPath $p).LastWriteTimeUtc.Ticks+'*'+[string][DateTimeOffset]::UtcNow.ToUnixTimeSeconds()+'*'+$env:OC_CCV; $out=@(); $seen=$false; try{ foreach($l in [IO.File]::ReadAllLines($f)){ if($l.StartsWith($k+'=')){ if(-not $seen){ $out+=($k+'='+$v); $seen=$true } } else { $out+=$l } } }catch{}; if(-not $seen){ $out+=($k+'='+$v) }; try{ [IO.File]::WriteAllLines($f,[string[]]$out) }catch{}" >nul 2>&1
+:fo_cache_hit
 goto :eof
 
 REM - add one candidate path, at most once
@@ -3961,8 +4657,8 @@ set "VGT=0"
 call :ver_gt "%OCUPD_LAT%" "%OCUPD_CUR%"
 if not "%VGT%"=="1" goto :eof
 echo.
-call echo %T_175%
-call echo %T_176%
+call :msg %T_175%
+call :msg %T_176%
 call :yn_upd "   Update now? [Y/N]: "
 REM errorlevel 0 (no stdin) and 2 (N) both skip the install.
 if not errorlevel 1 goto :eof
@@ -3972,13 +4668,16 @@ REM Same channel as the running command: npm installs go through npm, the rest
 REM through the official standalone build.
 echo "%OC_CMD%" | findstr /i /c:"\npm" >nul 2>&1
 if errorlevel 1 goto :ouc_standalone
-call echo %T_177%
+call :msg %T_177%
 call :npm_install
 goto :ouc_after
 :ouc_standalone
-call echo %T_178%
+call :msg %T_178%
 call :standalone
 :ouc_after
+REM v3.1 (N68): remember what the binary reported before the install, so "now reports"
+REM is only printed when the version really changed.
+set "OC_UPD_PREV=%OC_VER%"
 REM v2.22: resolve the command again. OC_CMD could still point at an old
 REM exe, so the version read below came from the wrong binary. The newest wins.
 call :find_opencode
@@ -3987,7 +4686,7 @@ set "OC_CAN=%OC_CMD%"
 call :oc_version
 if defined CVER set "OC_VER=%CVER%"
 call :detect_caps
-if defined OC_VER call echo %T_336%
+if defined OC_VER if not "%OC_VER%"=="%OC_UPD_PREV%" call :msg %T_336%
 timeout /t 2 /nobreak >nul 2>&1
 goto :eof
 REM - v1 binary on a v2 database
@@ -4005,9 +4704,9 @@ set "OCMAJ=0"
 for /f "tokens=1 delims=." %%m in ("%OC_VER:v=%") do set "OCMAJ=%%m"
 call :vnum OCMAJ
 if %OCMAJ% GEQ 2 goto :eof
-call echo %T_179%
-call echo %T_180%
-call echo %T_181%
+call :msg %T_179%
+call :msg %T_180%
+call :msg %T_181%
 goto :eof
 
 REM - WARP into MASQUE + proxy mode on port 40000 and connected
@@ -4020,6 +4719,9 @@ set "SVC_PROXIED="
 set "WU_STEP="
 set "WU_OK="
 call :trace warp_up
+REM v3.7: the service must run and start with Windows. Changing that needs admin: see :warp_svc_fix.
+call :warp_svc_fix
+if errorlevel 1 if not defined OPT_AUTO call echo %T_313%
 call :warp_register
 REM v2.59: the daemon rejects config verbs while the tunnel is up. Drop it and let it settle first.
 REM The wait is not checked: if the status text differs, the sequence still runs.
@@ -4044,7 +4746,7 @@ set "WCLI_QUIET=1"
 call :wcli registration show
 set "WCLI_QUIET="
 if not errorlevel 1 goto :wu_fail
-call echo %T_314%
+call :msg %T_314%
 call :reg_new
 if not "%REGNEW%"=="1" goto :wu_fail
 set "WU_STEP=connect after new registration"
@@ -4064,6 +4766,43 @@ call :log "warp_up failed at step: %WU_STEP%" wcli
 :wu_done
 timeout /t 3 /nobreak >nul 2>&1
 goto :eof
+
+REM v3.7: when the WARP service is stopped or its start type is Disabled (after a reboot it would not come back),
+REM one Windows prompt (UAC) runs one fixed command: start type Automatic and start. Auto never asks (nobody to answer),
+REM it just goes on to the next method. exit 0 = service running, 1 = still not running.
+:warp_svc_fix
+set "WSF_NEED="
+sc query CloudflareWARP | findstr /i "RUNNING" >nul 2>&1
+if errorlevel 1 set "WSF_NEED=1"
+sc qc CloudflareWARP | findstr /i "DISABLED" >nul 2>&1
+if not errorlevel 1 set "WSF_NEED=1"
+if not defined WSF_NEED exit /b 0
+if defined OPT_AUTO exit /b 1
+call :log "WARP service is stopped or disabled: asking once for administrator rights to set it Automatic and start it" warp
+"%PSX%" -NoProfile -Command "try{ $c='Set-Service -Name CloudflareWARP -StartupType Automatic; Start-Service -Name CloudflareWARP'; $e=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($c)); Start-Process -FilePath powershell.exe -Verb RunAs -Wait -WindowStyle Hidden -ArgumentList @('-NoProfile','-EncodedCommand',$e) }catch{ exit 1 }" >nul 2>&1
+sc query CloudflareWARP | findstr /i "RUNNING" >nul 2>&1
+if errorlevel 1 (call :log "WARP service still not running after the administrator step" warp & exit /b 1)
+call :log "WARP service set to Automatic and running" warp
+exit /b 0
+
+REM v3.5: starts WARP when the proxy answers nothing. The CloudflareWARP service must already run
+REM (starting it needs admin, so --auto never does it). Connects in proxy mode and waits for
+REM "Connected", so the caller does not export a proxy before the tunnel exists.
+:warp_ensure_on
+sc query CloudflareWARP | findstr /i "RUNNING" >nul 2>&1
+if not errorlevel 1 goto :weo_run
+call :log "WARP service is not running; the launcher cannot start it without admin" warp
+if not defined OPT_AUTO call echo %T_313%
+exit /b 1
+:weo_run
+call :log "WARP is off: setting proxy mode on port %PROXY_PORT% and connecting" warp
+call :wcli mode proxy
+call :wcli proxy port %PROXY_PORT%
+call :wcli connect
+call :warp_wait "Status update: Connected" 25
+if not errorlevel 1 exit /b 0
+call :log "WARP did not reach Connected within 25 s" warp
+exit /b 1
 
 REM - wait for a status line that starts with the text in %~1. %~2 = seconds. exit 0 = seen, 1 = timeout.
 REM /b anchors the match: "Connected" alone would also match "Disconnected".
@@ -4104,9 +4843,10 @@ findstr /i /c:"Registration Missing" "%OC_WARPF%" >nul 2>&1
 if not errorlevel 1 set "REGMISS=1"
 del /f /q "%OC_WARPF%" "%OC_WARPF%.err" >nul 2>&1
 if not defined REGMISS goto :eof
-call echo %T_182%
-call :wcli registration new
-timeout /t 2 /nobreak >nul 2>&1
+call :msg %T_182%
+REM v3.1 (N83): a bare "registration new" on a half-torn state is the call that fails.
+REM :reg_new drops the stale registration first and records the result in REGNEW.
+call :reg_new
 goto :eof
 
 REM - drop the current registration, then wait for the daemon to let go
@@ -4120,6 +4860,7 @@ set "SVC_PROXIED="
 call :wcli disconnect
 timeout /t 1 /nobreak >nul 2>&1
 call :wcli registration delete
+set "RD_OK="
 set /a RD_TRIES=0
 :rd_wait
 set /a RD_TRIES+=1
@@ -4130,11 +4871,15 @@ REM console and out of wcli.log.
 set "WCLI_QUIET=1"
 call :wcli registration show
 set "WCLI_QUIET="
-if errorlevel 1 goto :rd_go
+if errorlevel 1 set "RD_OK=1"
+if defined RD_OK goto :rd_go
 timeout /t 1 /nobreak >nul 2>&1
 goto :rd_wait
 :rd_go
-goto :eof
+REM N84: a registration that is gone after the polls is success, even if the delete
+REM printed an error (Missing registration). One still there is a real failure.
+if defined RD_OK goto :eof
+exit /b 1
 
 REM - create a WARP registration, retrying once after a full drop
 REM Sets REGNEW=1 when the daemon accepted a registration.
@@ -4142,15 +4887,22 @@ REM Sets REGNEW=1 when the daemon accepted a registration.
 set "REGNEW=0"
 call :wcli registration new
 if not errorlevel 1 goto :rn_ok
-REM The daemon may still hold the previous registration: drop it and retry.
-call :wcli registration delete
-timeout /t 2 /nobreak >nul 2>&1
+REM v3.1 (N81): the delete that works is preceded by a disconnect and waits for the
+REM daemon; deleting on a live daemon reproduced the failure.
+call :reg_drop
+call :wcli registration new
+if not errorlevel 1 goto :rn_ok
+REM v3.1 (N80): "Old registration is still around" means the daemon has not finished
+REM tearing down. Wait for it and try once more before the operator message.
+timeout /t 5 /nobreak >nul 2>&1
 call :wcli registration new
 if errorlevel 1 goto :rn_done
 :rn_ok
 set "REGNEW=1"
 goto :eof
 :rn_done
+REM v3.1 (N86): T_313 tells the operator to restart Cloudflare WARP by hand. The launcher
+REM does not restart services itself: that needs administrator rights.
 call echo %T_313%
 goto :eof
 
@@ -4262,7 +5014,7 @@ set "TGZURL="
 if exist "%OC_TORDL%" for /f "usebackq delims=" %%u in ("%OC_TORDL%") do set "TGZURL=%%u"
 if exist "%OC_TORDL%" del /f /q "%OC_TORDL%" >nul 2>&1
 if defined TGZURL goto :tia_fetch
-call echo %T_190%
+call :msg %T_190%
 "%PSX%" -NoProfile -Command "try{[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $h=(Invoke-WebRequest -UseBasicParsing -Uri 'https://dist.torproject.org/torbrowser/' -TimeoutSec 30).Content; $vs=@(); foreach($m in [regex]::Matches($h, '(\d+\.\d+(?:\.\d+)?)/')){ if($vs -notcontains $m.Groups[1].Value){ $vs+=,$m.Groups[1].Value } }; $last=$null; foreach($v in $vs){ try{ if((-not $last) -or ([version]$v -gt [version]$last)){ $last=$v } }catch{} }; if(-not $last){ exit 1 }; $u='https://dist.torproject.org/torbrowser/'+$last+'/tor-expert-bundle-'+$env:OC_TFILE+'-'+$last+'.tar.gz'; [IO.File]::WriteAllText($env:OC_TOUT, $u); exit 0 }catch{ exit 1 }" >nul 2>&1
 set "TGZURL="
 if exist "%OC_TORDL%" for /f "usebackq delims=" %%u in ("%OC_TORDL%") do set "TGZURL=%%u"
@@ -4279,13 +5031,13 @@ if exist "%TGZ%" for %%Z in ("%TGZ%") do if %%~zZ GEQ 4000000 goto :tia_up_ok
 :tia_restore
 set "HTTP_PROXY=%KEEP_HP%"
 set "HTTPS_PROXY=%KEEP_SP%"
-call echo %T_191%
+call :msg %T_191%
 goto :eof
 :tia_badsum
 if exist "%TGZ%" del /f /q "%TGZ%" >nul 2>&1
 set "HTTP_PROXY=%KEEP_HP%"
 set "HTTPS_PROXY=%KEEP_SP%"
-call echo %T_347%
+call :msg %T_347%
 goto :eof
 :tia_up_ok
 REM v2.40: the size alone proved nothing. SHA-256 against the sums file published next to the bundle (as opencode and wireproxy are checked).
@@ -4293,7 +5045,7 @@ REM v2.40: the size alone proved nothing. SHA-256 against the sums file publishe
 if errorlevel 1 goto :tia_badsum
 set "HTTP_PROXY=%KEEP_HP%"
 set "HTTPS_PROXY=%KEEP_SP%"
-call echo %T_192%
+call :msg %T_192%
 set "OC_TGZ=%TGZ%"
 set "OC_TDIR=%TOR_DIR%"
 REM v2.28: the Windows tar by full path - a GNU tar from Git/MSYS earlier in PATH
@@ -4307,9 +5059,9 @@ if defined TOR_EXE (
   REM v2.22: this echo used to contain a literal "(portable)". Inside an
   REM if (...) block that closing parenthesis ended the block right there,
   REM so the whole line was a syntax error at parse time.
-  call echo %T_193%
+  call :msg %T_193%
 ) else (
-  call echo %T_194%
+  call :msg %T_194%
 )
 goto :eof
 
@@ -4331,7 +5083,7 @@ call :tor_own_running
 if not errorlevel 1 set "OURTOR=1"
 call :tor_socks_up
 if errorlevel 1 goto :tsi_tor
-call echo %T_195%
+call :msg %T_195%
 goto :tsi_bridge
 :tsi_tor
 call :tor_find_exe
@@ -4505,7 +5257,11 @@ if not exist "%OC_TORPID%" if not exist "%OC_BRPIDF%" goto :eof
 set "OC_TORDIR=%TOR_DIR%"
 if exist "%OC_TORPID%" "%PSX%" -NoProfile -Command "$t=Get-Content -LiteralPath $env:OC_TORPID -ErrorAction SilentlyContinue | Select-Object -First 1; if($t){ try{ $p=Get-Process -Id ([int]$t) -ErrorAction Stop }catch{ $p=$null }; if($p -and $p.ProcessName -eq 'tor'){ $ok=$false; try{ $pd=$env:OC_TORDIR; if($p.Path){ $ok=($p.Path -ieq $pd) -or ($p.Path -like ($pd+'\*')) } }catch{}; if($ok){ try{ Stop-Process -Id $p.Id -Force }catch{} } } }" >nul 2>&1
 if exist "%OC_BRPIDF%" "%PSX%" -NoProfile -Command "$t=Get-Content -LiteralPath $env:OC_BRPIDF -ErrorAction SilentlyContinue | Select-Object -First 1; if($t){ try{ $p=Get-Process -Id ([int]$t) -ErrorAction Stop }catch{ $p=$null }; if($p -and ($p.ProcessName -eq 'powershell' -or $p.ProcessName -eq 'pwsh')){ $ok=$false; try{ $cl=(Get-CimInstance Win32_Process -Filter ('ProcessId=' + [string]$p.Id)).CommandLine; if($cl -and $cl.Contains('OC_TORBRIDGE_PS')){ $ok=$true } }catch{}; if($ok){ try{ Stop-Process -Id $p.Id -Force }catch{} } } }" >nul 2>&1
-del /f /q "%OC_TORPID%" "%OC_BRPIDF%" >nul 2>&1
+REM v3.1 (N69): the pid files were deleted even when the identity check failed and the
+REM process was still alive, so the launcher lost its own Tor and treated it as foreign.
+REM A pid file goes only when its process is gone or is not what the file claims.
+"%PSX%" -NoProfile -Command "try{ $f=$env:OC_TORPID; if(Test-Path -LiteralPath $f){ $t=[int](Get-Content -LiteralPath $f -TotalCount 1); $p=Get-Process -Id $t -ErrorAction SilentlyContinue; if(-not $p -or $p.ProcessName -ne 'tor'){ Remove-Item -LiteralPath $f -Force } } }catch{}" >nul 2>&1
+"%PSX%" -NoProfile -Command "try{ $f=$env:OC_BRPIDF; if(Test-Path -LiteralPath $f){ $t=[int](Get-Content -LiteralPath $f -TotalCount 1); $p=Get-Process -Id $t -ErrorAction SilentlyContinue; if(-not $p){ Remove-Item -LiteralPath $f -Force } else { $cl=(Get-CimInstance Win32_Process -Filter ('ProcessId='+[string]$t)).CommandLine; if(-not $cl -or -not $cl.Contains('OC_TORBRIDGE_PS')){ Remove-Item -LiteralPath $f -Force } } } }catch{}" >nul 2>&1
 set "OURTOR="
 set "OURBRIDGE="
 goto :eof
@@ -4638,9 +5394,15 @@ REM trace came back THROUGH WARP, so plus is normalised to on here, at the
 REM single point every caller reads the flag from (:getip2, :ensure_new_ip,
 REM :rotate_loop, :rotate and the manual rotation all use this value).
 if /i "%GFLAG%"=="plus" set "GFLAG=on"
+REM v3.1 (N09): the ip= line is data from the network. Only an IPv4 of four octets
+REM or an IPv6 literal is kept; anything else is dropped before it reaches the state.
+if defined GIP set "OC_GIP=%GIP%"
+if defined GIP "%PSX%" -NoProfile -Command "try{ $v=[string]$env:OC_GIP; if($v -match '^(\d{1,3}\.){3}\d{1,3}$'){ $o=$v -split '[.]'; if(-not (@($o | Where-Object { [int]$_ -gt 255 }).Count)){ exit 0 } }; if($v.Length -ge 7 -and $v.Length -le 45 -and $v -match '^[0-9A-Fa-f:.]+$' -and $v.Contains(':')){ exit 0 } }catch{}; exit 1" >nul 2>&1
+if defined GIP if errorlevel 1 set "GIP="
 :gip_done
 if not defined WARP goto :gip_store
-if not "%GFLAG%"=="on" set "GIP="
+REM v3.1 (N70): GFLAG is lowercased from plus with /i, so the test must be /i too.
+if /i not "%GFLAG%"=="on" set "GIP="
 REM Return the values through the caller variable names.
 :gip_store
 if defined GIP set "%~1=%GIP%"
@@ -4697,13 +5459,27 @@ set "IP=%CUR%"
 REM v2.22: the header promises a service restart after every rotation and
 REM this path never did it, so the next TUI could inherit the old tunnel's
 REM sockets. v2 only: v1 has no shared service.
+REM v2.56 (N05): the marker is set only when the restart returned 0; a failed
+REM one clears it so the next pass retries.
+set "REMSVC=0"
 if defined CAP_SERVICE if defined OC_CMD if defined ACTIVE_PROXY call "%OC_CMD%" service restart >nul 2>&1
+if defined CAP_SERVICE if defined OC_CMD if defined ACTIVE_PROXY set "REMSVC=%ERRORLEVEL%"
+if not "%REMSVC%"=="0" goto :rem_svc_bad
 if defined ACTIVE_PROXY set "SVC_PROXIED=%ACTIVE_PROXY%"
+goto :rem_svc_done
+:rem_svc_bad
+set "SVC_PROXIED="
+call :log "service restart failed on ensure rc=%REMSVC% proxy=%ACTIVE_PROXY%" rotate
+:rem_svc_done
 call echo %T_212%
 goto :eof
 REM Limit reached without a new IP: continue with the current one.
 :ens_giveup
 call echo %T_213%
+REM v2.60 (N90): CUR used to be saved empty, so the IP that did come up was lost and the
+REM operator only saw a summary. The known IP is kept instead.
+if not defined CUR if defined IP set "CUR=%IP%"
+if not defined CUR if defined LASTIP set "CUR=%LASTIP%"
 goto :remember_ip
 
 REM - did this run write a fatal line to the log?
@@ -4784,10 +5560,17 @@ if errorlevel 2 goto :eof
 REM v2.44: only the app this launcher started, never a window opened by hand.
 call :stop_launched desktop-update
 timeout /t 2 /nobreak >nul 2>&1
+set "DVER_PREV=%DVER%"
 call :install_desktop
 call :rescan_desktop
+set "DVER="
 call :desktop_version
-if defined DVER call echo %T_339%
+REM v3.1 (N35): T_339 was printed with only DVER defined, and DVER still held the old
+REM version when the installer failed. Only a real change says "now reports".
+if not defined DVER goto :eof
+if /i "%DVER%"=="%DVER_PREV%" call :log "desktop update: version unchanged at %DVER%" update
+if /i not "%DVER%"=="%DVER_PREV%" call echo %T_339%
+goto :eof
 goto :eof
 
 REM - download and silently install the official desktop app (v2.27)
@@ -4853,6 +5636,16 @@ REM - the activity log (v2.29): usage call :log "message" source
 REM One line per event in launcher.log: time, session id (shared with the hidden
 REM child runs and the UI), source, message. Delayed expansion keeps &, | and >
 REM in a message from running as commands; keep quotes out of the message.
+REM v3.1 (D14): the one console line of the hot path. Always in launcher.log
+REM (category ui), printed unless CONSOLE_MODE is quiet. The TUI and the menus
+REM keep their own echo, so they are untouched by --quiet.
+REM usage: call :msg <text>
+:msg
+call :log "%*" ui
+if /i "%CONSOLE_MODE%"=="quiet" goto :eof
+echo %*
+goto :eof
+
 :log
 if "%LOG_ENABLED%"=="0" goto :eof
 if not exist "%STATE_DIR%" goto :eof
@@ -4860,6 +5653,14 @@ setlocal EnableDelayedExpansion
 set "LM=%~1"
 >>"%STATE_DIR%\launcher.log" echo [%DATE% %TIME%] [%OC_SID%] [%~2] !LM!
 endlocal
+REM v3.1 (N72): the log is bounded while it grows, not only at start.
+if defined LOG_MAXB call :trim_grow
+goto :eof
+
+:trim_grow
+REM v3.1 (N72): LOG_MAXB is expanded at run time here; expanded inside :log it is empty before the first setting and breaks the line.
+if not exist "%STATE_DIR%\launcher.log" goto :eof
+for %%L in ("%STATE_DIR%\launcher.log") do if %%~zL GTR %LOG_MAXB% call :trim_log "%STATE_DIR%\launcher.log" %LOG_MAXB% %LOG_KEEP%
 goto :eof
 
 REM - the UI (v2.29): usage "call :tui home|settings|export"; exit code 0 = leave,
@@ -4947,14 +5748,74 @@ goto :eof
 
 REM - load config.env into this process; derived values follow the port
 :cfg_import
-if exist "%STATE_DIR%\ui.env" for /f "usebackq tokens=1* delims==" %%a in ("%STATE_DIR%\ui.env") do set "%%a=%%b"
+REM N36: only the keys the launcher owns are taken from these files, so a
+REM hand-edited PATH, TEMP, STATE_DIR or COMSPEC cannot replace the environment
+REM of the running launcher.
+set "CFG_KEYS= AUTO_ROTATE CHAT_SNAPSHOT IP_FIND_MAX KEY_MENU KEY_QUIT KEY_ROTATE LIMIT_ACTION LIMIT_MODEL LIMIT_ROT_MAX LOG_ENABLED LOG_MASK_IP LOG_MAX_KB MENU_DEFAULT MULTI_INSTANCE OC_API_BASE OC_APP OC_EGRESS_DEFAULT OC_MODE_DEFAULT OC_MODEL OC_OTHER_WINDOW OCUI_COLOR OCUI_FONT OCUI_FONT_SIZE OCUI_ICONS OCUI_LANG OCUI_THEME ON_CLOSE POOL_ENABLE POOL_INTERVAL POOL_MAX PROBE PROBE_BROKEN_MAX PROBE_MODEL PROXY_API_CHECK PROXY_API_CHECK_URL PROXY_LIST_MIN_BYTES PROXY_LIST_URL PROXY_PORT PROXY_PROBE_TIMEOUT PROXY_ROT_MAX PROXY_TRY_MAX QUOTA_RESUME RESUME_AUTO RESUME_MODE RESUME_MSG RESUME_TEXT RESUME_TIMEOUT REUSE_EMPTY ROTATE_COOLDOWN ROTATE_TRIES_MAX TARGET_COUNTRY TARGET_INTERVAL TARGET_MINUTES TARGET_PREFIX TARGET_TRIES TOR_AUTO_INSTALL TOR_BOOTSTRAP_WAIT TOR_HTTP_PORT TOR_SOCKS_PORT TYPE_AHEAD UI_ACC UI_COLOR UPDATE_ASK UPDATE_CHECK VPN_TIMEOUT VPNGATE_COUNTRY VPNGATE_MAX WARP_CALL_TIMEOUT WARP_WAIT WATCH WG_DIR WHERE_TIMEOUT "
+if exist "%STATE_DIR%\ui.env" for /f "usebackq tokens=1* delims==" %%a in ("%STATE_DIR%\ui.env") do for %%k in (%CFG_KEYS%) do if /i "%%a"=="%%k" set "%%a=%%b"
 call :ui_style
-if not exist "%STATE_DIR%\config.env" goto :eof
-for /f "usebackq tokens=1* delims==" %%a in ("%STATE_DIR%\config.env") do set "%%a=%%b"
+if not exist "%STATE_DIR%\config.env" goto :cfg_nums
+for /f "usebackq tokens=1* delims==" %%a in ("%STATE_DIR%\config.env") do for %%k in (%CFG_KEYS%) do if /i "%%a"=="%%k" set "%%a=%%b"
 set "PROXY=http://127.0.0.1:%PROXY_PORT%"
 set "SOCKS_PROXY=socks5h://127.0.0.1:%PROXY_PORT%"
 if defined PROXY_BR set "PROXY=%PROXY_BR%"
+:cfg_nums
+REM N36: the same numeric checks as at boot, repeated after every import, so a
+REM config.env cannot put a non-number or a negative count into a loop limit.
+call :numcfg ROTATE_TRIES_MAX 4
+call :numcfg WARP_WAIT 6
+call :numcfg ROTATE_COOLDOWN 10
+call :numcfg TARGET_TRIES 5
+call :numcfg TARGET_MINUTES 15
+call :numcfg0 TARGET_INTERVAL 15
+call :numcfg WARP_CALL_TIMEOUT 15
+call :numcfg WHERE_TIMEOUT 5
+call :numcfg RESUME_TIMEOUT 90
+call :numcfg PROXY_TRY_MAX 40
+call :numcfg PROXY_ROT_MAX 10
+call :numcfg PROXY_PROBE_TIMEOUT 8
+call :numcfg POOL_MAX 5
+call :numcfg POOL_INTERVAL 60
+call :numcfg0 PROXY_LIST_MIN_BYTES 20
+call :numcfg TOR_SOCKS_PORT 9050
+call :numcfg TOR_HTTP_PORT 8118
+call :numcfg0 IP_FIND_MAX 0
+call :numcfg PROBE_BROKEN_MAX 3
+call :numcfg VPN_TIMEOUT 45
+call :numcfg VPNGATE_MAX 8
+call :numcfg0 LIMIT_ROT_MAX 3
+call :numcfg TOR_BOOTSTRAP_WAIT 120
+call :numcfg LOG_MAX_KB 1024
 goto :eof
+
+REM - --help: the commands. Plain text, no setup needed.
+:help_mode
+echo.
+echo OpenCode Infinite - commands
+echo.
+echo   opencodeinf                      open the launcher menu
+echo   opencodeinf --auto               start OpenCode in this folder with no menus,
+echo                                    using the last working connection
+echo   opencode-auto                    the same as opencodeinf --auto
+echo   opencodeinf --preset warp        start with one connection, no menu (warp, tor, proxy)
+echo   opencode-warp, opencode-tor,     one connection each, no menu
+echo   opencode-proxy                   (Settings, Launch, Install direct commands)
+echo   opencodeinf --run [args]         quick start with the saved connection
+echo   opencodeinf --here               use the folder you are in as the project folder
+echo   opencodeinf --quiet              print nothing, only write the log
+echo   opencodeinf --verbose            also log every line
+echo   opencodeinf --no-update          skip the update check
+echo   opencodeinf --no-probe           skip the IP probe
+echo   opencodeinf --install            write opencodeinf and opencode-auto and add their folder to PATH
+echo   opencodeinf --help               this list (also -h)
+echo.
+exit /b 0
+
+REM - --install: the same as Settings, Launch, Install commands.
+:install_mode
+call :tui install
+set "IRC=%errorlevel%"
+exit /b %IRC%
 
 REM - --verify: does the saved connection work? exit 0 = yes. Run hidden by setup.
 :verify_mode
@@ -5038,6 +5899,11 @@ if %RM_TRY% GTR %ROTATE_TRIES_MAX% goto :rm_fail
 if %RM_TRY% GTR 1 timeout /t %ROTATE_COOLDOWN% /nobreak >nul 2>&1
 call :reg_drop
 call :reg_new
+REM N85: no connect on a broken registration; the next try drops it again.
+if not "%REGNEW%"=="1" (
+  call :log "renew try %RM_TRY%: registration failed, connect skipped" renew
+  goto :rm_warp_loop
+)
 call :warp_up
 REM v2.43: poll instead of the fixed WARP_WAIT sleep.
 call :warp_poll IPN WFLAG
@@ -5209,7 +6075,8 @@ call echo %T_236%
 echo     "%TARGET%"
 set "MOVED=0"
 if exist "%DATA_DIR%\storage" call :archive_storage
-for %%F in (opencode.db opencode.db-wal opencode.db-shm) do call :archive_file %%F
+REM v3.1 (N71): a partial storage move stops here; the databases stay where they are.
+if not defined ARCH_PARTIAL for %%F in (opencode.db opencode.db-wal opencode.db-shm) do call :archive_file %%F
 if not "%MOVED%"=="0" goto :arch_done
 if exist "%TARGET%" rmdir "%TARGET%" >nul 2>&1
 call echo %T_237%
@@ -5225,7 +6092,10 @@ REM Move the storage folder with robocopy. Exit codes 8 and above mean failure.
 :archive_storage
 if not exist "%TARGET%" mkdir "%TARGET%" >nul 2>&1
 robocopy "%DATA_DIR%\storage" "%TARGET%\storage" /e /move /r:1 /w:1 /nfl /ndl /njh /njs /np >nul
-if errorlevel 8 (
+REM v3.1 (N71): robocopy 2/4 are partial copies. Anything above 1 leaves the storage
+REM half moved, so this pass does not claim MOVED and does not archive the .db files.
+if errorlevel 2 (
+  set "ARCH_PARTIAL=1"
   call echo %T_239%
   goto :eof
 )
@@ -5269,14 +6139,27 @@ set "AUTH_SZ=0"
 for %%A in ("%DATA_DIR%\auth.json") do set "AUTH_SZ=%%~zA"
 if %AUTH_SZ% LSS 3 goto :eof
 if not exist "%AUTH_SNAP%\" mkdir "%AUTH_SNAP%" >nul 2>&1
+REM v3.1 (N37): one previous snapshot is kept and each copy carries its SHA-256,
+REM so a truncated snapshot is never installed as auth.json.
+if exist "%AUTH_SNAP%\auth.json" copy /y "%AUTH_SNAP%\auth.json" "%AUTH_SNAP%\auth.json.prev" >nul 2>&1
+if exist "%AUTH_SNAP%\auth.json" if exist "%AUTH_SNAP%\auth.json.sha256" copy /y "%AUTH_SNAP%\auth.json.sha256" "%AUTH_SNAP%\auth.json.prev.sha256" >nul 2>&1
 copy /y "%DATA_DIR%\auth.json" "%AUTH_SNAP%\auth.json" >nul 2>&1
+set "OC_SNAP=%AUTH_SNAP%"
+"%PSX%" -NoProfile -Command "try{ $a=Join-Path $env:OC_SNAP 'auth.json'; $h=(Get-FileHash -Algorithm SHA256 -LiteralPath $a).Hash; [IO.File]::WriteAllText(($a+'.sha256'),$h) }catch{}" >nul 2>&1
 goto :eof
 :tg_restore
 if not exist "%DATA_DIR%\" mkdir "%DATA_DIR%" >nul 2>&1
-copy /y "%AUTH_SNAP%\auth.json" "%DATA_DIR%\auth.json" >nul 2>&1
-if errorlevel 1 goto :eof
-call :log "tokens: auth.json was missing, restored from the launcher snapshot" tokens
+REM v3.1 (N37): a snapshot is restored only when its SHA-256 matches; the previous
+REM one is tried second. A truncated file is left where it is.
+set "OC_SNAP=%AUTH_SNAP%"
+set "OC_DDIR=%DATA_DIR%"
+"%PSX%" -NoProfile -Command "try{ $s=$env:OC_SNAP; $d=Join-Path $env:OC_DDIR 'auth.json'; foreach($nm in @('auth.json','auth.json.prev')){ $a=Join-Path $s $nm; $hf=$a+'.sha256'; if(-not (Test-Path -LiteralPath $a)){ continue }; if(-not (Test-Path -LiteralPath $hf)){ continue }; $want=[string](Get-Content -LiteralPath $hf -TotalCount 1); if(-not $want){ continue }; if((Get-FileHash -Algorithm SHA256 -LiteralPath $a).Hash -ine $want.Trim()){ continue }; Copy-Item -LiteralPath $a -Destination $d -Force; exit 0 }; exit 1 }catch{ exit 1 }" >nul 2>&1
+if errorlevel 1 goto :tg_bad
+call :log "tokens: auth.json was missing, restored from the launcher snapshot (hash verified)" tokens
 call echo %T_351%
+goto :eof
+:tg_bad
+call :log "tokens: the snapshot failed its hash check - auth.json is not restored" tokens
 goto :eof
 REM - cache and saved tokens, two separate actions (v2.44). Chats are not touched here.
 REM usage: call :clear_cache <why>   - the opencode cache folder only, never auth.json
@@ -5437,7 +6320,7 @@ if %WV_TRY% GEQ 2 goto :wv_fail
 timeout /t 2 /nobreak >nul 2>&1
 goto :wv_try
 :wv_ok
-call echo %T_WV_OK%
+if not defined OPT_AUTO call echo %T_WV_OK%
 exit /b 0
 :wv_fail
 call echo %T_WV_FAIL%
@@ -5451,6 +6334,8 @@ REM that were already set system-wide or by the user's shell.
 set "HTTP_PROXY=%OC_HP0%"
 set "HTTPS_PROXY=%OC_SP0%"
 set "no_proxy=%OC_NP0%"
+REM v3.1 (N27): the VPNGATE-only NODE_OPTIONS is put back here too.
+set "NODE_OPTIONS=%OC_NODE_OPTIONS_PREV%"
 goto :eof
 
 REM - can the proxy actually carry an https request?
@@ -5584,6 +6469,8 @@ REM second check, and that check depends on PROXY_API_CHECK_URL, which is
 REM not verified. Offer the first proxy that did pass the trace instead of
 REM killing PROXY mode outright.
 if not defined TRACE_ONLY exit /b 1
+REM v2.60 (A3): auto takes no unverified proxy and asks nothing.
+if defined OPT_AUTO exit /b 1
 call echo %T_253%
 call echo %T_254%
 call :yn "   Use that proxy anyway? [Y/N]: "
@@ -5664,8 +6551,21 @@ set "LK_BAT="
 if exist "%OC_LKINFO%" <"%OC_LKINFO%" set /p "LK_MSG="
 if exist "%OC_LKINFO%" for /f "usebackq skip=1 delims=" %%a in ("%OC_LKINFO%") do if not defined LK_PID (set "LK_PID=%%a") else if not defined LK_BAT set "LK_BAT=%%a"
 call :log "%LK_MSG%" lock
+REM v2.60 (N39): a live PID is not proof of a live launcher. :lock_touch refreshes
+REM the stamp entry on every menu pass, so a stamp that has not moved in LK_STALE_MIN
+REM minutes means the owner is hung: it is treated as an orphan and removed.
+set "LK_STALE_MIN=120"
+"%PSX%" -NoProfile -Command "try{ $s=Join-Path $env:OC_LOCK 'stamp'; if(Test-Path -LiteralPath $s){ $m=((Get-Date)-(Get-Item -LiteralPath $s -Force).LastWriteTime).TotalMinutes; if($m -ge %LK_STALE_MIN%){ exit 1 } } }catch{}; exit 0" >nul 2>&1
+if not errorlevel 1 goto :lk_live
+call :log "lock: stamp not refreshed in %LK_STALE_MIN% min, owner PID %LK_PID% treated as orphan" lock
+rmdir /s /q "%LOCKDIR%" >nul 2>&1
+goto :lk_take
+:lk_live
 if not "%LKRC%"=="1" goto :lk_take
 if "%MULTI_INSTANCE%"=="1" goto :lk_multi
+REM v3.7: OC_OTHER_WINDOW answers without a question. OPEN (default) starts this window with its own settings copy.
+if /i "%OC_OTHER_WINDOW%"=="CLOSE" goto :lk_close
+if /i not "%OC_OTHER_WINDOW%"=="ASK" goto :lk_multi
 call echo %T_256%
 call echo %T_353%
 call echo %T_354%
@@ -5674,12 +6574,20 @@ if errorlevel 100 goto :lk_exit
 if not errorlevel 1 goto :lk_exit
 if errorlevel 3 goto :lk_exit
 if errorlevel 2 goto :lk_multi
+:lk_close
 REM [1] close it: its whole tree, and only while PID and start time still match the lock.
-"%PSX%" -NoProfile -Command "try{ $v=@((Get-Content -LiteralPath (Join-Path $env:OC_LOCK 'owner') -TotalCount 1) -split '\|'); $p=Get-Process -Id ([int]$v[0]) -ErrorAction Stop; if($v.Count -lt 3 -or [string]$p.StartTime.Ticks -eq $v[1]){ & taskkill.exe /PID $p.Id /T /F | Out-Null } }catch{}" >nul 2>&1
+REM v3.1 (N10): the owner PID used to be the cmd that launched this .bat, so closing
+REM the other instance killed the operator's shell. The tree is killed only when the
+REM owner command line really runs this launcher; otherwise the lock is foreign.
+"%PSX%" -NoProfile -Command "try{ $v=@((Get-Content -LiteralPath (Join-Path $env:OC_LOCK 'owner') -TotalCount 1) -split '\|'); $p=Get-Process -Id ([int]$v[0]) -ErrorAction Stop; $cl=[string](Get-CimInstance Win32_Process -Filter ('ProcessId='+$p.Id)).CommandLine; $me=[string]$env:OCI_SELF; $own=($me -and $cl -and $cl.ToLower().Contains($me.ToLower())); if(-not $own){ exit 2 }; if($v.Count -lt 3 -or [string]$p.StartTime.Ticks -eq $v[1]){ & taskkill.exe /PID $p.Id /T /F | Out-Null } }catch{}" >nul 2>&1
+if errorlevel 2 goto :lk_foreign
 rmdir /s /q "%LOCKDIR%" >nul 2>&1
 call :log "lock: user closed instance PID %LK_PID%, lock removed" lock
 call echo %T_355%
 goto :lk_take
+:lk_foreign
+call :log "lock: the owner is not this launcher - not closed" lock
+goto :quit_busy
 :lk_exit
 set "FO_TRY=0"
 :lk_focus
@@ -5727,7 +6635,7 @@ REM hidden, so the WindowsTerminal window above the owner is used instead. Exit 
 REM Limit: Windows Terminal has one window for all tabs, so the right tab is not picked.
 :focus_owner
 set "OC_LOCK=%LOCKDIR%"
-"%PSX%" -NoProfile -Command "try{ $o=[int](@((Get-Content -LiteralPath (Join-Path $env:OC_LOCK 'owner') -TotalCount 1) -split '\|')[0]); Add-Type -Namespace OcFocus -Name W -MemberDefinition '[DllImport(\"user32.dll\")] public static extern bool ShowWindow(IntPtr h, int c); [DllImport(\"user32.dll\")] public static extern bool SetForegroundWindow(IntPtr h); [DllImport(\"user32.dll\")] public static extern bool IsWindowVisible(IntPtr h); [DllImport(\"user32.dll\")] public static extern void keybd_event(byte k, byte s, uint f, UIntPtr e); [DllImport(\"kernel32.dll\")] public static extern bool FreeConsole(); [DllImport(\"kernel32.dll\")] public static extern bool AttachConsole(uint p); [DllImport(\"kernel32.dll\")] public static extern IntPtr GetConsoleWindow();'; $hw=[IntPtr]::Zero; [void][OcFocus.W]::FreeConsole(); if([OcFocus.W]::AttachConsole([uint32]$o)){ $hw=[OcFocus.W]::GetConsoleWindow(); [void][OcFocus.W]::FreeConsole() }; if($hw -eq [IntPtr]::Zero -or -not [OcFocus.W]::IsWindowVisible($hw)){ $hw=[IntPtr]::Zero; $cur=$o; for($i=0; $i -lt 6 -and $cur; $i++){ $pr=Get-Process -Id $cur -ErrorAction SilentlyContinue; if($pr -and $pr.ProcessName -eq 'WindowsTerminal' -and $pr.MainWindowHandle -ne 0){ $hw=$pr.MainWindowHandle; break }; $cur=(Get-CimInstance Win32_Process -Filter ('ProcessId='+$cur)).ParentProcessId } }; if($hw -eq [IntPtr]::Zero){ exit 1 }; [void][OcFocus.W]::ShowWindow($hw, 9); [OcFocus.W]::keybd_event(18, 0, 0, [UIntPtr]::Zero); [OcFocus.W]::keybd_event(18, 0, 2, [UIntPtr]::Zero); if([OcFocus.W]::SetForegroundWindow($hw)){ exit 0 }; exit 1 }catch{ exit 1 }" >nul 2>&1
+"%PSX%" -NoProfile -Command "try{ $o=[int](@((Get-Content -LiteralPath (Join-Path $env:OC_LOCK 'owner') -TotalCount 1) -split '\|')[0]); Add-Type -Namespace OcFocus -Name W -MemberDefinition '[DllImport(''user32.dll'')] public static extern bool ShowWindow(IntPtr h, int c); [DllImport(''user32.dll'')] public static extern bool SetForegroundWindow(IntPtr h); [DllImport(''user32.dll'')] public static extern bool IsWindowVisible(IntPtr h); [DllImport(''user32.dll'')] public static extern void keybd_event(byte k, byte s, uint f, UIntPtr e); [DllImport(''kernel32.dll'')] public static extern bool FreeConsole(); [DllImport(''kernel32.dll'')] public static extern bool AttachConsole(uint p); [DllImport(''kernel32.dll'')] public static extern IntPtr GetConsoleWindow();'; $hw=[IntPtr]::Zero; [void][OcFocus.W]::FreeConsole(); if([OcFocus.W]::AttachConsole([uint32]$o)){ $hw=[OcFocus.W]::GetConsoleWindow(); [void][OcFocus.W]::FreeConsole() }; if($hw -eq [IntPtr]::Zero -or -not [OcFocus.W]::IsWindowVisible($hw)){ $hw=[IntPtr]::Zero; $cur=$o; for($i=0; $i -lt 6 -and $cur; $i++){ $pr=Get-Process -Id $cur -ErrorAction SilentlyContinue; if($pr -and $pr.ProcessName -eq 'WindowsTerminal' -and $pr.MainWindowHandle -ne 0){ $hw=$pr.MainWindowHandle; break }; $cur=(Get-CimInstance Win32_Process -Filter ('ProcessId='+$cur)).ParentProcessId } }; if($hw -eq [IntPtr]::Zero){ exit 1 }; [void][OcFocus.W]::ShowWindow($hw, 9); [OcFocus.W]::keybd_event(18, 0, 0, [UIntPtr]::Zero); [OcFocus.W]::keybd_event(18, 0, 2, [UIntPtr]::Zero); if([OcFocus.W]::SetForegroundWindow($hw)){ exit 0 }; exit 1 }catch{ exit 1 }" >nul 2>&1
 exit /b
 
 REM - refresh the lock timestamp (v2.22)
@@ -5758,7 +6666,7 @@ if not exist "%~1" goto :eof
 set "OC_TLF=%~1"
 set "OC_TMAX=%~2"
 set "OC_TKEEP=%~3"
-"%PSX%" -NoProfile -Command "$i=Get-Item -LiteralPath $env:OC_TLF -ErrorAction SilentlyContinue; if($i -and $i.Length -gt [long]$env:OC_TMAX){ try{ $l=@(Get-Content -LiteralPath $env:OC_TLF | Select-Object -Last ([int]$env:OC_TKEEP)); if($l.Count){ Set-Content -LiteralPath $env:OC_TLF -Value $l -Encoding Default } }catch{} }" >nul 2>&1
+"%PSX%" -NoProfile -Command "$i=Get-Item -LiteralPath $env:OC_TLF -ErrorAction SilentlyContinue; if($i -and $i.Length -gt [long]$env:OC_TMAX){ try{ $l=@(Get-Content -LiteralPath $env:OC_TLF | Select-Object -Last ([int]$env:OC_TKEEP)); if($l.Count){ $t=$env:OC_TLF+'.tmp'; Set-Content -LiteralPath $t -Value $l -Encoding UTF8; Move-Item -LiteralPath $t -Destination $env:OC_TLF -Force } }catch{} }" >nul 2>&1
 goto :eof
 
 REM - self-update: newest launcher from the latest GitLab release [upd] -
@@ -5819,7 +6727,7 @@ set "SU_TAG="
 set "SU_SHA="
 set "SU_TAG_OUT=%STATE_DIR%\su_tag.tmp"
 if exist "%SU_TAG_OUT%" del /f /q "%SU_TAG_OUT%" >nul 2>&1
-"%PSX%" -NoProfile -Command "$ProgressPreference='SilentlyContinue'; try{ [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $r=@(Invoke-RestMethod -UseBasicParsing -Uri 'https://gitlab.com/api/v4/projects/88367491/releases?order_by=released_at&sort=desc&per_page=1' -TimeoutSec 15); if(-not $r.Count){ exit 3 }; $t=[string]$r[0].tag_name; if($t -notmatch '^v[0-9]+[.][0-9]+$'){ exit 3 }; $b='https://gitlab.com/jekooo/opencode-infinite/-/raw/'+$t+'/'; $sf=$env:SU_TMP+'.sums'; Invoke-WebRequest -UseBasicParsing -Uri ($b+'SHA256SUMS') -OutFile $sf -TimeoutSec 15; $h=$null; foreach($l in [IO.File]::ReadAllLines($sf)){ if($l -match '^([0-9a-fA-F]{64}) [ *]OpenCode Infinite[.]bat$'){ $h=$Matches[1] } }; Remove-Item -LiteralPath $sf -Force; if(-not $h){ exit 2 }; Invoke-WebRequest -UseBasicParsing -Uri ($b+'OpenCode%%20Infinite.bat') -OutFile $env:SU_TMP -TimeoutSec 30; if((Get-FileHash -Algorithm SHA256 -LiteralPath $env:SU_TMP).Hash -ne $h){ Remove-Item -LiteralPath $env:SU_TMP -Force; exit 2 }; [IO.File]::WriteAllText($env:SU_TAG_OUT,($t+' '+$h)) }catch{ exit 1 }" >nul 2>&1
+"%PSX%" -NoProfile -Command "$ProgressPreference='SilentlyContinue'; try{ [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; $r=@(Invoke-RestMethod -UseBasicParsing -Uri 'https://gitlab.com/api/v4/projects/88367491/releases?order_by=released_at&sort=desc&per_page=1' -TimeoutSec 15); if(-not $r.Count){ exit 3 }; $t=[string]$r[0].tag_name; if($t -notmatch '^v[0-9]+[.][0-9]+([.][0-9]+)?$'){ exit 3 }; $b='https://gitlab.com/jekooo/opencode-infinite/-/raw/'+$t+'/'; $sf=$env:SU_TMP+'.sums'; Invoke-WebRequest -UseBasicParsing -Uri ($b+'SHA256SUMS') -OutFile $sf -TimeoutSec 15; $h=$null; foreach($l in [IO.File]::ReadAllLines($sf)){ if($l -match '^([0-9a-fA-F]{64}) [ *]OpenCode Infinite[.]bat$'){ $h=$Matches[1] } }; Remove-Item -LiteralPath $sf -Force; if(-not $h){ exit 2 }; Invoke-WebRequest -UseBasicParsing -Uri ($b+'OpenCode%%20Infinite.bat') -OutFile $env:SU_TMP -TimeoutSec 30; if((Get-FileHash -Algorithm SHA256 -LiteralPath $env:SU_TMP).Hash -ne $h){ Remove-Item -LiteralPath $env:SU_TMP -Force; exit 2 }; [IO.File]::WriteAllText($env:SU_TAG_OUT,($t+' '+$h)) }catch{ exit 1 }" >nul 2>&1
 set "SU_PEC=%errorlevel%"
 call :trace upd_release rc=%SU_PEC%
 if "%SU_PEC%"=="2" call echo %T_348%
@@ -5871,7 +6779,12 @@ if not exist "%SU_TMP%" goto :su_nofile
 "%PSX%" -NoProfile -Command "try{ if((Get-FileHash -Algorithm SHA256 -LiteralPath $env:SU_TMP).Hash -ieq $env:SU_SHA){ exit 0 } }catch{}; exit 1" >nul 2>&1
 if errorlevel 1 goto :su_badsha
 REM Backup first - it is never overwritten silently: timestamped name.
-set "SU_BAK=%STATE_DIR%\OpenCode Infinite backup %SU_LV%.bat"
+REM N40: the backup carries a stamp, so two updates on the same day do not
+REM overwrite the copy that was made before the first of them.
+for /f "usebackq delims=" %%a in (`%PSX% -NoProfile -Command "Get-Date -Format yyyyMMdd-HHmmss"`) do set "SU_STAMP=%%a"
+if not defined SU_STAMP set "SU_STAMP=manual"
+set "SU_BAK=%STATE_DIR%\OpenCode Infinite backup %SU_LV% %SU_STAMP%.bat"
+set "SU_STAMP="
 copy /y "%~f0" "%SU_BAK%" >nul 2>&1
 if errorlevel 1 goto :su_fail
 if not exist "%SU_BAK%" goto :su_fail
@@ -5897,13 +6810,19 @@ REM v2.42: the helper used to start deleting at once while the parent cmd still 
 >>"%SU_HELP%" echo :u_retry
 >>"%SU_HELP%" echo set /a UP_TRY+=1
 >>"%SU_HELP%" echo if %%UP_TRY%% GTR 60 goto u_fail
->>"%SU_HELP%" echo del /f /q "%%UP_DST%%" ^>nul 2^>^&1
->>"%SU_HELP%" echo if not exist "%%UP_DST%%" goto u_put
+REM v2.60 (N40): copy beside the target, check the copy, then rename over it.
+REM The launcher is never deleted first, so a failed copy leaves it usable.
+>>"%SU_HELP%" echo set "UP_TMP=%%UP_DST%%.new"
+>>"%SU_HELP%" echo copy /y "%%UP_NEW%%" "%%UP_TMP%%" ^>nul 2^>^&1
+>>"%SU_HELP%" echo if errorlevel 1 goto u_wait
+>>"%SU_HELP%" echo "%PSX%" -NoProfile -Command "try{ if((Get-FileHash -Algorithm SHA256 -LiteralPath $env:UP_TMP).Hash -ieq $env:UP_SHA){ exit 0 } }catch{}; exit 1" ^>nul 2^>^&1
+>>"%SU_HELP%" echo if errorlevel 1 goto u_wait
+>>"%SU_HELP%" echo move /y "%%UP_TMP%%" "%%UP_DST%%" ^>nul 2^>^&1
+>>"%SU_HELP%" echo if not errorlevel 1 goto u_put
+>>"%SU_HELP%" echo :u_wait
 >>"%SU_HELP%" echo timeout /t 1 /nobreak ^>nul 2^>^&1
 >>"%SU_HELP%" echo goto u_retry
 >>"%SU_HELP%" echo :u_put
->>"%SU_HELP%" echo copy /y "%%UP_NEW%%" "%%UP_DST%%" ^>nul 2^>^&1
->>"%SU_HELP%" echo if errorlevel 1 goto u_fail
 >>"%SU_HELP%" echo start "" "%%UP_DST%%"
 >>"%SU_HELP%" echo del /f /q "%%UP_NEW%%" ^>nul 2^>^&1
 REM The helper deletes itself with (goto) first: a plain del of the running .cmd made cmd print "The batch file cannot be found." in the update window.
@@ -5965,6 +6884,8 @@ set "NCN="
 set /a NCN=NCV 2>nul
 if not defined NCN set "NCN=%~2"
 if %NCN% LSS 1 set "NCN=%~2"
+REM v3.1 (N41): the optional third argument is a ceiling; config.env used to accept any number.
+if not "%~3"=="" if %NCN% GTR %~3 set "NCN=%~3"
 set "%1=%NCN%"
 goto :eof
 REM Same as numcfg, but accepts 0 as a valid value.
@@ -5975,6 +6896,7 @@ set "NCN="
 set /a NCN=NCV 2>nul
 if not defined NCN set "NCN=%~2"
 if %NCN% LSS 0 set "NCN=%~2"
+if not "%~3"=="" if %NCN% GTR %~3 set "NCN=%~3"
 set "%1=%NCN%"
 goto :eof
 
@@ -6152,15 +7074,25 @@ function Handle-Client($client) {
         $headT = 0
         try { $headT = $st.ReadTimeout } catch { }
         $st.ReadTimeout = 8000
+        # v3.1 (N43): ReadTimeout bounds each read, not the whole head, so one byte every
+        # 7 s held a handler for 16384 x 8 s. Absolute deadline, block reads, blank line.
         $head = New-Object 'System.Collections.Generic.List[byte]'
-        while ($head.Count -lt 16384) {
-            $b = $st.ReadByte()
-            if ($b -lt 0) { $client.Close(); return }
-            $head.Add([byte]$b)
-            if ($head.Count -ge 4 -and $head[$head.Count - 4] -eq 13 -and $head[$head.Count - 3] -eq 10 -and $head[$head.Count - 2] -eq 13 -and $head[$head.Count - 1] -eq 10) { break }
+        $deadline = (Get-Date).AddSeconds(8)
+        $buf = New-Object byte[] 4096
+        $done = $false
+        while (-not $done -and $head.Count -lt 16384) {
+            if ((Get-Date) -gt $deadline) { break }
+            $n = 0
+            try { $n = $st.Read($buf, 0, $buf.Length) } catch { break }
+            if ($n -le 0) { $client.Close(); return }
+            for ($k = 0; $k -lt $n -and $head.Count -lt 16384; $k++) { $head.Add($buf[$k]) }
+            $arr = $head.ToArray()
+            for ($k = 3; $k -lt $arr.Length; $k++) {
+                if ($arr[$k] -eq 10 -and $arr[$k - 1] -eq 13 -and $arr[$k - 2] -eq 10 -and $arr[$k - 3] -eq 13) { $done = $true; break }
+            }
         }
         try { $st.ReadTimeout = $headT } catch { }
-        $headTxt = [Text.Encoding]::ASCII.GetString($head.ToArray())
+        $headTxt = [Text.Encoding]::GetEncoding(28591).GetString($head.ToArray())
         $line = ($headTxt -split "`r`n")[0]
         # CONNECT: TLS passthrough, the request head is already consumed
         if ($line -match '^CONNECT\s+(.+):(\d+)\s') {
@@ -6186,8 +7118,14 @@ function Handle-Client($client) {
             $dst = Connect-Socks $hostName $port
             if (-not $dst) { Write-BridgeLog ('request refused: ' + $line); $client.Close(); return }
             $cs = $dst.GetStream()
-            $rewritten = $headTxt -replace ('http://' + $hostName + ':' + $port), ''
-            $rewritten = $rewritten -replace ('http://' + $hostName), ''
+            REM N45: only the request line is rewritten; Referer and Origin keep their URLs.
+            $eol = $headTxt.IndexOf("
+")
+            if ($eol -lt 0) { $eol = $headTxt.Length }
+            $reqLine = $headTxt.Substring(0, $eol)
+            $reqLine = [regex]::Replace($reqLine, [regex]::Escape('http://' + $hostName + ':' + $port), '', 'IgnoreCase')
+            $reqLine = [regex]::Replace($reqLine, [regex]::Escape('http://' + $hostName), '', 'IgnoreCase')
+            $rewritten = $reqLine + $headTxt.Substring($eol)
             # v2.22: force "Connection: close". Only the FIRST request of a
             # keep-alive stream carries an absolute URI; the second one
             # arrived in origin form and the relay had nothing to rewrite,
@@ -6197,7 +7135,7 @@ function Handle-Client($client) {
             if ($rewritten -notmatch '(?im)^Connection\s*:') {
                 $rewritten = $rewritten -replace "(`r`n`r`n)", "`r`nConnection: close`r`n`r`n"
             }
-            $bytes = [Text.Encoding]::ASCII.GetBytes($rewritten)
+            $bytes = [Text.Encoding]::GetEncoding(28591).GetBytes($rewritten)
             $cs.Write($bytes, 0, $bytes.Length)
             $pp = Spawn-Pump $st $cs $PUMP_CODE
             Pump $cs $st
@@ -6225,7 +7163,9 @@ try {
         $alive = New-Object System.Collections.ArrayList
         foreach ($e in $pool) {
             $pstate = $e.ps.InvocationStateInfo.State
-            if (($pstate -eq 'Running') -or ($pstate -eq 'NotStarted')) { [void]$alive.Add($e) } else { try { $e.rs.Dispose() } catch { } }
+            # v3.1 (N46): only the runspace was freed; the [powershell] object and its
+            # IAsyncResult leaked once per connection.
+            if (($pstate -eq 'Running') -or ($pstate -eq 'NotStarted')) { [void]$alive.Add($e) } else { try { $e.ps.Dispose() } catch { }; try { $e.rs.Dispose() } catch { } }
         }
         $pool = $alive
         # v2.22: cap concurrent connections. Every accepted socket opened a
@@ -6265,7 +7205,13 @@ $BackDir = Join-Path $State 'backup'
 $ShimDir = Join-Path $State 'bin'
 $ShimPath = Join-Path $ShimDir 'opencode.cmd'
 $ShimInfPath = Join-Path $ShimDir 'opencodeinf.cmd'
-$ShimOcPath = Join-Path $ShimDir 'opencodeoc.cmd'
+# v2.60 (A1): opencode-auto = opencodeinf --auto (no menus, last working connection).
+$ShimAutoPath = Join-Path $ShimDir 'opencode-auto.cmd'
+# D02: the three direct commands, one per preset. They are written only when the
+# operator asks for them (Settings, group Launch); nothing creates them at setup.
+$ShimWarpPath = Join-Path $ShimDir 'opencode-warp.cmd'
+$ShimTorPath = Join-Path $ShimDir 'opencode-tor.cmd'
+$ShimProxyPath = Join-Path $ShimDir 'opencode-proxy.cmd'
 # v2.30: setup copies the launcher here; the commands and shortcuts run this copy, not the download.
 $Official = Join-Path $State 'app\OpenCode Infinite.bat'
 # v2.41: a re-download takes the latest release, not main.
@@ -6295,8 +7241,16 @@ function Log([string]$msg, [string]$src = 'ui') {
     if ($script:Cfg -and $script:Cfg.settings.ContainsKey('LOG_ENABLED') -and [int]$script:Cfg.settings['LOG_ENABLED'] -eq 0) { return }
     New-Item -ItemType Directory -Force -Path $State | Out-Null
     $sid = $env:OC_SID; if (-not $sid) { $sid = '-' }
-    $line = '[' + (Get-Date).ToString('yyyy-MM-dd HH:mm:ss.ff') + '] [' + $sid + '] [' + $src + '] ' + ($msg -replace '[\r\n]+', ' | ')
-    [IO.File]::AppendAllText((Join-Path $State 'launcher.log'), $line + "`r`n", (New-Object Text.UTF8Encoding($false)))
+    $line = '[' + (Get-Date).ToString('yyyy-MM-dd HH:mm:ss.ff', [Globalization.CultureInfo]::InvariantCulture) + '] [' + $sid + '] [' + $src + '] ' + ($msg -replace '[\r\n]+', ' | ')
+    # v2.60 (N42): with up to 200 runspaces writing at once, the second opener gets a
+    # sharing violation and the old catch threw the line away. The append is retried a few
+    # times with a growing pause instead of being lost, and it never keeps the file open.
+    $lf = Join-Path $State 'launcher.log'
+    $lc = $line + "`r`n"
+    $le = New-Object Text.UTF8Encoding($false)
+    for ($ln = 1; $ln -le 6; $ln++) {
+      try { [IO.File]::AppendAllText($lf, $lc, $le); return } catch { Start-Sleep -Milliseconds (15 * $ln) }
+    }
   } catch { }
 }
 
@@ -6306,14 +7260,15 @@ function S($k, $g, $l, $t, $d, $h, $a = 'now', $min = 0, $max = 0, $vals = @()) 
 }
 $Schema = @(
   S 'OC_EGRESS_DEFAULT' 'Connection' 'Connection method' 'enum' 'ASK' 'Egress used for opencode. ASK shows the picker at every start.' 'now' 0 0 @('ASK', 'WARP', 'TOR', 'PROXY', 'WIREGUARD', 'VPNGATE', 'NONE')
-  S 'OC_MODE_DEFAULT' 'Connection' 'Run mode' 'enum' 'ASK' 'CLI terminal, Desktop app, or ask at every start.' 'now' 0 0 @('ASK', 'CLI', 'DESKTOP')
-  S 'OC_MODEL' 'Connection' 'Resume model' 'ostring' '' 'Model of the automatic resume, as provider/model, for example opencode/deepseek-v4.1-flash-free. Type - to clear: OpenCode keeps its own model.' 'now'
-  S 'MENU_DEFAULT' 'Connection' 'OpenCode menu shortcut' 'enum' 'ask' 'ask shows the OpenCode menu. 1 starts with a new IP, 2 continues with the same IP and chat (saved tokens untouched), 3 only changes the IP. The menu is skipped.' 'now' 0 0 @('ask', '1', '2', '3')
-  S 'MULTI_INSTANCE' 'Connection' 'Several windows' 'bool' 0 'On: a second launcher window runs on its own copy of the settings. Off: it brings the first window to the front.' 'next launch'
-  S 'REUSE_EMPTY' 'Connection' 'Reuse the empty chat' 'bool' 1 'A fresh start continues the newest chat when it is still empty, instead of piling up empty chats.' 'now'
-  S 'PROXY_PORT' 'Connection' 'WARP proxy port' 'port' 40000 'Local port of the WARP proxy.' 'next WARP connect'
-  S 'WARP_WAIT' 'Connection' 'WARP wait (s)' 'int' 6 'Seconds to wait after (re)connecting WARP.' 'now' 1 60
-  S 'WARP_CALL_TIMEOUT' 'Connection' 'warp-cli timeout (s)' 'int' 15 'Seconds a single warp-cli call may take.' 'now' 5 300
+  S 'OC_MODE_DEFAULT' 'Launch' 'Run mode' 'enum' 'ASK' 'CLI terminal, Desktop app, or ask at every start.' 'now' 0 0 @('ASK', 'CLI', 'DESKTOP')
+  S 'OC_OTHER_WINDOW' 'Launch' 'If already open' 'enum' 'OPEN' 'Another OpenCode-Infinite window is running. OPEN starts this one too, with its own copy of the settings. CLOSE closes the other one and continues. ASK asks each time.' 'now' 0 0 @('OPEN', 'CLOSE', 'ASK')
+  S 'OC_MODEL' 'Session' 'Resume model' 'ostring' '' 'Model of the automatic resume, as provider/model, for example opencode/deepseek-v4.1-flash-free. Type - to clear: OpenCode keeps its own model.' 'now'
+  S 'MENU_DEFAULT' 'Launch' 'OpenCode menu shortcut' 'enum' 'ask' 'ask shows the OpenCode menu. 1 starts with a new IP, 2 continues with the same IP and chat (saved tokens untouched), 3 only changes the IP. The menu is skipped.' 'now' 0 0 @('ask', '1', '2', '3')
+  S 'MULTI_INSTANCE' 'Launch' 'Several windows' 'bool' 0 'On: a second launcher window runs on its own copy of the settings. Off: it brings the first window to the front.' 'next launch'
+  S 'REUSE_EMPTY' 'Launch' 'Reuse the empty chat' 'bool' 1 'A fresh start continues the newest chat when it is still empty, instead of piling up empty chats.' 'now'
+  S 'PROXY_PORT' 'WARP' 'WARP proxy port' 'port' 40000 'Local port of the WARP proxy.' 'next WARP connect'
+  S 'WARP_WAIT' 'WARP' 'WARP wait (s)' 'int' 6 'Seconds to wait after (re)connecting WARP.' 'now' 1 60
+  S 'WARP_CALL_TIMEOUT' 'WARP' 'warp-cli timeout (s)' 'int' 15 'Seconds a single warp-cli call may take.' 'now' 5 300
   S 'PROXY_LIST_URL' 'Proxy list' 'Proxy list source' 'listsrc' 'https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&protocol=http&proxy_format=protocolipport&format=text' 'URL or local file, any format (plain, CSV, JSON, XML, HTML).' 'now'
   S 'PROXY_LIST_MIN_BYTES' 'Proxy list' 'Minimum list size (bytes)' 'int' 20 'A downloaded list smaller than this is rejected. 0 = off.' 'now' 0 100000000
   S 'PROXY_TRY_MAX' 'Proxy list' 'Proxies tried per pick' 'int' 40 'How many untried proxies to test before giving up. Tested ones are skipped until the whole list was used.' 'now' 1 500
@@ -6325,71 +7280,73 @@ $Schema = @(
   S 'TOR_HTTP_PORT' 'Tor' 'Tor HTTP bridge port' 'port' 8118 'HTTP port of the built-in bridge opencode uses.' 'next Tor start'
   S 'TOR_AUTO_INSTALL' 'Tor' 'Install Tor automatically' 'bool' 1 'Download the portable Tor bundle when nothing answers.' 'now'
   S 'TOR_BOOTSTRAP_WAIT' 'Tor' 'Tor bootstrap wait (s)' 'int' 120 'Seconds to wait for Tor to finish bootstrapping.' 'now' 30 900
-  S 'ROTATE_TRIES_MAX' 'Rotation' 'Rotation attempts' 'int' 4 'Attempts per round when the tunnel is not up.' 'now' 1 20
-  S 'WG_DIR' 'Egress' 'WireGuard folder' 'dir' '' 'Folder with the WireGuard .conf files. Type - to use the default folder inside the launcher state folder.' 'now'
-  S 'VPN_TIMEOUT' 'Egress' 'Seconds per attempt' 'int' 45 'Seconds a tunnel gets to show a new exit IP before the next one is tried.' 'now' 10 300
-  S 'VPNGATE_COUNTRY' 'Egress' 'VPN Gate country' 'ostring' '' 'Two-letter country code of the VPN Gate servers, for example JP. Type - for any country.' 'now'
-  S 'VPNGATE_MAX' 'Egress' 'VPN Gate servers per start' 'int' 8 'How many VPN Gate servers are tried, best score first, before the start gives up.' 'now' 1 30
-  S 'ROTATE_COOLDOWN' 'Rotation' 'Cooldown between attempts (s)' 'int' 10 'Cloudflare throttles rapid registrations.' 'now' 0 300
-  S 'ON_CLOSE' 'Rotation' 'After opencode closes' 'enum' 'ask' 'ask = R, M or Q: R gets a new IP and resumes the chat, M opens the menu, Q quits. quit = leave the launcher at once.' 'now' 0 0 @('ask', 'quit')
-  S 'IP_FIND_MAX' 'Rotation' 'Burned IPs allowed' 'int' 0 'IPs the probe may reject before giving up. 0 = no limit.' 'now' 0 10000
-  S 'AUTO_ROTATE' 'Rotation' 'Automatic rotation' 'bool' 1 'On: a limit or a closed opencode gets a new IP and the chat resumes. Off: the menu decides.' 'now'
-  S 'TARGET_COUNTRY' 'Rotation' 'Target country' 'country' '' 'Keep asking for IPs until one is in this country, e.g. DE. Empty = any new IP.' 'now'
-  S 'TARGET_PREFIX' 'Rotation' 'Target IP prefix' 'ipprefix' '' 'Keep asking until the IP starts with this, e.g. 104.28. Empty = not used.' 'now'
-  S 'TARGET_TRIES' 'Rotation' 'Max attempts per hunt' 'int' 5 'New IPs requested in one hunt. The hunt stops at this count.' 'now' 1 100
-  S 'TARGET_MINUTES' 'Rotation' 'Max minutes per hunt' 'int' 15 'The hunt stops after this many minutes.' 'now' 1 240
-  S 'TARGET_INTERVAL' 'Rotation' 'Seconds between attempts' 'int' 15 'Pause between two attempts, so Cloudflare is not hit too fast.' 'now' 0 300
-  S 'POOL_ENABLE' 'Rotation' 'Keep a pool of tested IPs' 'bool' 1 'While Settings is open, the launcher tests IPs for proxy, VPN Gate and WireGuard and keeps them, so a rotation can reuse one.' 'now'
-  S 'POOL_MAX' 'Rotation' 'Saved IPs per mode' 'int' 5 'Most tested IPs kept for each mode. The oldest is dropped.' 'now' 1 50
-  S 'POOL_INTERVAL' 'Rotation' 'Seconds between pool searches' 'int' 60 'Pause between two pool searches. Minimum 5.' 'now' 5 3600
-  S 'LIMIT_ACTION' 'Rotation' 'When the free limit returns' 'enum' 'rotate' 'rotate = a new IP every time. provider = after the rotations below, switch to the fallback model. ask = stop and ask.' 'now' 0 0 @('rotate', 'provider', 'ask')
-  S 'LIMIT_MODEL' 'Rotation' 'Fallback model' 'ostring' '' 'Model used when the free limit keeps coming back, as provider/model. Type - to clear.' 'now'
-  S 'LIMIT_ROT_MAX' 'Rotation' 'Limit rotations in a row' 'int' 3 'Rotations in a row that end in the free limit again before the action above applies. 0 = never stop: keep rotating until a usable IP appears.' 'now' 0 50
-  S 'WATCH' 'Watcher' 'Watch the log' 'bool' 1 'Rotate when a fatal error appears while opencode runs.' 'now'
-  S 'RESUME_MSG' 'Watcher' 'Resume message' 'string' 'continue' 'Sent automatically after a rotation.' 'now'
-  S 'RESUME_MODE' 'Watcher' 'Resume mode' 'enum' 'continue' 'continue = send the resume message. last = send your last message again. custom = send the custom text below.' 'now' 0 0 @('continue', 'last', 'custom')
-  S 'RESUME_TEXT' 'Watcher' 'Custom resume text' 'ostring' '' 'Text sent when the resume mode is custom. Type - to clear.' 'now'
-  S 'CHAT_SNAPSHOT' 'Watcher' 'Show the last messages' 'bool' 1 'After opencode closes, the last messages of the chat are printed so they stay in the scroll-back and can be copied.' 'now'
-  S 'TYPE_AHEAD' 'Watcher' 'Keep what you type' 'bool' 1 'Keys typed while the IP is being renewed are put in the prompt when opencode opens again.' 'now'
-  S 'RESUME_AUTO' 'Watcher' 'Unattended resume' 'bool' 1 'The resume auto-approves tool permissions.' 'now'
-  S 'QUOTA_RESUME' 'Watcher' 'Resume after quota' 'bool' 1 'After a quota stop the chat resumes on a later start only with a new exit IP and a fresh probe.' 'now'
-  S 'RESUME_TIMEOUT' 'Watcher' 'Resume timeout (s)' 'int' 90 'Seconds before a silent resume counts as a dead IP.' 'now' 10 900
+  S 'ROTATE_TRIES_MAX' 'IP rotation' 'Rotation attempts' 'int' 4 'Attempts per round when the tunnel is not up.' 'now' 1 20
+  S 'WG_DIR' 'WireGuard / VPN Gate' 'WireGuard folder' 'dir' '' 'Folder with the WireGuard .conf files. Type - to use the default folder inside the launcher state folder.' 'now'
+  S 'VPN_TIMEOUT' 'WireGuard / VPN Gate' 'Seconds per attempt' 'int' 45 'Seconds a tunnel gets to show a new exit IP before the next one is tried.' 'now' 10 300
+  S 'VPNGATE_COUNTRY' 'WireGuard / VPN Gate' 'VPN Gate country' 'ostring' '' 'Two-letter country code of the VPN Gate servers, for example JP. Type - for any country.' 'now'
+  S 'VPNGATE_MAX' 'WireGuard / VPN Gate' 'VPN Gate servers per start' 'int' 8 'How many VPN Gate servers are tried, best score first, before the start gives up.' 'now' 1 30
+  S 'ROTATE_COOLDOWN' 'IP rotation' 'Cooldown between attempts (s)' 'int' 10 'Cloudflare throttles rapid registrations.' 'now' 0 300
+  S 'ON_CLOSE' 'Session' 'After opencode closes' 'enum' 'ask' 'ask = R, M or Q: R gets a new IP and resumes the chat, M opens the menu, Q quits. quit = leave the launcher at once.' 'now' 0 0 @('ask', 'quit')
+  S 'IP_FIND_MAX' 'IP rotation' 'Burned IPs allowed' 'int' 0 'IPs the probe may reject before giving up. 0 = no limit.' 'now' 0 10000
+  S 'AUTO_ROTATE' 'IP rotation' 'Automatic rotation' 'bool' 1 'On: a limit or a closed opencode gets a new IP and the chat resumes. Off: the menu decides.' 'now'
+  S 'TARGET_COUNTRY' 'IP rotation' 'Target country' 'country' '' 'Keep asking for IPs until one is in this country, e.g. DE. Empty = any new IP.' 'now'
+  S 'TARGET_PREFIX' 'IP rotation' 'Target IP prefix' 'ipprefix' '' 'Keep asking until the IP starts with this, e.g. 104.28. Empty = not used.' 'now'
+  S 'TARGET_TRIES' 'IP rotation' 'Max attempts per hunt' 'int' 20 'New IPs requested in one hunt. The hunt stops at this count.' 'now' 1 100
+  S 'TARGET_MINUTES' 'IP rotation' 'Max minutes per hunt' 'int' 15 'The hunt stops after this many minutes.' 'now' 1 240
+  S 'TARGET_INTERVAL' 'IP rotation' 'Seconds between attempts' 'int' 15 'Pause between two attempts, so Cloudflare is not hit too fast.' 'now' 0 300
+  S 'POOL_ENABLE' 'IP rotation' 'Keep a pool of tested IPs' 'bool' 1 'While Settings is open, the launcher tests IPs for proxy, VPN Gate and WireGuard and keeps them, so a rotation can reuse one.' 'now'
+  S 'POOL_MAX' 'IP rotation' 'Saved IPs per mode' 'int' 5 'Most tested IPs kept for each mode. The oldest is dropped.' 'now' 1 50
+  S 'POOL_INTERVAL' 'IP rotation' 'Seconds between pool searches' 'int' 60 'Pause between two pool searches. Minimum 5.' 'now' 5 3600
+  S 'LIMIT_ACTION' 'IP rotation' 'When the free limit returns' 'enum' 'rotate' 'rotate = a new IP every time. provider = after the rotations below, switch to the fallback model. ask = stop and ask.' 'now' 0 0 @('rotate', 'provider', 'ask')
+  S 'LIMIT_MODEL' 'IP rotation' 'Fallback model' 'ostring' '' 'Model used when the free limit keeps coming back, as provider/model. Type - to clear.' 'now'
+  S 'LIMIT_ROT_MAX' 'IP rotation' 'Limit rotations in a row' 'int' 3 'Rotations in a row that end in the free limit again before the action above applies. 0 = never stop: keep rotating until a usable IP appears.' 'now' 0 50
+  S 'WATCH' 'Session' 'Watch the log' 'bool' 1 'Rotate when a fatal error appears while opencode runs.' 'now'
+  S 'RESUME_MSG' 'Session' 'Resume message' 'string' 'continue' 'Sent automatically after a rotation.' 'now'
+  S 'RESUME_MODE' 'Session' 'Resume mode' 'enum' 'continue' 'continue = send the resume message. last = send your last message again. custom = send the custom text below.' 'now' 0 0 @('continue', 'last', 'custom')
+  S 'RESUME_TEXT' 'Session' 'Custom resume text' 'ostring' '' 'Text sent when the resume mode is custom. Type - to clear.' 'now'
+  S 'CHAT_SNAPSHOT' 'Session' 'Show the last messages' 'bool' 1 'After opencode closes, the last messages of the chat are printed so they stay in the scroll-back and can be copied.' 'now'
+  S 'TYPE_AHEAD' 'Session' 'Keep what you type' 'bool' 1 'Keys typed while the IP is being renewed are put in the prompt when opencode opens again.' 'now'
+  S 'RESUME_AUTO' 'Session' 'Unattended resume' 'bool' 1 'The resume auto-approves tool permissions.' 'now'
+  S 'QUOTA_RESUME' 'Session' 'Resume after quota' 'bool' 1 'After a quota stop the chat resumes on a later start only with a new exit IP and a fresh probe.' 'now'
+  S 'RESUME_TIMEOUT' 'Session' 'Resume timeout (s)' 'int' 90 'Seconds before a silent resume counts as a dead IP.' 'now' 10 900
   S 'PROBE' 'Probe' 'Test every new IP' 'bool' 1 'Send one cheap message through each candidate IP.' 'now'
-  S 'PROBE_MODEL' 'Probe' 'Probe model' 'string' 'opencode/big-pickle' 'Model used by the IP probe.' 'now'
+  S 'PROBE_MODEL' 'Probe' 'Probe model' 'string' 'opencode/deepseek-v4.1-flash-free' 'Model used by the IP probe (the chat model unless a model is set).' 'now'
   S 'PROBE_BROKEN_MAX' 'Probe' 'Probe failures tolerated' 'int' 3 'Non-limit probe failures before the hunt stops.' 'now' 1 50
   S 'OC_APP' 'Paths' 'Desktop app path' 'path' '' 'Full path of OpenCode.exe. Empty = search automatically.' 'now'
-  S 'OC_API_BASE' 'Paths' 'Release metadata URL' 'url' 'https://opencode.ai/update/api/latest' 'Where versions and checksums are read from.' 'now'
+  S 'OC_API_BASE' 'Updates' 'Release metadata URL' 'url' 'https://opencode.ai/update/api/latest' 'Where versions and checksums are read from.' 'now'
   S 'WHERE_TIMEOUT' 'Paths' 'PATH lookup timeout (s)' 'int' 5 'Seconds a single "where" lookup may take.' 'now' 1 120
   S 'UPDATE_CHECK' 'Updates' 'Launcher self-update' 'bool' 1 'Check GitHub for a newer launcher at every start.' 'next launch'
   S 'UPDATE_ASK' 'Updates' 'Update prompts' 'enum' 'ask' 'ask = offer newer versions at start (launcher, opencode, desktop app). never = no update checks and no prompts.' 'now' 0 0 @('ask', 'never')
   S 'OCUI_THEME' 'Appearance' 'Color theme' 'enum' 'ocean' 'Accent colors of the interface.' 'now' 0 0 @('ocean', 'forest', 'sunset', 'mono', 'rainbow')
   S 'OCUI_COLOR' 'Appearance' 'Colors' 'enum' 'auto' 'auto follows the terminal and NO_COLOR; off disables colors.' 'now' 0 0 @('auto', 'on', 'off')
   S 'OCUI_ICONS' 'Appearance' 'Icons and borders' 'enum' 'auto' 'emoji = modern terminals, unicode = classic console, ascii = anything.' 'now' 0 0 @('auto', 'emoji', 'unicode', 'ascii')
-  S 'OCUI_LANG' 'Appearance' 'Language' 'enum' 'auto' 'Language of the menus and descriptions. auto follows Windows. Logs and the support report stay in English.' 'now' 0 0 @('auto', 'en', 'es', 'fr', 'de', 'pt', 'it', 'tr')
+  S 'OCUI_LANG' 'Appearance' 'Language' 'enum' 'auto' 'Language of the menus and descriptions. auto follows Windows. Logs and the support report stay in English.' 'now' 0 0 @('auto', 'en', 'es', 'fr', 'de', 'pt', 'it', 'tr', 'ru')
   S 'OCUI_FONT' 'Appearance' 'Terminal font' 'font' '' 'Font of the terminal text. Empty leaves the terminal as it is.' 'now'
   S 'OCUI_FONT_SIZE' 'Appearance' 'Font size' 'int' 16 'Size used with the chosen font.' 'now' 8 72
   S 'KEY_ROTATE' 'Shortcuts' 'Rotate key' 'key' 'R' 'Closed-opencode prompt: new IP and resume the chat.' 'now'
   S 'KEY_MENU' 'Shortcuts' 'Menu key' 'key' 'M' 'Closed-opencode prompt: open the menu.' 'now'
   S 'KEY_QUIT' 'Shortcuts' 'Quit key' 'key' 'Q' 'Closed-opencode prompt: quit. Ctrl+C always quits too.' 'now'
-  S 'LOG_ENABLED' 'Support' 'Activity log' 'bool' 1 'Record what the launcher does in launcher.log so a problem can be diagnosed.' 'now'
-  S 'LOG_MAX_KB' 'Support' 'Log size limit (KB)' 'int' 1024 'The log is cut to its newest part when it grows past this.' 'next launch' 64 10240
-  S 'LOG_MASK_IP' 'Support' 'Hide IPs in reports' 'bool' 1 'Public IP addresses are masked in the support report.' 'now'
+  S 'LOG_ENABLED' 'Logs' 'Activity log' 'bool' 1 'Record what the launcher does in launcher.log so a problem can be diagnosed.' 'now'
+  S 'LOG_MAX_KB' 'Logs' 'Log size limit (KB)' 'int' 1024 'The log is cut to its newest part when it grows past this.' 'next launch' 64 10240
+  S 'LOG_MASK_IP' 'Logs' 'Hide IPs in reports' 'bool' 1 'Public IP addresses are masked in the support report.' 'now'
 )
-$Groups = @('Common', 'Connection', 'Proxy list', 'Tor', 'Egress', 'Rotation', 'Watcher', 'Probe', 'Paths', 'Updates', 'Appearance', 'Shortcuts', 'Support')
+$Groups = @('Common', 'Launch', 'Connection', 'WARP', 'Tor', 'Proxy list', 'WireGuard / VPN Gate', 'IP rotation', 'Probe', 'Session', 'Paths', 'Updates', 'Appearance', 'Shortcuts', 'Logs')
 $GroupHelp = @{
   'Common' = 'The settings most people change: connection, proxy list, rotation, language and theme. The other groups are for advanced use.'
-  'Connection' = 'Default connection method and run mode, the WARP proxy port and the warp-cli timings.'
-  'Proxy list' = 'Where proxies come from (URL or file, any format) and how each one is tested.'
+  'Launch' = 'How OpenCode starts: run mode, the menu shortcut, reusing an empty chat and several windows.'
+  'Connection' = 'The default connection method opencode uses at start.'
+  'WARP' = 'The WARP proxy port and the warp-cli timings.'
   'Tor' = 'Ports and install behavior of the portable Tor the launcher starts for you.'
-  'Egress' = 'The WireGuard connection method: the folder of .conf files and the time limit.'
-  'Rotation' = 'How many times, and how fast, a new IP is requested when the free limit is hit.'
-  'Watcher' = 'Watching the opencode log and the automatic "continue" sent after a rotation.'
+  'Proxy list' = 'Where proxies come from (URL or file, any format) and how each one is tested.'
+  'WireGuard / VPN Gate' = 'The WireGuard and VPN Gate methods: the folder of .conf files, the time limit, the country and how many servers are tried.'
+  'IP rotation' = 'How many times, and how fast, a new IP is requested when the free limit is hit.'
   'Probe' = 'The cheap test message sent through every new IP before it is trusted.'
-  'Paths' = 'Desktop app location, release metadata URL and lookup timeouts.'
-  'Updates' = 'Whether the launcher checks GitHub for a newer copy of itself at every start.'
+  'Session' = 'Watching the opencode log, the resume after a rotation and what is kept between sessions.'
+  'Paths' = 'Desktop app location and lookup timeouts.'
+  'Updates' = 'Whether the launcher checks for a newer copy of itself, and where versions and checksums are read from.'
   'Appearance' = 'Color theme, colors on or off, icon and border style, and the terminal font. Applied immediately.'
   'Shortcuts' = 'The keys of the launcher and the terminal commands. Fixed keys are listed for reference; the three letters can be changed.'
-  'Support' = 'The activity log (launcher.log) and the support report: what is recorded, how big it may grow, whether IPs are masked.'
+  'Logs' = 'The activity log (launcher.log) and the support report: what is recorded, how big it may grow, whether IPs are masked.'
 }
 
 # ---------------------------------------------------------------- config file
@@ -6442,7 +7399,8 @@ function Save-Cfg {
   [IO.File]::WriteAllLines($EnvPath, [string[]]$lines, (New-Object Text.UTF8Encoding($false)))
   # What the batch needs to color its own lines like this interface. Only a real console writes it: a hidden
   # child (output redirected) must not switch colors off for the window that is actually on screen.
-  if ($Scripted -or -not [Console]::IsOutputRedirected) {
+  # NO_COLOR is for this run only: a run with it must not save UI_COLOR=0 for later runs.
+  if (($Scripted -or -not [Console]::IsOutputRedirected) -and -not $env:NO_COLOR) {
     $ui = @(('UI_COLOR=' + $(if ($script:Color) { 1 } else { 0 })), ('UI_ACC=' + $script:Theme.Accent))
     [IO.File]::WriteAllLines((Join-Path $State 'ui.env'), [string[]]$ui, (New-Object Text.UTF8Encoding($false)))
   }
@@ -6496,6 +7454,8 @@ function Test-Val($s, [string]$t, [bool]$loading = $false) {
     'key' {
       if ($t -notmatch '^[A-Za-z]$') { return Fail 'One letter, like R.' }
       $u = $t.ToUpper()
+      # v3.1 (N66): E changes the egress at the closed-opencode prompt; it cannot be chosen.
+      if (-not $loading) { if ($u -eq 'E') { return Fail (Tf 'Key {0} is already used by {1}.' $u (T 'Change egress')) } }
       if (-not $loading) { foreach ($o in @('KEY_ROTATE', 'KEY_MENU', 'KEY_QUIT')) { if ($o -ne $s.Key -and ([string](Get-Val $o)).ToUpper() -eq $u) { return Fail (Tf 'Key {0} is already used by {1}.' $u (T (Get-Setting $o).Label)) } } }
       return Pass $u
     }
@@ -6545,7 +7505,11 @@ function Test-Val($s, [string]$t, [bool]$loading = $false) {
 function Enable-VT {
   if ($env:WT_SESSION -or $env:TERM_PROGRAM -or $env:ConEmuANSI -eq 'ON') { return $true }
   try {
-    Add-Type -Namespace OCI -Name K32 -ErrorAction Stop -MemberDefinition '[DllImport("kernel32.dll")] public static extern IntPtr GetStdHandle(int n); [DllImport("kernel32.dll")] public static extern bool GetConsoleMode(IntPtr h, out int m); [DllImport("kernel32.dll")] public static extern bool SetConsoleMode(IntPtr h, int m);'
+    # v3.1 (N11): Init-Ui runs this again. The second Add-Type threw, the catch returned
+    # $false and Save-Cfg then persisted UI_COLOR=0.
+    if (-not ('OCI.K32' -as [type])) {
+      Add-Type -Namespace OCI -Name K32 -ErrorAction Stop -MemberDefinition '[DllImport("kernel32.dll")] public static extern IntPtr GetStdHandle(int n); [DllImport("kernel32.dll")] public static extern bool GetConsoleMode(IntPtr h, out int m); [DllImport("kernel32.dll")] public static extern bool SetConsoleMode(IntPtr h, int m);'
+    }
     $h = [OCI.K32]::GetStdHandle(-11); $m = 0
     if (-not [OCI.K32]::GetConsoleMode($h, [ref]$m)) { return $false }
     return [OCI.K32]::SetConsoleMode($h, ($m -bor 4))
@@ -6558,6 +7522,57 @@ $Themes = @{
   mono   = @{ Title = '1'; Accent = '0'; Sel = '7'; Border = '0'; Panel = '' }
   rainbow = @{ Title = '1'; Accent = '36'; Sel = '30;46'; Border = '35'; Panel = ''; Rainbow = $true }
 }
+# v2.61: more themes are read from themes/themes.txt of the repository, cached in the state folder like the languages.
+# The five built-in themes stay in this file, so the launcher still works offline.
+$BuiltinThemes = @('ocean', 'forest', 'sunset', 'mono', 'rainbow')
+$ThemeBase = if ($env:OC_THEME_BASE) { $env:OC_THEME_BASE } else { 'https://gitlab.com/jekooo/opencode-infinite/-/raw/main/themes' }
+$ThemeVer = '1'
+# one theme per line: name|title|accent|border|selected|rainbow; a line that does not fit is skipped (max 30)
+function Parse-Themes([string]$text) {
+  $out = @{}
+  foreach ($raw in ($text -split "`r?`n")) {
+    $f = $raw.Trim().Split('|')
+    if ($f.Count -ne 6 -or $f[0] -cnotmatch '^[a-z][a-z0-9_-]{1,19}$' -or $BuiltinThemes -contains $f[0]) { continue }
+    if ($f[1] -notmatch '^[0-9;]{1,20}$' -or $f[2] -notmatch '^[0-9;]{1,20}$' -or $f[3] -notmatch '^[0-9;]{1,20}$' -or $f[4] -notmatch '^[0-9;]{1,20}$' -or $f[5] -notmatch '^[01]$') { continue }
+    if ($out.Count -ge 30) { break }
+    $out[$f[0]] = @{ Title = $f[1]; Accent = $f[2]; Border = $f[3]; Sel = $f[4]; Panel = ''; Rainbow = ($f[5] -eq '1') }
+  }
+  return $out
+}
+# downloads the theme file when it is missing or from another ThemeVer (a failed try is not repeated for an hour),
+# then adds its themes to $Themes and lists them in the OCUI_THEME setting
+function Load-Themes {
+  $dir = Join-Path $State 'themes'
+  $file = Join-Path $dir 'themes.txt'
+  $verFile = $file + '.ver'
+  $failFile = $file + '.failed'
+  $tmp = $file + '.tmp'
+  $fresh = (Test-Path -LiteralPath $file) -and (Test-Path -LiteralPath $verFile) -and (([string](Get-Content -LiteralPath $verFile -Raw)).Trim() -eq $ThemeVer)
+  $recentFail = (Test-Path -LiteralPath $failFile) -and (((Get-Date) - (Get-Item -LiteralPath $failFile).LastWriteTime).TotalHours -lt 1)
+  if (-not $fresh -and -not $recentFail) {
+    try {
+      New-Item -ItemType Directory -Force -Path $dir | Out-Null
+      $src = $ThemeBase + '/themes.txt'
+      [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+      if ($src -match '^https://') { Invoke-WebRequest -Uri $src -OutFile $tmp -UseBasicParsing -TimeoutSec 8 } else { Copy-Item -LiteralPath $src -Destination $tmp -Force }
+      if ((Parse-Themes (Get-Content -LiteralPath $tmp -Raw -Encoding UTF8)).Count -eq 0) { throw 'no valid theme in the file' }
+      Move-Item -LiteralPath $tmp -Destination $file -Force
+      [IO.File]::WriteAllText($verFile, $ThemeVer)
+      Remove-Item -LiteralPath $failFile -Force -ErrorAction SilentlyContinue
+      Log 'themes downloaded'
+    } catch {
+      Log ('themes not downloaded: ' + $_.Exception.Message)
+      Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+      [IO.File]::WriteAllText($failFile, (Get-Date).ToString('s'))
+    }
+  }
+  $extra = @{}
+  if (Test-Path -LiteralPath $file) { try { $extra = Parse-Themes (Get-Content -LiteralPath $file -Raw -Encoding UTF8) } catch { } }
+  foreach ($k in $extra.Keys) { $Themes[$k] = $extra[$k] }
+  $script:ExtraThemes = @($extra.Keys | Sort-Object)
+  ($Schema | Where-Object { $_.Key -eq 'OCUI_THEME' }).Values = @($BuiltinThemes + $script:ExtraThemes)
+}
+Load-Themes
 # rainbow: the phase moves a little every frame, so the colors flow like LEDs (see Anim-Key)
 $script:RainPhase = 0
 function Hue-Rgb([double]$h) {
@@ -6566,10 +7581,10 @@ function Hue-Rgb([double]$h) {
   return ('{0};{1};{2}' -f [int]($r * 255), [int]($g * 255), [int]($b * 255))
 }
 # v2.30: the languages the interface knows; each one is a JSON file in langs/.
-$Langs = @('en', 'es', 'fr', 'de', 'pt', 'it', 'tr')
+$Langs = @('en', 'es', 'fr', 'de', 'pt', 'it', 'tr', 'ru')
 $LangBase = if ($env:OC_LANG_BASE) { $env:OC_LANG_BASE } else { 'https://gitlab.com/jekooo/opencode-infinite/-/raw/main/langs' }
 # a cached language file is refreshed when it was downloaded by another launcher version (its .ver file)
-$LangVer = '2.39'
+$LangVer = '2.61'
 # T looks a text up in the selected language; no entry means the English text is shown. Leading
 # icons and spaces are kept. Tf fills {0} {1} after translating. OC_TUI_I18N_DUMP=<file> lists the misses.
 $script:TrCache = @{}
@@ -6662,7 +7677,8 @@ function Init-Ui {
   $lg = Get-Val 'OCUI_LANG'
   if ($lg -eq 'auto') { $lg = Detect-Lang }
   $script:Lang = $lg
-  if (-not $Scripted) { try { [Console]::TreatControlCAsInput = $true } catch { } }
+  # v2.60 (N12): the previous value is kept so the console gets Ctrl+C back on every exit.
+  if (-not $Scripted) { try { $script:OldCtrlC = [Console]::TreatControlCAsInput; [Console]::TreatControlCAsInput = $true } catch { } }
   $script:Tr = Get-Table $lg
   $im = Get-Val 'OCUI_ICONS'
   if ($im -eq 'auto') { if ($env:WT_SESSION -or $env:TERM_PROGRAM -or $env:VSCODE_PID) { $im = 'emoji' } else { $im = 'unicode' } }
@@ -6685,12 +7701,9 @@ function Init-Ui {
       spin = @('|', '/', '-', '\'); bar = '#'; barOff = '.' }
   }
   $script:IconList = @(@($script:I.ok, $script:I.err, $script:I.warn, $script:I.gear, $script:I.play, $script:I.link, $script:I.renew, $script:I.trash, $script:I.back, $script:I.renewE) | Where-Object { $_ } | Sort-Object { $_.Length } -Descending)
-  # The interface is a block centered in the terminal: margin = free columns / 2.
-  try { $cw = [Console]::WindowWidth; $script:TermH = [Console]::WindowHeight } catch { $cw = 80; $script:TermH = 30 }
-  if ($env:OC_TUI_COLS) { $cw = [int]$env:OC_TUI_COLS }
-  if ($cw -lt 20) { $cw = 80 }
-  $script:Width = [Math]::Max(56, [Math]::Min(74, $cw - 2))
-  $script:Margin = [Math]::Max(0, [int](($cw - $script:Width) / 2))
+  # v2.60 (N13): the geometry is measured again for every frame, so a window resized while a
+  # menu is open measures its rows and draws them with the same width and margin.
+  Get-Geometry
   $script:VPad = ((-not $Scripted) -or [bool]$env:OC_TUI_VPAD)
 }
 # A block background behind a line: re-applied after each color reset inside the line.
@@ -6745,11 +7758,24 @@ function Disp-W([string]$s) {
   }
   return $w
 }
-function Pad([string]$s, [int]$n) { if ($s.Length -ge $n) { return $s.Substring(0, $n) } return $s + (' ' * [Math]::Max(0, $n - (Disp-W $s))) }
+function Pad([string]$s, [int]$n) {
+  # v3.1 (N75): truncating by .Length split surrogate pairs and measured columns wrong.
+  # Text is cut by whole text elements and padded by visible width.
+  if ($n -le 0) { return '' }
+  $w = Disp-W $s
+  if ($w -le $n) { return $s + (' ' * ($n - $w)) }
+  $e = [System.Globalization.StringInfo]::GetTextElementEnumerator($s)
+  $o = ''; $u = 0
+  while ($e.MoveNext()) { $g = [string]$e.Current; $gw = Disp-W $g; if (($u + $gw) -gt $n) { break }; $o += $g; $u += $gw }
+  return $o + (' ' * ($n - $u))
+}
 function Box-Top([string]$title) { return Panel (Box-Top0 $title) }
 function Box-Top0([string]$title) {
   $in = $script:Width - 2
-  $t = ' ' + $title + ' '
+  # v3.1 (N75): a title wider than the panel used to tear the box; it is truncated.
+  $tt = $title
+  if ((Disp-W $tt) -gt ($in - 3)) { $tt = (Pad $tt ([Math]::Max(0, $in - 3))).TrimEnd() }
+  $t = ' ' + $tt + ' '
   $left = $script:I.tl + $script:I.h
   $fill = $script:I.h * [Math]::Max(0, $in - 1 - $t.Length)
   return (P (Style 'border') $left) + (P (Style 'title') $t) + (P (Style 'border') ($fill + $script:I.tr))
@@ -6761,7 +7787,7 @@ function Box-Line([string]$text, $style = '') {
 }
 function Get-Banner {
   $bw = 80; try { $bw = [Console]::WindowWidth } catch { }
-  if ($env:OC_TUI_COLS) { $bw = [int]$env:OC_TUI_COLS }
+  if ($env:OC_TUI_COLS) { $bw = 0; if (-not [int]::TryParse([string]$env:OC_TUI_COLS, [ref]$bw)) { $bw = 0 } }
   # the logo is 56 columns wide: in a narrower window its lines wrap and tear, so a short title is shown instead
   if ($bw -lt 60) { return @((P (Style 'title') ' OPENCODE INFINITE'), (P (Style 'accent') (' ' + $Repo))) }
   $art = @(
@@ -6828,11 +7854,23 @@ function Wait-Key { WL ''; WL (P (Style 'dim') (T 'Press any key to continue...'
 
 # Arrow-key menu. Items: @{L=label; V=value text; S=value style; D=disabled; H=what it does}.
 # Returns the index, or -1 on Esc. The selected row's H is shown under the box.
+# The interface is a block centered in the terminal: margin = free columns / 2.
+# v2.60 (N13): Width, Margin and TermH used to be computed once, so after a resize the frame
+# was measured with the new width and drawn with the old margin, and [nF went back too many
+# rows. One measurement per frame keeps rows, $vp and $anim on the same values.
+function Get-Geometry {
+  try { $cw = [Console]::WindowWidth; $script:TermH = [Console]::WindowHeight } catch { $cw = 80; $script:TermH = 30 }
+  if ($env:OC_TUI_COLS) { $cw = 0; if (-not [int]::TryParse([string]$env:OC_TUI_COLS, [ref]$cw)) { $cw = 0 } }
+  if ($cw -lt 20) { $cw = 80 }
+  $script:Width = [Math]::Max(56, [Math]::Min(74, $cw - 2))
+  $script:Margin = [Math]::Max(0, [int](($cw - $script:Width) / 2))
+}
 function Show-Menu([string]$title, $items, $footer = $null, $head = $null, [int]$start = 0, [bool]$banner = $false, [bool]$inline = $false) {
   $i = $start
   if ($i -ge $items.Count) { $i = 0 }
   $top = -1; $drawn = 0
   while ($true) {
+    Get-Geometry
     $buf = New-Object 'Collections.Generic.List[string]'
     $fullVal = ''
     if ($banner) { foreach ($b in (Get-Banner)) { $buf.Add($b) }; $buf.Add('') }
@@ -6947,11 +7985,22 @@ function Run-Child([string]$label, [string]$arg, [string]$log, [int]$timeout = 3
     $sec = [int]((Get-Date) - $t0).TotalSeconds
     W ("`r" + (' ' * $script:Margin) + (P (Style 'accent') $frame) + ' ' + $label + ' ' + (P (Style 'dim') ($sec.ToString() + 's')) + '   ')
     Start-Sleep -Milliseconds 120
-    if ($sec -gt $timeout) { try { Start-Process taskkill.exe -ArgumentList @('/T', '/F', '/PID', $p.Id) -WindowStyle Hidden -Wait } catch { }; $killed = $true; break }
+    if ($sec -gt $timeout) {
+      # v3.1 (N47): the kill was fire-and-forget. A failing taskkill left the child alive
+      # while 124 told the caller to start another one, and $p was never freed.
+      try {
+        $tk = Start-Process taskkill.exe -ArgumentList @('/T', '/F', '/PID', $p.Id) -WindowStyle Hidden -Wait -PassThru
+        if ($tk) { $tk.Dispose() }
+      } catch { }
+      $killed = $true; break
+    }
   }
   W ("`r" + (' ' * ($script:Margin + $label.Length + 12)) + "`r")
-  if ($killed -or -not $p.HasExited) { return 124 }
-  return $p.ExitCode
+  try { if ($killed -and -not $p.HasExited) { [void]$p.WaitForExit(2000) } } catch { }
+  if ($killed -or -not $p.HasExited) { try { $p.Dispose() } catch { }; return 124 }
+  $rc = $p.ExitCode
+  try { $p.Dispose() } catch { }
+  return $rc
 }
 function Show-LogTail([string]$log, [int]$n = 6) {
   if (-not (Test-Path -LiteralPath $log)) { return }
@@ -7245,7 +8294,7 @@ function Format-Val($s) {
   switch ($s.Type) { 'bool' { if ([int]$v -eq 1) { return (T 'on') } else { return (T 'off') } } default { if ([string]$v -eq '') { return (T '(auto)') } if ($s.Key -eq 'OCUI_LANG') { return (Lang-Name $v) } return [string]$v } }
 }
 function Lang-Name([string]$c) {
-  switch ($c) { 'auto' { return (T 'auto') } 'en' { return 'English' } 'es' { return ('Espa' + [char]0xF1 + 'ol') } 'fr' { return ('Fran' + [char]0xE7 + 'ais') } 'de' { return 'Deutsch' } 'pt' { return ('Portugu' + [char]0xEA + 's') } 'it' { return 'Italiano' } 'tr' { return ('T' + [char]0xFC + 'rk' + [char]0xE7 + 'e') } default { return $c } }
+  switch ($c) { 'auto' { return (T 'auto') } 'en' { return 'English' } 'es' { return ('Espa' + [char]0xF1 + 'ol') } 'fr' { return ('Fran' + [char]0xE7 + 'ais') } 'de' { return 'Deutsch' } 'pt' { return ('Portugu' + [char]0xEA + 's') } 'it' { return 'Italiano' } 'tr' { return ('T' + [char]0xFC + 'rk' + [char]0xE7 + 'e') } 'ru' { return (-join ([char[]](0x0420, 0x0443, 0x0441, 0x0441, 0x043A, 0x0438, 0x0439))) } default { return $c } }
 }
 function Describe-Setting($s) {
   if ($s.Type -eq 'bool') { $dv = $(if ([int]$s.Default -eq 1) { T 'on' } else { T 'off' }) }
@@ -7265,14 +8314,84 @@ function Shortcut-Info {
     @{ L = 'Esc'; V = 'back to the previous screen'; D = $true; H = 'Fixed. In a menu or a text prompt Esc goes back; it never closes the launcher.' },
     @{ L = 'Enter, arrows'; V = 'select and move'; D = $true; H = 'Fixed. Digits 1-9 jump straight to a row.' },
     @{ L = 'Ctrl+C'; V = 'quit the launcher'; D = $true; H = 'Fixed. Stops the processes it started and leaves the terminal open, no Y/N question.' },
-    @{ L = 'opencode'; V = 'start with the connection'; D = $true; H = 'Terminal command from any folder. The Start menu shortcut does the same.' },
-    @{ L = 'opencodeinf'; V = 'open this menu'; D = $true; H = 'Terminal command: opens the launcher menu again, as many times as you need.' },
-    @{ L = 'opencodeoc'; V = 'original OpenCode'; D = $true; H = 'Terminal command: starts the OpenCode you installed, without the launcher or the connection. Use it when the launcher breaks.' }
+    @{ L = 'opencode'; V = 'normal OpenCode, no launcher'; D = $true; H = 'Terminal command from any folder. Starts the OpenCode you installed, as it is, with no connection change.' },
+    @{ L = 'opencodeinf'; V = 'launcher menu'; D = $true; H = 'Terminal command: opens the launcher menu. The Start menu shortcut does the same. Options go after it, see the rows below.' },
+    @{ L = 'opencodeinf --preset warp|tor|proxy'; V = 'connection, no menu'; D = $true; H = 'Starts OpenCode with that connection and no menu. Example: opencodeinf --preset warp --here --quiet' },
+    @{ L = 'opencode-auto  (= opencodeinf --auto)'; V = 'no menus'; D = $true; H = 'Starts OpenCode in the folder you are in with the last working connection. No menus.' },
+    @{ L = 'opencodeinf --here'; V = 'this folder'; D = $true; H = 'Uses the folder you are in now as the project folder.' },
+    @{ L = 'opencodeinf --quiet | --verbose'; V = 'console output'; D = $true; H = '--quiet prints nothing and only writes the log. --verbose also logs every line.' },
+    @{ L = 'opencodeinf --no-update | --no-probe'; V = 'skip checks'; D = $true; H = '--no-update skips the update check; --no-probe skips the IP probe.' },
+    @{ L = 'opencode-warp, -tor, -proxy'; V = 'one connection each, no menu'; D = $true; H = 'Written by Install direct commands in the Launch group. Each runs opencodeinf --preset with its connection.' }
   )
+}
+# v3.5: the user PATH gets only the launcher folder of the real user profile. The check uses the
+# known-folder path, not the LOCALAPPDATA variable, so a test copy that has its own state folder
+# cannot register it. Other launcher folders (any folder with an opencodeinf.cmd) are removed, so an
+# old or test copy cannot win the command. Returns added, there or skipped.
+function Set-ShimPath {
+  $mine = $ShimDir.TrimEnd('\')
+  $real = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'opencode-infinite\bin').TrimEnd('\')
+  if ($mine -ine $real) { Log ('PATH not changed: this copy uses ' + $mine + ', not the real launcher folder') 'path'; return 'skipped' }
+  $cur = [string](Get-UserPath)
+  $parts = @($cur -split ';' | Where-Object { $_ -ne '' })
+  $stray = @($parts | Where-Object { $_.TrimEnd('\') -ine $mine -and (Test-Path -LiteralPath (Join-Path $_ 'opencodeinf.cmd')) })
+  $keep = @($parts | Where-Object { $stray -notcontains $_ })
+  $there = [bool]($keep | Where-Object { $_.TrimEnd('\') -ieq $mine })
+  if (-not $there) { $keep = @($ShimDir) + $keep }
+  $new = $keep -join ';'
+  if ($new -ne $cur) { Set-UserPath $new }
+  if ($stray.Count) { Log ('removed other launcher folder(s) from PATH: ' + ($stray -join ', ')) 'path' }
+  if ($there) { return 'there' }
+  return 'added'
+}
+# Commands on their own, not tied to setup: opencodeinf and opencode-auto, and the bin folder on the user PATH.
+function Commands-Install {
+  New-Item -ItemType Directory -Force -Path $ShimDir | Out-Null
+  $utf8 = New-Object Text.UTF8Encoding($false)
+  [IO.File]::WriteAllText($ShimInfPath, (Shim-Text ''), $utf8)
+  [IO.File]::WriteAllText($ShimAutoPath, (Shim-Text '--auto'), $utf8)
+  # v3.7: the direct commands come with the others, so opencode-warp is on PATH after one install.
+  foreach ($x in @(@('warp', $ShimWarpPath), @('tor', $ShimTorPath), @('proxy', $ShimProxyPath))) { [IO.File]::WriteAllText($x[1], (Shim-Preset $x[0]), $utf8) }
+  return (Set-ShimPath)
+}
+# Main menu > Commands: only two choices, install or remove opencodeinf and opencode-auto. Esc goes back.
+# The local name must not be $state: PowerShell names are case-insensitive, and $State is the state folder that Log uses.
+function Commands-Menu {
+  $have = ((Test-Path -LiteralPath $ShimInfPath) -or (Test-Path -LiteralPath $ShimAutoPath))
+  $cstate = $(if ($have) { (T 'installed') } else { (T 'not installed') })
+  $items = @(
+    @{ L = ($script:I.link + ' ' + (T 'Install commands')); V = $cstate; S = 'ok'; H = 'Write opencodeinf, opencode-auto, opencode-warp, opencode-tor and opencode-proxy, and put their folder on your PATH.' },
+    @{ L = ($script:I.err + ' ' + (T 'Remove commands')); V = $cstate; S = 'err'; D = (-not $have); H = 'Delete the same five commands. The folder leaves your PATH when no other launcher file is in it.' })
+  $r = Show-Menu 'Commands' $items $null $null 0
+  if ($r -eq 0) {
+    $res = Commands-Install
+    Log ('commands installed from the main menu, PATH ' + $res)
+    if ($res -eq 'skipped') { $script:Notice = @('warn', 'PATH not changed: this copy is not the installed launcher.') }
+    elseif ($res -eq 'added') { $script:Notice = @('ok', 'Commands installed: opencodeinf and opencode-auto. The folder was added to your PATH. Open a new terminal to use them.') }
+    else { $script:Notice = @('ok', 'Commands installed: opencodeinf and opencode-auto.') }
+  }
+  elseif ($r -eq 1) {
+    Remove-Item -LiteralPath $ShimWarpPath, $ShimTorPath, $ShimProxyPath -Force -ErrorAction SilentlyContinue
+    $res = Commands-Remove
+    Log ('commands removed from the main menu, PATH ' + $res)
+    if ($res -eq 'kept') { $script:Notice = @('ok', 'Commands removed. The folder stays on your PATH because other launcher files are in it.') }
+    else { $script:Notice = @('ok', 'Commands removed: opencodeinf and opencode-auto.') }
+  }
+}
+function Commands-Remove {
+  Remove-Item -LiteralPath $ShimInfPath, $ShimAutoPath -Force -ErrorAction SilentlyContinue
+  # The folder stays on PATH while other files are in it (the opencode command, for example).
+  if (@(Get-ChildItem -LiteralPath $ShimDir -File -ErrorAction SilentlyContinue).Count) { return 'kept' }
+  $parts = @(([string](Get-UserPath)) -split ';' | Where-Object { $_ -ne '' })
+  $keep = @($parts | Where-Object { $_.TrimEnd('\') -ine $ShimDir.TrimEnd('\') })
+  if ($keep.Count -ne $parts.Count) { Set-UserPath ($keep -join ';') }
+  return 'removed'
 }
 function Group-Menu([string]$group) {
   $list = @(Group-Keys $group)
   $pos = 0; $msg = $null
+  # D03: the three direct commands, kept next to the settings of the group.
+  $direct = @(@('warp', $ShimWarpPath), @('tor', $ShimTorPath), @('proxy', $ShimProxyPath))
   while ($true) {
     $items = @()
     foreach ($s in $list) {
@@ -7281,6 +8400,20 @@ function Group-Menu([string]$group) {
     if ($group -eq 'Shortcuts') { $items += Shortcut-Info }
     # v2.44: the manual path is the OC_APP row above; this row forgets the cached search.
     if ($group -eq 'Paths') { $redetAt = $items.Count; $items += @{ L = 'Re-detect desktop app'; H = 'Search for OpenCode.exe again now instead of using the result kept for 10 minutes.' } } else { $redetAt = -2 }
+    # D03: install or remove the three direct commands, showing the state they have right now.
+    if ($group -eq 'Launch') {
+      $have = @($direct | Where-Object { Test-Path -LiteralPath $_[1] } | ForEach-Object { $_[0] })
+      $state = $(if ($have.Count) { 'installed: ' + ($have -join ', ') } else { (T 'not installed') })
+      $dirAt = $items.Count; $items += @{ L = 'Install direct commands'; V = $state; H = 'Write opencode-warp, opencode-tor and opencode-proxy: each one starts opencode with that connection and no menu.' }
+      $rmAt = $items.Count; $items += @{ L = 'Remove direct commands'; V = $state; S = 'err'; D = (-not $have.Count); H = 'Delete only those three commands. opencode and opencodeinf are kept.' }
+    } else { $dirAt = -2; $rmAt = -2 }
+    # Commands on their own (not tied to setup): opencodeinf and opencode-auto.
+    if ($group -eq 'Launch') {
+      $cHave = ((Test-Path -LiteralPath $ShimInfPath) -or (Test-Path -LiteralPath $ShimAutoPath))
+      $cState = $(if ($cHave) { 'opencodeinf, opencode-auto' } else { (T 'not installed') })
+      $cmdAt = $items.Count; $items += @{ L = 'Install commands'; V = $cState; H = 'Write opencodeinf and opencode-auto, and put their folder on your PATH. Does not need Set up connection.' }
+      $cmdRmAt = $items.Count; $items += @{ L = 'Remove commands'; V = $cState; S = 'err'; D = (-not $cHave); H = 'Delete opencodeinf and opencode-auto. The folder stays on PATH while other files are in it.' }
+    } else { $cmdAt = -2; $cmdRmAt = -2 }
     $backAt = $items.Count
     $items += @{ L = ($script:I.back + ' Back'); H = 'Return to the settings groups.' }
     $head = @(); if ($msg) { $head += $msg; $head += '' }
@@ -7288,6 +8421,39 @@ function Group-Menu([string]$group) {
     if ($r -eq -1 -or $r -eq $backAt) { return }
     $pos = $r
     if ($r -eq $redetAt) { Remove-Item -LiteralPath (Join-Path $State 'desktop_scan.txt') -Force -ErrorAction SilentlyContinue; $msg = (P (Style 'ok') ($script:I.ok + ' ' + (T 'The desktop app will be searched for again.'))); continue }
+    if ($r -eq $dirAt) {
+      $utf8 = New-Object Text.UTF8Encoding($false)
+      New-Item -ItemType Directory -Force -Path $ShimDir | Out-Null
+      foreach ($x in $direct) { [IO.File]::WriteAllText($x[1], (Shim-Preset $x[0]), $utf8) }
+      Log 'direct commands installed'
+      $msg = (P (Style 'ok') ($script:I.ok + ' ' + (T 'Direct commands installed: opencode-warp, opencode-tor, opencode-proxy.')))
+      continue
+    }
+    if ($r -eq $rmAt) {
+      if (Confirm-Box (T 'Remove the direct commands?') @('opencode-warp, opencode-tor and opencode-proxy are deleted.', 'opencode and opencodeinf are kept.')) {
+        foreach ($x in $direct) { Remove-Item -LiteralPath $x[1] -Force -ErrorAction SilentlyContinue }
+        Log 'direct commands removed'
+        $msg = (P (Style 'ok') ($script:I.ok + ' ' + (T 'The direct commands were removed.')))
+      } else { $msg = (P (Style 'dim') (T 'No change.')) }
+      $pos = $dirAt
+      continue
+    }
+    if ($r -eq $cmdAt) {
+      $res = Commands-Install
+      Log 'commands installed'
+      $extra = $(if ($res -eq 'added') { ' ' + (T 'The folder was added to your PATH. Open a new terminal to use them.') } else { '' })
+      $msg = (P (Style 'ok') ($script:I.ok + ' ' + (T 'Commands installed: opencodeinf and opencode-auto.') + $extra))
+      continue
+    }
+    if ($r -eq $cmdRmAt) {
+      if (Confirm-Box (T 'Remove the commands?') @('opencodeinf and opencode-auto are deleted.', 'opencode and the other launcher files are kept.')) {
+        $res = Commands-Remove
+        Log 'commands removed'
+        $msg = (P (Style 'ok') ($script:I.ok + ' ' + (T 'The commands were removed.')))
+      } else { $msg = (P (Style 'dim') (T 'No change.')) }
+      $pos = $cmdAt
+      continue
+    }
     if ($r -ge $list.Count) { continue }
     $s = $list[$r]
     $done = Edit-Setting $s
@@ -7363,6 +8529,8 @@ function Settings-Menu {
       $n = @(Group-Keys $g | Where-Object { $script:Cfg.settings.ContainsKey($_.Key) }).Count
       $items += @{ L = $g; V = $(if ($n) { Tf '{0} changed' $n } else { '' }); S = 'warn'; H = $GroupHelp[$g] }; $acts += $g
     }
+    # v3.6: the support report lives here now (it was a main menu row).
+    $items += @{ L = ($script:I.link + ' Support report'); H = 'Collect system info, versions, settings and the recent log into one text file you can send for help. Passwords, tokens, your user name and (by default) IPs are removed first.' }; $acts += 'report'
     $items += @{ L = 'Export settings to a file'; H = 'Save every changed setting to one .json file, to keep a backup or copy them to another PC.' }; $acts += 'export'
     $items += @{ L = 'Import settings from a file'; H = 'Load a file made by Export. Every value is checked first; if one is wrong, nothing changes.' }; $acts += 'import'
     $items += @{ L = 'Reset to default values'; S = 'err'; H = 'Put every setting back to its default. Your connection setup (command, shortcuts) is not touched. Asks first.' }; $acts += 'reset'
@@ -7374,6 +8542,7 @@ function Settings-Menu {
     $pos = $r
     switch ($acts[$r]) {
       'back' { return }
+      'report' { Show-Report }
       'export' { Export-Settings }
       'import' { Import-Settings }
       'uninstall' { Do-Uninstall; if (-not (Test-Configured)) { return } }
@@ -7391,7 +8560,7 @@ function Settings-Menu {
 }
 
 # ---------------------------------------------------------------- setup / status / renew / uninstall
-function Test-Configured { return (($script:Cfg.setup -is [hashtable]) -and ($script:Cfg.setup.done -eq $true) -and (Test-Path -LiteralPath $ShimPath)) }
+function Test-Configured { return (($script:Cfg.setup -is [hashtable]) -and ($script:Cfg.setup.done -eq $true) -and (Test-Path -LiteralPath $ShimPath) -and (Test-Path -LiteralPath $ShimInfPath)) }
 function Get-UserPath {
   if ($env:OC_TUI_FAKEPATH) { if (Test-Path -LiteralPath $env:OC_TUI_FAKEPATH) { return [string](Get-Content -LiteralPath $env:OC_TUI_FAKEPATH -Raw).Trim() } return '' }
   # v2.40: the raw registry value. GetEnvironmentVariable expands %VAR% entries, and writing that back flattened them.
@@ -7487,6 +8656,11 @@ function Shim-Original([string]$exe) {
   if (-not $exe) { return "@echo off`r`necho OpenCode was not found outside the launcher. Run opencodeinf to install it.`r`nexit /b 1`r`n" }
   return "@echo off`r`nrem Original OpenCode: no launcher and no connection change.`r`n`"$exe`" %*`r`nexit /b %errorlevel%`r`n"
 }
+# D02: body of a direct command: start the official launcher with that preset and
+# pass on the caller's arguments and exit code.
+function Shim-Preset([string]$flag) {
+  return "@echo off`r`ncall `"$Official`" --preset $flag --here --same-ip --quiet %*`r`nexit /b %errorlevel%`r`n"
+}
 # Keeps the commands current: "opencode" is always the real OpenCode, never the launcher, and the
 # shortcuts open opencodeinf. Runs at every start, so installs made by older versions are fixed too.
 function Refresh-Shims {
@@ -7494,11 +8668,23 @@ function Refresh-Shims {
   try {
     $utf8 = New-Object Text.UTF8Encoding($false)
     $orig = Shim-Original (Find-Original-Oc)
-    foreach ($p in @($ShimPath, $ShimOcPath)) {
+    foreach ($p in @($ShimPath)) {
       $cur = ''
       if (Test-Path -LiteralPath $p) { $cur = [IO.File]::ReadAllText($p) }
       if ($cur -ne $orig) { [IO.File]::WriteAllText($p, $orig, $utf8) }
     }
+    # D02: a direct command that exists is kept current; one the operator deleted
+    # is not created again here.
+    foreach ($x in @(@('warp', $ShimWarpPath), @('tor', $ShimTorPath), @('proxy', $ShimProxyPath))) {
+      if (-not (Test-Path -LiteralPath $x[1])) { continue }
+      $pw = Shim-Preset $x[0]
+      $pc = [IO.File]::ReadAllText($x[1])
+      if ($pc -ne $pw) { [IO.File]::WriteAllText($x[1], $pw, $utf8) }
+    }
+    # v3.1 (N87): opencodeinf was never repaired, so the shortcut pointed at a file
+    # that did not exist after an antivirus removed it. It is rewritten when missing.
+    if (-not (Test-Path -LiteralPath $ShimInfPath)) { [IO.File]::WriteAllText($ShimInfPath, (Shim-Text ''), $utf8) }
+    if (-not (Test-Path -LiteralPath $ShimAutoPath)) { [IO.File]::WriteAllText($ShimAutoPath, (Shim-Text '--auto'), $utf8) }
     $want = '/d /k ""' + $ShimInfPath + '""'
     $wsh = New-Object -ComObject WScript.Shell
     foreach ($l in @($script:Cfg.setup.shortcuts)) {
@@ -7532,7 +8718,7 @@ function Run-Setup {
       $head = @((P (Style 'title') (T 'Review')), '')
       foreach ($k in $ans.Keys) { $head += ('   ' + (Pad (T (Get-Setting $k).Label) 26) + ' ' + (P (Style 'accent') ([string]$ans[$k]))) }
       $head += ''
-      $head += (P (Style 'dim') ('   ' + (T 'Adds: the opencode, opencodeinf and opencodeoc commands, two shortcuts, one PATH entry. Backups are kept.')))
+      $head += (P (Style 'dim') ('   ' + (T 'Adds: the opencode and opencodeinf commands, two shortcuts, one PATH entry. Backups are kept.')))
       # Each answer can be changed from here. Ports and the proxy list are changed in Settings.
       $rows = @(
         @{ L = 'Connection method'; V = [string]$ans['OC_EGRESS_DEFAULT']; H = 'Choose the method again.' },
@@ -7574,7 +8760,7 @@ function Run-Setup {
     $utf8 = New-Object Text.UTF8Encoding($false)
     [IO.File]::WriteAllText($ShimPath, (Shim-Original (Find-Original-Oc)), $utf8)
     [IO.File]::WriteAllText($ShimInfPath, (Shim-Text ''), $utf8)
-    [IO.File]::WriteAllText($ShimOcPath, (Shim-Original (Find-Original-Oc)), $utf8)
+    [IO.File]::WriteAllText($ShimAutoPath, (Shim-Text '--auto'), $utf8)
     # 4 shortcuts
     $n++; Progress $n $total 'Creating shortcuts'
     $made = @()
@@ -7595,12 +8781,9 @@ function Run-Setup {
     # 5 PATH
     $n++; Progress $n $total 'Adding the command to your PATH'
     $pathAdded = $false
-    $up = Get-UserPath
-    if (-not (@($up -split ';') | Where-Object { $_.TrimEnd('\') -ieq $ShimDir.TrimEnd('\') })) {
-      Set-UserPath (($ShimDir + ';' + $up).TrimEnd(';'))
-      $pathAdded = $true
-    } elseif ($script:Cfg.setup.pathAdded -eq $true) { $pathAdded = $true }
-    $script:Cfg.setup = @{ done = $true; method = $method; launcher = $Official; shim = $ShimPath; shimInf = $ShimInfPath; shimOc = $ShimOcPath; shortcuts = $made; pathAdded = $pathAdded; touched = $touched; createdUtc = (Get-Date).ToUniversalTime().ToString('o'); verified = $false }
+    $pr = Set-ShimPath
+    if ($pr -eq 'added' -or ($pr -eq 'there' -and $script:Cfg.setup.pathAdded -eq $true)) { $pathAdded = $true }
+    $script:Cfg.setup = @{ done = $true; method = $method; launcher = $Official; shim = $ShimPath; shimInf = $ShimInfPath; shortcuts = $made; pathAdded = $pathAdded; touched = $touched; createdUtc = (Get-Date).ToUniversalTime().ToString('o'); verified = $false }
     Save-Cfg
     Log ('setup applied: method ' + $method + ', shim ' + $ShimPath)
   } catch {
@@ -7627,25 +8810,57 @@ function Run-Setup {
   Wait-Key
   return $true
 }
+# v3.6: Status lists every method and command with installed or not installed. Enter on a
+# missing one installs it; an installed one has nothing to do. Auto uses the installed methods.
+function Method-Found {
+  $w = $null; $t = $null
+  foreach ($b in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:ProgramW6432, $env:LOCALAPPDATA)) {
+    if ($b -and -not $w) { $p = Join-Path $b 'Cloudflare\Cloudflare WARP\warp-cli.exe'; if (Test-Path -LiteralPath $p) { $w = $p } }
+  }
+  $td = Join-Path $env:LOCALAPPDATA 'opencode-infinite\tor'
+  if (Test-Path -LiteralPath $td) { $tf = Get-ChildItem -LiteralPath $td -Recurse -Filter tor.exe -ErrorAction SilentlyContinue | Select-Object -First 1; if ($tf) { $t = $tf.FullName } }
+  return @{ WARP = $w; TOR = $t }
+}
 function Show-Status {
-  $s = $script:Cfg.setup
-  $ok = { param($b) if ($b) { return (P (Style 'ok') ($script:I.ok + ' ' + (T 'yes'))) } return (P (Style 'err') ($script:I.err + ' ' + (T 'missing'))) }
-  $head = @()
-  $head += ('   ' + (Pad (T 'Method') 14) + (P (Style 'accent') ([string]$s.method)))
-  $head += ('   ' + (Pad (T 'Run mode') 14) + (P (Style 'accent') ([string](Get-Val 'OC_MODE_DEFAULT'))))
-  $head += ('   ' + (Pad (T 'Command') 14) + (& $ok (Test-Path -LiteralPath $ShimPath)) + '  ' + (P (Style 'dim') $ShimPath))
-  $head += ('   ' + (Pad (T 'On PATH') 14) + (& $ok (@((Get-UserPath) -split ';') | Where-Object { $_.TrimEnd('\') -ieq $ShimDir.TrimEnd('\') })))
-  $sc = 0; foreach ($l in @($s.shortcuts)) { if ($l -and (Test-Path -LiteralPath $l)) { $sc++ } }
-  $head += ('   ' + (Pad (T 'Shortcuts') 14) + (Tf '{0} of {1}' $sc @($s.shortcuts).Count))
-  $head += ('   ' + (Pad (T 'Commands') 14) + (P (Style 'accent') 'opencode, opencodeinf, opencodeoc'))
-  $head += ('   ' + (Pad (T 'Launcher') 14) + (& $ok (Test-Path -LiteralPath $s.launcher)))
-  $vs = if ($s.verified -eq $true) { P (Style 'ok') ($script:I.ok + ' ' + $s.verifiedUtc) } else { P (Style 'warn') ($script:I.warn + ' ' + (T 'not verified')) }
-  $head += ('   ' + (Pad (T 'Last check') 14) + $vs)
-  $head += ('   ' + (Pad (T 'Repository') 14) + (P (Style 'accent') $Repo))
-  if ($s.launcher -ne $Official) { $head += ''; $head += (P (Style 'warn') ($script:I.warn + ' ' + (T 'This launcher is not the one that set it up. Reconfigure to repair the command.'))) }
-  $head += ''
-  $r = Show-Menu ($script:I.link + ' Connection') @(@{ L = 'Reconfigure (run setup again)'; H = 'Run the setup again to change the method or repair the opencode command.' }, @{ L = ($script:I.back + ' Back'); H = 'Return to the main menu.' }) '' $head 0
-  if ($r -eq 0) { [void](Run-Setup) }
+  $pos = 0; $msg = $null
+  while ($true) {
+    $found = Method-Found
+    $cmdOk = ((Test-Path -LiteralPath $ShimInfPath) -and (Test-Path -LiteralPath $ShimAutoPath))
+    $dirOk = ((Test-Path -LiteralPath $ShimWarpPath) -and (Test-Path -LiteralPath $ShimTorPath) -and (Test-Path -LiteralPath $ShimProxyPath))
+    $rows = @(
+      @{ L = 'WARP'; Ok = [bool]$found.WARP; A = 'none'; B = 'setup'; H = 'Cloudflare WARP: the fastest method, with a new IP on each renewal. Missing: Enter runs the setup, which installs it (admin once).' },
+      @{ L = 'Tor'; Ok = [bool]$found.TOR; A = 'none'; B = 'setup'; H = 'Tor: free, no account, slowest to connect. Missing: Enter runs the setup, which downloads it once.' },
+      @{ L = 'Proxy list'; Ok = $true; A = 'none'; B = 'none'; H = 'Free HTTP proxies from the list. Nothing to install; it needs internet to fetch the list.' },
+      @{ L = 'opencode command'; Ok = (Test-Path -LiteralPath $ShimPath); A = 'none'; B = 'setup'; H = 'The opencode command that starts OpenCode with your connection. Missing: Enter runs the setup to repair it.' },
+      @{ L = 'opencodeinf, opencode-auto'; Ok = $cmdOk; A = 'none'; B = 'commands'; H = 'The launcher commands. Missing: Enter writes them and adds their folder to PATH.' },
+      @{ L = 'opencode-warp, -tor, -proxy'; Ok = $dirOk; A = 'none'; B = 'direct'; H = 'One command per connection, no menu. Missing: Enter writes all three.' },
+      @{ L = 'Connection setup'; Ok = (Test-Configured); A = 'setup'; B = 'setup'; H = 'The guided setup: method, command and shortcuts. Enter runs it again to change the method.' },
+      @{ L = 'Support report'; Ok = $true; A = 'report'; B = 'report'; H = 'Collect system info, versions, settings and the recent log into one text file you can send for help.' }
+    )
+    $items = @(); $acts = @()
+    foreach ($row in $rows) {
+      $items += @{ L = $row.L; V = $(if ($row.A -eq 'report') { '' } elseif ($row.Ok) { (T 'installed') } else { (T 'not installed') }); S = $(if ($row.Ok) { 'ok' } else { 'warn' }); H = $row.H }
+      $acts += $(if ($row.Ok) { $row.A } else { $row.B })
+    }
+    $backAt = $items.Count
+    $items += @{ L = ($script:I.back + ' Back'); H = 'Return to the main menu.' }; $acts += 'back'
+    $head = @(); if ($msg) { $head += $msg; $head += '' }
+    $r = Show-Menu ($script:I.link + ' ' + (T 'Status')) $items 'Installed methods are the ones Auto can use. Enter on a missing one installs it.' $head $pos
+    if ($r -eq -1 -or $r -eq $backAt) { return }
+    $pos = $r; $msg = $null
+    switch ($acts[$r]) {
+      'setup' { [void](Run-Setup) }
+      'commands' { [void](Commands-Install); $msg = (P (Style 'ok') ($script:I.ok + ' ' + (T 'Commands installed: opencodeinf and opencode-auto.'))) }
+      'direct' {
+        $utf8 = New-Object Text.UTF8Encoding($false)
+        New-Item -ItemType Directory -Force -Path $ShimDir | Out-Null
+        foreach ($x in @(@('warp', $ShimWarpPath), @('tor', $ShimTorPath), @('proxy', $ShimProxyPath))) { [IO.File]::WriteAllText($x[1], (Shim-Preset $x[0]), $utf8) }
+        $msg = (P (Style 'ok') ($script:I.ok + ' ' + (T 'Direct commands installed: opencode-warp, opencode-tor, opencode-proxy.')))
+      }
+      'report' { Show-Report }
+      'none' { $msg = (P (Style 'dim') (T 'Already installed. Nothing to do.')) }
+    }
+  }
 }
 function Do-Renew {
   if (-not (Confirm-Box 'Renew the session?' @('Closes the opencode this launcher started.', 'Your saved tokens and the cache are kept.', 'Gets a new IP / WARP registration / Tor circuit / proxy.'))) { return }
@@ -7662,6 +8877,8 @@ function Do-Renew {
   } else {
     Say 'err' (Tf 'Renew did not finish (code {0}).' $rc)
     Show-LogTail $log 8
+    # v2.55 (N85): renew.log carries the failed step, not the daemon's own answer; wcli.log has it.
+    Show-LogTail (Join-Path $State 'wcli.log') 4
     Say 'warn' 'Try again in a minute, or pick another connection method in Connect with opencode.'
   }
   Wait-Key
@@ -7679,7 +8896,12 @@ function Do-Uninstall {
     $n++; Progress $n $total 'Removing the opencode command'
     if (Test-Path -LiteralPath $ShimPath) { Remove-Item -LiteralPath $ShimPath -Force }
     if (Test-Path -LiteralPath $ShimInfPath) { Remove-Item -LiteralPath $ShimInfPath -Force }
-    if (Test-Path -LiteralPath $ShimOcPath) { Remove-Item -LiteralPath $ShimOcPath -Force }
+    if (Test-Path -LiteralPath $ShimAutoPath) { Remove-Item -LiteralPath $ShimAutoPath -Force }
+    # D04: the three direct commands are part of what the launcher put in bin, so an
+    # uninstall takes them too. A missing one is not an error.
+    foreach ($x in @($ShimWarpPath, $ShimTorPath, $ShimProxyPath)) {
+      if (Test-Path -LiteralPath $x) { Remove-Item -LiteralPath $x -Force }
+    }
     if ($Self -ne $Official -and (Test-Path -LiteralPath $Official)) { Remove-Item -LiteralPath $Official -Force; Remove-Item -LiteralPath (Split-Path -Parent $Official) -Force -ErrorAction SilentlyContinue }
     if ((Test-Path -LiteralPath $ShimDir) -and -not (Get-ChildItem -LiteralPath $ShimDir -Force)) { Remove-Item -LiteralPath $ShimDir -Force }
     $n++; Progress $n $total 'Restoring PATH'
@@ -7721,11 +8943,13 @@ function Probe-Cmd([string]$exe, [string]$cmdArgs, [int]$ms = 6000) {
     $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true
     $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true; $psi.RedirectStandardInput = $true
     $p = [Diagnostics.Process]::Start($psi)
-    $p.StandardInput.Close()
+    # v3.1 (N48): a child that had already exited made Close() throw and the tool read as
+    # "(could not run)". Kill now waits and every path disposes the process.
+    try { $p.StandardInput.Close() } catch { }
     $out = $p.StandardOutput.ReadToEndAsync(); $err = $p.StandardError.ReadToEndAsync()
-    if (-not $p.WaitForExit($ms)) { try { $p.Kill() } catch { }; return ('(no answer in ' + [int]($ms / 1000) + 's)') }
+    if (-not $p.WaitForExit($ms)) { try { $p.Kill(); [void]$p.WaitForExit(2000) } catch { }; try { $p.Dispose() } catch { }; return ('(no answer in ' + [int]($ms / 1000) + 's)') }
     $t = ([string]$out.Result + ' ' + [string]$err.Result).Trim()
-    if (-not $t) { return '(no output)' }
+    if (-not $t) { try { $p.Dispose() } catch { }; return '(no output)' }
     return ((@($t -split '\r?\n' | Where-Object { $_.Trim() } | Select-Object -First 3)) -join ' | ')
   } catch { return ('(could not run: ' + $_.Exception.Message + ')') }
 }
@@ -7736,6 +8960,9 @@ function Redact([string]$text) {
   foreach ($pair in @(@($env:USERNAME, '<user>'), @($env:COMPUTERNAME, '<pc>'))) {
     if ($pair[0] -and ([string]$pair[0]).Length -ge 3) { $t = [regex]::Replace($t, '\b' + [regex]::Escape([string]$pair[0]) + '\b', $pair[1], 'IgnoreCase') }
   }
+  # v3.1 (N49): header credentials and user:pass@host without a scheme reached the report.
+  $t = [regex]::Replace($t, '(?im)^(\s*(?:Proxy-)?Authorization:\s*)\S.*$', '$1<redacted>')
+  $t = [regex]::Replace($t, '(?<![\w:/@.-])[\w.~%+-]+:[^\s@/]+@(?=[\w.\[\]:-]+)', '***@')
   $t = [regex]::Replace($t, '(://)[^/\s:@]+:[^/\s@]+@', '$1***@')
   $t = [regex]::Replace($t, '[\w.+-]+@[\w-]+\.[\w.-]+', '<email>')
   $t = [regex]::Replace($t, '(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{12,}', '$1<token>')
@@ -7777,7 +9004,7 @@ function New-Report {
   $total = 6
   & $A 'OpenCode Infinite - support report'
   & $A ('Generated   ' + (Get-Date).ToString('o'))
-  & $A 'Launcher    v2.59'
+  & $A 'Launcher    v2.60'
   & $A ('File        ' + $Self)
   try { $fi = Get-Item -LiteralPath $Self; & $A ('Size/date   ' + $fi.Length + ' bytes, ' + $fi.LastWriteTime.ToString('s')); & $A ('SHA-256     ' + (Get-FileHash -LiteralPath $Self -Algorithm SHA256).Hash) } catch { }
   & $A 'Personal data (user name, PC name, e-mails, tokens, passwords, and by default public IPs) is removed from this file. Read it before sharing.'
@@ -7972,7 +9199,7 @@ function Menu-Main {
     @{ L = ($script:I.back + ' Back'); C = 10; H = 'Return to the home screen.' },
     @{ L = ($script:I.err + ' Exit'); C = 6; H = 'Close the launcher.' })
   $head = Header-Lines
-  $r = Show-Menu 'OpenCode' $items ('v2.59   ' + $Repo) $head 0
+  $r = Show-Menu 'OpenCode' $items ('v2.60   ' + $Repo) $head 0
   if ($r -eq -1) { exit 10 }
   exit $items[$r].C
 }
@@ -8049,7 +9276,10 @@ function Menu-Sessions {
       $its = @()
       foreach ($x in $list) {
         $t = if ($x.title) { [string]$x.title } else { T 'Untitled session' }
-        $when = [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$x.updated).LocalDateTime.ToString('yyyy-MM-dd HH:mm')
+        # v3.1 (N50): a row without a numeric updated field used to throw and abort the menu.
+        $ums = [int64]0
+        if (-not [int64]::TryParse([string]$x.updated, [ref]$ums)) { $ums = 0 }
+        $when = if ($ums -gt 0) { [DateTimeOffset]::FromUnixTimeMilliseconds($ums).LocalDateTime.ToString('yyyy-MM-dd HH:mm') } else { '' }
         $its += @{ L = $t; V = $when; H = [string]$x.id }
       }
       $its += @{ L = 'Delete every chat of this folder'; S = 'err'; D = ($list.Count -eq 0); H = 'Deletes all the chats listed above, with the chats started from them. Asks first.' }
@@ -8062,9 +9292,21 @@ function Menu-Sessions {
       $sp = $q
       if ($q -eq ($its.Count - 2)) {
         if ($list.Count -gt 0 -and (Confirm-Box 'Delete every chat of this folder?' @($dir))) {
+          # v3.1 (N14): the menu lists at most 200 chats, so deleting only those left the
+          # rest behind while the UI said everything was gone. It pages until empty and
+          # logs the real total.
           Push-Location -LiteralPath $dir
-          try { foreach ($x in $list) { & $exe session delete ([string]$x.id) 2>&1 | Out-Null } } finally { Pop-Location }
-          Log ('sessions deleted for ' + $dir + ': ' + $list.Count) 'ui'
+          $delTotal = 0; $delOk = 0
+          try {
+            while ($true) {
+              $batch = @(Get-Sessions $dir 200)
+              if ($batch.Count -eq 0) { break }
+              $before = $delTotal
+              foreach ($x in $batch) { & $exe session delete ([string]$x.id) 2>&1 | Out-Null; $delTotal++; if ($LASTEXITCODE -eq 0) { $delOk++ } }
+              if ($delTotal -eq $before) { break }
+            }
+          } finally { Pop-Location }
+          Log ('sessions deleted for ' + $dir + ': ' + $delOk + ' of ' + $delTotal) 'ui'
           $sp = 0
         }
         continue
@@ -8081,8 +9323,10 @@ function Menu-Sessions {
       }
       if ($act -eq 1 -and (Confirm-Box 'Delete this chat?' @([string]$one.title))) {
         Push-Location -LiteralPath $dir
-        try { & $exe session delete ([string]$one.id) 2>&1 | Out-Null } finally { Pop-Location }
-        Log ('session deleted: ' + [string]$one.id) 'ui'
+        $drc = 1
+        try { & $exe session delete ([string]$one.id) 2>&1 | Out-Null; $drc = $LASTEXITCODE } finally { Pop-Location }
+        # v3.1 (N15): a failed delete counted as a success; the exit code decides now.
+        if ($drc -eq 0) { Log ('session deleted: ' + [string]$one.id) 'ui' } else { Log ('session delete failed (' + $drc + '): ' + [string]$one.id) 'error' }
         if ($sp -gt 0) { $sp-- }
       }
     }
@@ -8136,18 +9380,21 @@ function Home-Loop {
   while ($true) {
     $conf = Test-Configured
     $items = @(); $acts = @()
-    # v2.58: the first row starts the last folder again, with the saved mode and connection (no folder or mode screen)
+    # v3.6: Auto opencode = a new IP and a new session in the last folder, no screens (see :auto_menu).
     $last = Get-Last-Folder
-    if ($conf -and $last -and ([string](Get-Val 'OC_MODE_DEFAULT')) -ieq 'CLI') { $items += @{ L = ($script:I.play + ' ' + (T 'Start again')); V = $last; H = 'Start OpenCode in the last folder with the saved connection. Skips the folder and mode screens.' }; $acts += 'quick' }
+    $items += @{ L = ($script:I.play + ' ' + (T 'Auto opencode')); V = $(if ($last) { [string]$last } else { '' }); H = 'New IP and a new session in the last folder, with the saved method. If that fails it tries the others. No questions.' }; $acts += 'auto'
     $items += @{ L = ($script:I.play + ' Launch OpenCode'); H = 'Pick a folder and a connection method, then start the opencode CLI or the desktop app.' }; $acts += 'launch'
-    if ($conf) { $items += @{ L = ($script:I.link + ' Change connection'); V = (Tf 'Configured - {0}' $script:Cfg.setup.method); S = 'ok'; H = 'Run the setup again to change the method, or repair the opencode command.' } }
-    else { $items += @{ L = ($script:I.link + ' Set up connection'); V = 'Not configured'; S = 'warn'; H = 'Guided setup: choose WARP, Tor, a proxy list or direct, then get an "opencode" command and a shortcut that start with it. It is tested at the end.' } }
+    # v3.6: Status shows what is installed and what is missing, and sets up or repairs it from here.
+    if ($conf) { $items += @{ L = ($script:I.link + ' ' + (T 'Status')); V = (Tf 'Configured - {0}' $script:Cfg.setup.method); S = 'ok'; H = 'See what is installed and what is missing, and repair the opencode command or the connection.' } }
+    else { $items += @{ L = ($script:I.link + ' ' + (T 'Status')); V = 'Not configured'; S = 'warn'; H = 'Guided setup: choose WARP, Tor, a proxy list or direct, then get an "opencode" command and a shortcut that start with it. It is tested at the end.' } }
     $acts += 'connect'
     if ($conf) {
       $items += @{ L = ($script:I.renew + ' Renew session'); H = 'Use it when the free limit is hit or the login expired: closes opencode, saves and clears the saved tokens, and gets a new IP, WARP registration, Tor circuit or proxy.' }; $acts += 'renew'
     }
-    $items += @{ L = ($script:I.gear + ' ' + (T 'Settings')); H = 'View and change every launcher option, and uninstall the connection. Saved instantly, no files to edit.' }; $acts += 'settings'
-    $items += @{ L = ($script:I.link + ' Support report'); H = 'Collect system info, versions, settings and the recent log into one text file you can send for help. Passwords, tokens, your user name and (by default) IPs are removed first.' }; $acts += 'report'
+    $items += @{ L = ($script:I.gear + ' ' + (T 'Settings')); H = 'View and change every launcher option, uninstall the connection, and send a support report. Saved instantly, no files to edit.' }; $acts += 'settings'
+    # v3.6: the commands (opencodeinf, opencode-auto) can be installed from here, no setup needed.
+    $cmdHave = ((Test-Path -LiteralPath $ShimInfPath) -and (Test-Path -LiteralPath $ShimAutoPath))
+    $items += @{ L = ($script:I.link + ' ' + (T 'Commands')); V = $(if ($cmdHave) { (T 'installed') } else { (T 'not installed') }); S = $(if ($cmdHave) { 'ok' } else { 'warn' }); H = 'Install opencodeinf and opencode-auto now and put their folder on your PATH, so they work from any terminal. Same as Settings, Launch, Install commands.' }; $acts += 'commands'
     $items += @{ L = ($script:I.err + ' Exit'); H = 'Close the launcher.' }; $acts += 'exit'
     $head = @()
     $marker = Join-Path $State 'renew_needed.txt'
@@ -8159,16 +9406,18 @@ function Home-Loop {
       $head += ''
     }
     if ($script:Notice) { $head += (P (Style $script:Notice[0]) ($script:I.warn + ' ' + (T $script:Notice[1]))); $head += ''; $script:Notice = $null }
-    $r = Show-Menu 'Main menu' $items ('v2.59   ' + $Self) $head $pos $true
+    $r = Show-Menu 'Main menu' $items ('v2.60   ' + $Self) $head $pos $true
     if ($r -eq -1) { continue }
     $pos = $r
     Log ('home -> ' + $acts[$r])
     switch ($acts[$r]) {
       'quick' { return 11 }
+      'auto' { if (-not $conf) { [void](Run-Setup) }; if (Test-Configured) { return 12 } }
       'launch' { return 10 }
       'report' { Show-Report }
       'connect' { if ($conf) { Show-Status } else { [void](Run-Setup) } }
       'renew' { Do-Renew }
+      'commands' { Commands-Menu }
       'settings' { Settings-Menu }
       'exit' { return 0 }
     }
@@ -8235,7 +9484,7 @@ if ($Mode -eq 'probe') { if ([Console]::IsInputRedirected -and -not $Scripted) {
 if ($Mode -eq 'mki18n') { try { Load-Cfg; Init-Ui; Write-I18n; exit 0 } catch { exit 0 } }
 # Reading keys from a redirected stdin leaves the console input in a state that makes the batch
 # `choice` wait forever, so with no real console the UI steps aside before touching it.
-if (-not $Scripted -and $Mode -ne 'export' -and $Mode -ne 'selftest' -and [Console]::IsInputRedirected) { exit 20 }
+if (-not $Scripted -and $Mode -ne 'export' -and $Mode -ne 'selftest' -and $Mode -ne 'install' -and [Console]::IsInputRedirected) { exit 20 }
 try {
   Load-Cfg
   if ($Mode -ne 'selftest' -and $Mode -ne 'export') { Refresh-Shims }
@@ -8244,6 +9493,15 @@ try {
   if ((Get-Val 'OCUI_FONT') -and -not $env:WT_SESSION -and -not $env:TERM_PROGRAM -and -not $Scripted) { try { [void](Apply-ConsoleFont ([string](Get-Val 'OCUI_FONT')) ([int](Get-Val 'OCUI_FONT_SIZE'))) } catch { } }
   switch ($Mode) {
     'export' { Save-Cfg; exit 0 }
+    'install' {
+      $res = Commands-Install
+      Log ('commands installed by --install, PATH ' + $res)
+      Write-Host ''
+      Write-Host ('  ' + $script:I.ok + ' ' + (T 'Commands installed: opencodeinf and opencode-auto.'))
+      if ($res -eq 'added') { Write-Host ('  ' + (T 'The folder was added to your PATH. Open a new terminal to use them.')) }
+      if ($res -eq 'skipped') { Write-Host ('  ' + (T 'PATH not changed: this copy is not the installed launcher.')) }
+      exit 0
+    }
     'selftest' { exit (Self-Test) }
     'settings' { Settings-Menu; exit 0 }
     'mode' { Menu-Mode }
@@ -8262,6 +9520,10 @@ try {
   Log ('ui error: ' + $_.Exception.Message + ' at line ' + $_.InvocationInfo.ScriptLineNumber) 'error'
   [Console]::Error.WriteLine('ui: ' + $_.Exception.Message)
   exit 20
+} finally {
+  # v2.60 (N12): Ctrl+C is handed back to the console on all three exits (leave, continue,
+  # no console). A frozen screen could not be interrupted once the launcher had run the UI.
+  if ($null -ne $script:OldCtrlC) { try { [Console]::TreatControlCAsInput = [bool]$script:OldCtrlC } catch { } }
 }
 #>>>OC_ENDTUI
 #>>>OC_PLIST_PS
@@ -8280,18 +9542,21 @@ try {
   $seen = New-Object 'Collections.Generic.HashSet[string]'
   $oct = '(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)'
   $ipPat = "(?:$oct\.){3}$oct"
+  # v3.1 (N52): a bracketed IPv6 literal did not match at all, so a v6-only list came
+  # out as 0 proxies with no warning.
+  $ip6Pat = '\[[0-9A-Fa-f:.]+\]'
   $hostPat = '[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*\.[A-Za-z]{2,}'
   $sep = '[\s,;|"'']{1,6}'
-  $hostRe = New-Object Text.RegularExpressions.Regex("^($ipPat|$hostPat)$")
+  $hostRe = New-Object Text.RegularExpressions.Regex("^($ipPat|$ip6Pat|$hostPat)$")
   $credRe = New-Object Text.RegularExpressions.Regex('^[A-Za-z0-9._~%-]+:[A-Za-z0-9._~%-]+$')
 
   function Add-P($scheme, $cred, $h, $p) {
     $n = 0
     if (-not [int]::TryParse([string]$p, [ref]$n)) { return }
     if ($n -lt 1 -or $n -gt 65535) { return }
-    $h = ([string]$h).Trim().ToLower()
+    $h = ([string]$h).Trim().ToLowerInvariant()
     if (-not $hostRe.IsMatch($h)) { return }
-    $s = ([string]$scheme).ToLower()
+    $s = ([string]$scheme).ToLowerInvariant()
     if ($s -like 'socks*') { return }
     if ($s -ne 'https') { $s = 'http' }
     $u = ''
@@ -8323,7 +9588,8 @@ try {
       if (-not $line -or $line.StartsWith('#') -or $line.StartsWith(';')) { continue }
       $script:curLine = $line
       $rest = [regex]::Replace($line, $re, $evA)
-      if ($rest -match '(?i)socks') { continue }
+      # v3.1 (N77): any line containing "socks" was dropped whole, even a valid ip port pair.
+      if ($rest -match '(?i)^socks[45]h?://') { continue }
       $rest = [regex]::Replace($rest, $reB, $evB)
       [void][regex]::Replace($rest, $reC, $evC)
     }
@@ -8401,14 +9667,29 @@ try {
     }
   }
   elseif ($tt.StartsWith('<')) {
-    try { $x = New-Object Xml.XmlDocument; $x.LoadXml($tt); Walk-Xml $x.DocumentElement } catch { }
+    # v3.1 (N78): a downloaded list must not expand DTD entities. XmlReaderSettings
+    # prohibits the DTD and bounds the entity expansion before anything is walked.
+    try { $xs = New-Object Xml.XmlReaderSettings; $xs.DtdProcessing = [Xml.DtdProcessing]::Prohibit; $xs.XmlResolver = $null; $xs.MaxCharactersFromEntities = 100000; $sr = New-Object IO.StringReader($tt); $xr = [Xml.XmlReader]::Create($sr, $xs); $x = New-Object Xml.XmlDocument; $x.Load($xr); $xr.Close(); Walk-Xml $x.DocumentElement } catch { }
   }
   if ($out.Count -eq 0) { Scan-Text $t }
   if ($out.Count -gt 0) {
-    [IO.File]::WriteAllLines($env:OC_PLIST, $out.ToArray(), (New-Object Text.UTF8Encoding($false)))
+    # v3.1 (N16): writing straight to OC_PLIST truncated the previous list when the write
+    # failed halfway. The list is written beside it and moved into place.
+    $tmp = $env:OC_PLIST + '.tmp'
+    [IO.File]::WriteAllLines($tmp, $out.ToArray(), (New-Object Text.UTF8Encoding($false)))
+    Move-Item -LiteralPath $tmp -Destination $env:OC_PLIST -Force
     Write-Output $out.Count
+  } else {
+    # v3.1 (N16): "0 proxies" is an empty list and a success, not silence.
+    [IO.File]::WriteAllLines($env:OC_PLIST, [string[]]@(), (New-Object Text.UTF8Encoding($false)))
+    Write-Output 0
   }
-} catch { }
+} catch {
+  # v3.1 (N16): an unreadable file, bad XML or a failed write used to print nothing and
+  # exit 0, which the caller read as "0 proxies".
+  [Console]::Error.WriteLine('plist: ' + $_.Exception.Message)
+  exit 1
+}
 #>>>OC_ENDPLIST
 #>>>OC_VPN_PS
 # WireGuard egress (v2.37): wireproxy, a user-mode WireGuard client, serves a local HTTP proxy that only OpenCode uses.
@@ -8479,6 +9760,10 @@ function Stop-Wp {
   $pr = Proxy-Pid
   if ($pr) { Stop-Process -Id $pr.Id -Force -ErrorAction SilentlyContinue }
   Remove-Item -LiteralPath $PidF -Force -ErrorAction SilentlyContinue
+  # v3.1 (N58): run.conf carries PrivateKey and only the .pid was removed before.
+  foreach ($f in @('run.conf', 'out.log', 'err.log')) {
+    try { $rp = Join-Path $RunDir $f; if (Test-Path -LiteralPath $rp) { Remove-Item -LiteralPath $rp -Force -ErrorAction SilentlyContinue } } catch { }
+  }
 }
 function Start-Wp([string]$exe, [string]$conf) {
   New-Item -ItemType Directory -Force -Path $RunDir | Out-Null
@@ -8511,6 +9796,8 @@ function Get-ExitIp([int]$via = 0) {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     $r = [Net.HttpWebRequest]::Create('https://www.cloudflare.com/cdn-cgi/trace')
     $r.Proxy = $(if ($via -gt 0) { New-Object Net.WebProxy('http://127.0.0.1:' + $via) } else { $null })
+    # v3.1 (N54): Timeout bounds the response; ReadToEnd uses ReadWriteTimeout (300 s).
+    $r.ReadWriteTimeout = 8000
     $r.Timeout = 8000
     $resp = $r.GetResponse(); $sr = New-Object IO.StreamReader($resp.GetResponseStream()); $t = $sr.ReadToEnd(); $sr.Close(); $resp.Close()
     $ip = ''; $loc = ''
@@ -8762,17 +10049,23 @@ function Vg-Ensure {
   $l = Get-Content -LiteralPath $env:OCI_SELF
   $i = [Array]::IndexOf($l, '#>>>OC_VGHELP'); $e = [Array]::IndexOf($l, '#>>>OC_ENDVGHELP')
   if (($i -lt 0) -or ($e -le $i)) { VLog 'helper block is missing'; return $false }
-  $pre = '$Pipe = ''' + $Pipe + '''; $ClientSid = ''' + $ClientSid + '''; $IdleSec = 600'
-  if ($env:OC_VG_NOELEV) { $pre += '; $OvpnExe = ''' + $env:OC_OVPN_EXE + '''' }
+  # v2.60 (N56): $VgTest is a switch inside the encoded command, not an environment
+  # variable the caller can set. It is only on in the no-elevation test path.
+  $pre = '$Pipe = ''' + $Pipe + '''; $ClientSid = ''' + $ClientSid + '''; $IdleSec = 600; $VgTest = $false'
+  if ($env:OC_VG_NOELEV) { $pre += '; $VgTest = $true; $OvpnExe = ''' + $env:OC_OVPN_EXE + '''' }
   $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($pre + "`r`n" + (($l[($i+1)..($e-1)]) -join "`r`n")))
   $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
   $al = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand ' + $enc
+  $hp = $null
   try {
-    if ($env:OC_VG_NOELEV) { $null = Start-Process -FilePath $ps -ArgumentList $al -WindowStyle Hidden -PassThru }
-    else { $null = Start-Process -FilePath $ps -ArgumentList $al -Verb RunAs -WindowStyle Hidden -PassThru }
+    if ($env:OC_VG_NOELEV) { $hp = Start-Process -FilePath $ps -ArgumentList $al -WindowStyle Hidden -PassThru }
+    else { $hp = Start-Process -FilePath $ps -ArgumentList $al -Verb RunAs -WindowStyle Hidden -PassThru }
   } catch { VLog 'the administrator prompt was refused'; return $false }
+  # v3.1 (N17): the process object was thrown away, so a helper that died at once looked
+  # like a prompt that never answered. A dead or absent helper is reported as such.
+  if (-not $hp) { VLog 'the helper process did not start'; return $false }
   $end = (Get-Date).AddSeconds(90)
-  while ((Get-Date) -lt $end) { if ($null -ne (Vg-Call 'STATUS' 400)) { return $true }; Start-Sleep -Milliseconds 700 }
+  while ((Get-Date) -lt $end) { if ($hp.HasExited) { VLog ('the helper exited, code ' + $hp.ExitCode); return $false }; if ($null -ne (Vg-Call 'STATUS' 400)) { return $true }; Start-Sleep -Milliseconds 700 }
   return $false
 }
 # the config is sent as base64; the helper checks it and runs OpenVPN. $true = tunnel up.
@@ -8783,7 +10076,15 @@ function Vg-Start([string]$cfgText, [string[]]$ips, [int]$secs) {
   VLog ('helper: ' + $r)
   return ($r -eq 'OK')
 }
-function Vg-Stop { $null = Vg-Call 'STOP' 300 }
+# v2.60 (N18): 300 ms was shorter than a tunnel that is coming up, so STOP looked
+# unanswered and the caller dropped the routes behind a live tunnel. It now waits
+# for the answer and records it.
+function Vg-Stop {
+  $a = Vg-Call 'STOP' 5000
+  if ($a -eq 'OK') { return $true }
+  VLog ('stop: ' + $(if ($a) { $a } else { 'no answer' }))
+  return $false
+}
 function Read-Cur {
   if (-not (Test-Path -LiteralPath $CurF)) { return $null }
   $p = @((Get-Content -LiteralPath $CurF -TotalCount 1) -split '\|')
@@ -8810,6 +10111,8 @@ function Get-ExitIp {
   try {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     $r = [Net.HttpWebRequest]::Create($TraceUrl)
+    # v3.1 (N54): Timeout bounds the response; ReadToEnd uses ReadWriteTimeout (300 s).
+    $r.ReadWriteTimeout = 8000
     $r.Timeout = 8000
     $resp = $r.GetResponse(); $sr = New-Object IO.StreamReader($resp.GetResponseStream()); $t = $sr.ReadToEnd(); $sr.Close(); $resp.Close()
     $ip = ''; $loc = ''
@@ -8856,7 +10159,7 @@ New-Item -ItemType Directory -Force -Path $CfgDir | Out-Null
 $all = Get-Servers
 if (-not $all) { Fin 'NOLIST' -tool 'VPN Gate' }
 $failed = Get-Failed
-$cands = @($all | Where-Object { $_.OpenVPN_ConfigData_Base64 -and -not $failed.ContainsKey($_.HostName) -and ($cc -eq '' -or $_.CountryShort -eq $cc) } | Sort-Object { [double]$_.Score } -Descending | Select-Object -First $max)
+$cands = @($all | Where-Object { $_.OpenVPN_ConfigData_Base64 -and -not $failed.ContainsKey($_.HostName) -and ($cc -eq '' -or $_.CountryShort -eq $cc) } | Sort-Object { $n = 0.0; if ([double]::TryParse([string]$_.Score, [ref]$n)) { $n } else { 0.0 } } -Descending | Select-Object -First $max)
 if ($cands.Count -eq 0) { Fin 'NOCONF' -tool 'VPN Gate' -dir $cc }
 $cur = Read-Cur
 $curName = $(if ($cur) { $cur.name } else { '' })
@@ -8870,6 +10173,7 @@ $prev = $(if ($prevR) { $prevR.ip } else { '' })
 $tried = 0
 foreach ($s in $cands) {
   $tried++
+  try {
   Say $env:OC_VPN_M_TRY $s.HostName
   Vg-Stop
   $raw = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($s.OpenVPN_ConfigData_Base64))
@@ -8886,6 +10190,11 @@ foreach ($s in $cands) {
   if ($w.state -eq 'same') { Say $env:OC_VPN_M_SAME $s.HostName; Mark-Failed $s.HostName 'same exit IP' }
   else { Say $env:OC_VPN_M_NOANS $s.HostName $timeout; Mark-Failed $s.HostName 'no answer' }
   Vg-Stop
+  } catch {
+    Mark-Failed $s.HostName ('row error: ' + $_.Exception.Message)
+    try { Vg-Stop } catch { }
+    continue
+  }
 }
 Vg-Stop
 Remove-Item -LiteralPath $CurF -Force -ErrorAction SilentlyContinue
@@ -8896,14 +10205,19 @@ Fin 'ALLFAIL' -tool 'VPN Gate' -tried $tried -dir $cc
 # of the launcher user only: the named pipe accepts that user's SID alone. It never takes an exe or a
 # folder from a request. Every config is checked against an allow-list and written to an
 # administrator-only folder before OpenVPN reads it, so the user cannot change it in between.
-# Input (set by the launcher above this text): $Pipe, $ClientSid, $IdleSec, and in tests only $OvpnExe.
+# Input (set by the launcher above this text): $Pipe, $ClientSid, $IdleSec, and in tests only
+# $VgTest and $OvpnExe. Test mode no longer comes from the environment, which the elevated
+# process inherits from the unprivileged caller (N56).
 $ErrorActionPreference = 'Stop'
-$Test = [bool]$env:OC_VG_RUNDIR
+$Test = [bool]$VgTest
 $Dir = $(if ($Test) { $env:OC_VG_RUNDIR } else { Join-Path $env:ProgramData 'opencode-infinite\vgate-run' })
 $Allowed = @('client', 'dev', 'dev-type', 'proto', 'remote', 'remote-random', 'nobind', 'persist-key', 'persist-tun', 'resolv-retry', 'cipher', 'data-ciphers', 'data-ciphers-fallback', 'auth', 'auth-nocache', 'comp-lzo', 'compress', 'verb', 'remote-cert-tls', 'key-direction', 'tls-client', 'tls-cipher', 'tls-version-min', 'verify-x509-name', 'ping', 'ping-restart', 'ping-exit', 'connect-retry', 'connect-retry-max', 'connect-timeout', 'keepalive', 'mssfix', 'tun-mtu', 'link-mtu', 'float', 'reneg-sec', 'explicit-exit-notify', 'allow-recursive-routing', 'ignore-unknown-option', 'route', 'route-nopull', 'route-ipv6', 'route-method', 'route-delay', 'pull-filter', 'ifconfig-ipv6', 'block-ipv6', 'fragment', 'sndbuf', 'rcvbuf', 'tcp-nodelay', 'tls-timeout')
 $Blocks = @('ca', 'cert', 'key', 'tls-auth', 'tls-crypt')
 function Harden([string]$d) {
-  if ($Test) { return }
+  # v2.60 (N56): the hardening depended on the caller's environment variable, so any
+  # process of the user could switch it off. It runs whenever the helper is elevated.
+  $elev = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+  if (-not $elev) { return }
   $own = (Get-Acl -LiteralPath $d).GetOwner([Security.Principal.SecurityIdentifier]).Value
   if ($own -ne 'S-1-5-32-544' -and $own -ne 'S-1-5-18') { throw 'the run folder is not owned by administrators' }
   & icacls.exe $d /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' | Out-Null
@@ -8911,15 +10225,48 @@ function Harden([string]$d) {
 $Parent = Split-Path -Parent $Dir
 foreach ($d in @($Parent, $Dir)) { if (-not (Test-Path -LiteralPath $d)) { New-Item -ItemType Directory -Path $d | Out-Null }; Harden $d }
 # '' when every directive is allowed, else the first one that is not
-function Cfg-Error([string]$t) {
+# v2.60 (N57): the check used to look at the first token only, so a crafted entry could add
+# any remote, any route or any pull-filter and the elevated helper would install it. Every
+# directive that takes an argument is checked now, and the ones that run programs are
+# refused by name.
+function Cfg-Error([string]$t, [string[]]$ips) {
   $blk = ''
+  $deny = @('route-up', 'up-restart', 'tls-crypt-v2', 'plugin', 'script-security', 'up', 'down', 'ipchange', 'learn-address', 'client-connect', 'client-disconnect', 'auth-user-pass-verify', 'tls-verify', 'tls-crypt-v2-verify', 'tls-export-cert', 'config', 'cd', 'chroot', 'log', 'log-append', 'status', 'writepid', 'tmp-dir', 'management', 'win-sys', 'askpass', 'setenv', 'setenv-safe')
   foreach ($ln in ($t -split "`r?`n")) {
     $s = $ln.Trim()
     if ($blk) { if ($s -eq ('</' + $blk + '>')) { $blk = '' }; continue }
     if ($s -match '^<([A-Za-z-]+)>$') { if ($Blocks -notcontains $matches[1]) { return ('block ' + $matches[1]) }; $blk = $matches[1]; continue }
     if ($s -eq '' -or $s[0] -eq '#' -or $s[0] -eq ';') { continue }
-    $k = ($s -split '\s+')[0]
+    $w = @($s -split '\s+')
+    $k = $w[0]
+    if ($deny -contains $k) { return ('directive ' + $k) }
     if ($Allowed -notcontains $k) { return ('directive ' + $k) }
+    switch ($k) {
+      'remote' {
+        if ($w.Count -lt 2) { return 'remote without host' }
+        if ($w[1] -notmatch '^[A-Za-z0-9][A-Za-z0-9.:_-]*$') { return ('remote host ' + $w[1]) }
+        if ($w.Count -gt 2 -and $w[2] -notmatch '^\d{1,5}$') { return ('remote port ' + $w[2]) }
+      }
+      'route' {
+        if ($w.Count -lt 2 -or -not ($ips -contains $w[1])) { return ('route ' + [string]$w[1]) }
+      }
+      'route-ipv6' {
+        $ok = $false
+        if ($w.Count -ge 2) { foreach ($ip in $ips) { if ($w[1] -eq ($ip + '/128')) { $ok = $true } } }
+        if (-not $ok) { return ('route-ipv6 ' + [string]$w[1]) }
+      }
+      'ifconfig-ipv6' {
+        if ($s -ne 'ifconfig-ipv6 fd15:53b6:dead::2/64 fd15:53b6:dead::1') { return 'ifconfig-ipv6' }
+      }
+      'pull-filter' {
+        $arg = ''
+        if ($w.Count -ge 3) { $arg = $w[1] + ' ' + $w[2].Trim('"') }
+        if (@('ignore redirect-gateway', 'ignore dhcp-option') -notcontains $arg) { return 'pull-filter' }
+      }
+      'remote-cert-tls' {
+        if ($w.Count -lt 2 -or @('server', 'client') -notcontains $w[1]) { return 'remote-cert-tls' }
+      }
+    }
   }
   if ($blk) { return 'unclosed block' }
   return ''
@@ -8937,6 +10284,11 @@ function Tun-Up { return ($null -ne $script:Tun -and -not $script:Tun.HasExited)
 function Stop-Tun {
   if ($script:Tun) { try { if (-not $script:Tun.HasExited) { Stop-Process -Id $script:Tun.Id -Force } } catch { }; $script:Tun = $null }
   Drop-Routes
+  # v3.1 (N58): run.ovpn holds <key> and <tls-crypt> in the clear and used to survive
+  # Stop-Tun, so the next candidate inherited the previous config.
+  foreach ($f in @('run.ovpn', 'openvpn.log')) {
+    try { $rp = Join-Path $Dir $f; if (Test-Path -LiteralPath $rp) { Remove-Item -LiteralPath $rp -Force -ErrorAction SilentlyContinue } } catch { }
+  }
 }
 function Find-Ovpn {
   if ($Test) { return $OvpnExe }
@@ -8952,11 +10304,13 @@ function Start-Vpn([string]$ipsText, [string]$cfgText, [int]$secs) {
   Stop-Tun
   $ovpn = Find-Ovpn
   if (-not $ovpn) { return 'FAIL openvpn is missing' }
-  $err = Cfg-Error $cfgText
-  if ($err) { return ('FAIL config rejected: ' + $err) }
   $ips = @($ipsText -split ' ' | Where-Object { $_ })
   if ($ips.Count -eq 0) { return 'FAIL no ip' }
   foreach ($ip in $ips) { $a = $null; if (-not [Net.IPAddress]::TryParse($ip, [ref]$a)) { return 'FAIL bad ip' } }
+  # v2.60 (N57): the IP list is checked first, because route and route-ipv6 are only
+  # allowed for those addresses.
+  $err = Cfg-Error $cfgText $ips
+  if ($err) { return ('FAIL config rejected: ' + $err) }
   $cfg = Join-Path $Dir 'run.ovpn'
   $log = Join-Path $Dir 'openvpn.log'
   Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue
@@ -8997,7 +10351,9 @@ $sec = New-Object IO.Pipes.PipeSecurity
 $sec.AddAccessRule((New-Object IO.Pipes.PipeAccessRule((New-Object Security.Principal.SecurityIdentifier($ClientSid)), [IO.Pipes.PipeAccessRights]::ReadWrite, [Security.AccessControl.AccessControlType]::Allow)))
 $lastUse = Get-Date
 while ($true) {
-  $srv = New-Object IO.Pipes.NamedPipeServerStream -ArgumentList @($Pipe, [IO.Pipes.PipeDirection]::InOut, 1, [IO.Pipes.PipeTransmissionMode]::Byte, [IO.Pipes.PipeOptions]::Asynchronous, 65536, 65536, $sec)
+  # v2.60 (N18): two instances, so a client that connects and stalls no longer holds
+  # the only pipe while the launcher waits for its answer.
+  $srv = New-Object IO.Pipes.NamedPipeServerStream -ArgumentList @($Pipe, [IO.Pipes.PipeDirection]::InOut, 2, [IO.Pipes.PipeTransmissionMode]::Byte, [IO.Pipes.PipeOptions]::Asynchronous, 65536, 65536, $sec)
   $task = $srv.WaitForConnectionAsync()
   $idle = $false
   while (-not $task.Wait(1000)) { if (((Get-Date) - $lastUse).TotalSeconds -gt $IdleSec) { $idle = $true; break } }
@@ -9007,9 +10363,14 @@ while ($true) {
     $r = New-Object IO.StreamReader($srv, [Text.Encoding]::UTF8, $false, 65536, $true)
     $w = New-Object IO.StreamWriter($srv, (New-Object Text.UTF8Encoding $false), 65536, $true)
     $w.AutoFlush = $true; $w.NewLine = "`n"
-    $req = [string]$r.ReadLine()
-    $res = 'FAIL no answer'
-    try { $res = [string](Handle $req) } catch { $res = 'FAIL ' + ($_.Exception.Message -replace '\s+', ' ') }
+    # v2.60 (N18): a synchronous ReadLine with no deadline let one client that never
+    # finished its line hang the whole helper. The read is async and gives up after 10 s.
+    $req = ''
+    $rt = $r.ReadLineAsync()
+    if ($rt.Wait(10000)) {
+      $req = [string]$rt.Result
+      try { $res = [string](Handle $req) } catch { $res = 'FAIL ' + ($_.Exception.Message -replace '\s+', ' ') }
+    } else { $res = 'FAIL timeout' }
     $w.WriteLine($res)
     $quit = ($req -like 'QUIT*')
     $lastUse = Get-Date
@@ -9077,9 +10438,13 @@ function Run-Vpn([string]$startM, [string]$endM, [string]$act) {
   $oldAct = $env:OC_VPN_ACT; $oldState = $env:OC_STATE; $oldSid = $env:OC_SID
   $env:OC_VPN_ACT = $act; $env:OC_STATE = $pool; $env:OC_SID = 'pool'
   $cmd = '$l=Get-Content -LiteralPath $env:OCI_SELF; $i=[Array]::IndexOf($l,''' + $startM + '''); $e=[Array]::IndexOf($l,''' + $endM + '''); if(($i -lt 0) -or ($e -le $i)){exit 90}; Invoke-Expression (($l[($i+1)..($e-1)]) -join [Environment]::NewLine)'
-  $p = Start-Process -FilePath $psx -ArgumentList ('-NoProfile -Command "' + $cmd + '"') -WindowStyle Hidden -Wait -PassThru
+  $p = Start-Process -FilePath $psx -ArgumentList ('-NoProfile -Command "' + $cmd + '"') -WindowStyle Hidden -PassThru
+  # v3.1 (N59): -Wait with no pid meant :pool_stop could only give up after 120 s. The
+  # child is recorded in pool\fill.pid while it runs; :pool_stop kills that tree.
+  if ($p) { try { Set-Content -LiteralPath (Join-Path $pool 'fill.pid') -Value ([string]$p.Id) } catch { }; [void]$p.WaitForExit() }
+  try { Remove-Item -LiteralPath (Join-Path $pool 'fill.pid') -Force -ErrorAction SilentlyContinue } catch { }
   $env:OC_VPN_ACT = $oldAct; $env:OC_STATE = $oldState; $env:OC_SID = $oldSid
-  return $p.ExitCode
+  if ($p) { return $p.ExitCode } else { return 1 }
 }
 
 function Fill-Vpn([string]$mode) {
@@ -9101,17 +10466,36 @@ function Get-Plist {
   $age = 9999
   if (Test-Path -LiteralPath $raw) { $age = ((Get-Date) - (Get-Item -LiteralPath $raw).LastWriteTime).TotalMinutes }
   if ($src -and $age -gt 30) {
-    Remove-Item -LiteralPath $raw -Force -ErrorAction SilentlyContinue
+    # v2.55 (N60): download to .tmp, check the exit code, size and format, and only then
+    # replace the list and drop the tested history. A failed download or an error page used
+    # to erase both files and leave the pool without a list or a record of what was tried.
+    $dtmp = $raw + '.tmp'
+    $ptmp = $plist + '.new'
+    Remove-Item -LiteralPath $dtmp, $ptmp -Force -ErrorAction SilentlyContinue
+    $got = $false
     if ($src -match '^(https?|ftp)://') {
-      if ($env:HAVE_CURL -eq '1') { & curl.exe -L -f -s --max-time 20 --noproxy '*' -o $raw $src 2>$null }
-      else { try { Invoke-WebRequest -UseBasicParsing -Uri $src -OutFile $raw -TimeoutSec 20 } catch {} }
-    } elseif ($src -notmatch '^file://') { Copy-Item -LiteralPath $src -Destination $raw -Force -ErrorAction SilentlyContinue }
-    if ((Test-Path -LiteralPath $raw) -and (Get-Item -LiteralPath $raw).Length -ge [int]$(if ($env:PROXY_LIST_MIN_BYTES) { $env:PROXY_LIST_MIN_BYTES } else { 20 })) {
-      $env:OC_PRAW = $raw; $env:OC_PLIST = $plist
+      if ($env:HAVE_CURL -eq '1') { & curl.exe -L -f -s --max-time 20 --noproxy '*' -o $dtmp $src 2>$null; $got = ($LASTEXITCODE -eq 0) }
+      else { try { Invoke-WebRequest -UseBasicParsing -Uri $src -OutFile $dtmp -TimeoutSec 20 -ErrorAction Stop; $got = $true } catch {} }
+    } elseif ($src -notmatch '^file://') { Copy-Item -LiteralPath $src -Destination $dtmp -Force -ErrorAction SilentlyContinue; $got = (Test-Path -LiteralPath $dtmp) }
+    if ($got -and (Test-Path -LiteralPath $dtmp) -and (Get-Item -LiteralPath $dtmp).Length -ge [int]$(if ($env:PROXY_LIST_MIN_BYTES) { $env:PROXY_LIST_MIN_BYTES } else { 20 })) {
+      $env:OC_PRAW = $dtmp; $env:OC_PLIST = $ptmp
       $nl = Get-Content -LiteralPath $env:OCI_SELF
       $ni = [Array]::IndexOf($nl, '#>>>OC_PLIST_PS'); $ne = [Array]::IndexOf($nl, '#>>>OC_ENDPLIST')
-      if (($ni -ge 0) -and ($ne -gt $ni)) { Invoke-Expression (($nl[($ni+1)..($ne-1)]) -join [Environment]::NewLine) | Out-Null }
+      $n = 0
+      if (($ni -ge 0) -and ($ne -gt $ni)) {
+        $cnt = @(Invoke-Expression (($nl[($ni+1)..($ne-1)]) -join [Environment]::NewLine))
+        if ($cnt.Count -gt 0) { [void][int]::TryParse([string]$cnt[$cnt.Count - 1], [ref]$n) }
+      }
+      if ($n -gt 0) {
+        Move-Item -LiteralPath $dtmp -Destination $raw -Force -ErrorAction SilentlyContinue
+        Move-Item -LiteralPath $ptmp -Destination $plist -Force -ErrorAction SilentlyContinue
+        if ((Test-Path -LiteralPath $raw) -and (Test-Path -LiteralPath $plist)) {
+          Remove-Item -LiteralPath (Join-Path $pool 'proxy_tested.txt') -Force -ErrorAction SilentlyContinue
+        }
+      }
     }
+    Remove-Item -LiteralPath $dtmp, $ptmp -Force -ErrorAction SilentlyContinue
+    $env:OC_PRAW = $raw; $env:OC_PLIST = $plist
   }
   return (Test-Path -LiteralPath $plist)
 }
@@ -9129,7 +10513,8 @@ function Fill-Proxy {
   # Candidates: list entries not tried yet, in random order. When every entry was tried, the record restarts.
   $cands = @()
   for ($round = 0; $round -lt 2 -and $cands.Count -eq 0; $round++) {
-    $cands = @(Get-Content -LiteralPath $plist | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ -and $_ -notmatch '^[#;]' -and $_ -notmatch 'socks' } | ForEach-Object { $(if ($_ -match '^https?://') { $_ } else { 'http://' + $_ }) } | Where-Object { ($tested -notcontains $_) -and ($burn -notcontains $_) -and ($burn -notcontains ($_ -replace '^https?://', '')) } | Sort-Object { Get-Random })
+    $hpSeen = @{}
+    $cands = @(Get-Content -LiteralPath $plist | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ -and $_ -notmatch '^[#;]' -and $_ -notmatch 'socks' } | ForEach-Object { $(if ($_ -match '^https?://') { $_ } else { 'http://' + $_ }) } | Where-Object { ($tested -notcontains $_) -and ($burn -notcontains $_) -and ($burn -notcontains ($_ -replace '^https?://', '')) } | Where-Object { $k = ($_ -replace '^https?://([^@]*@)?', ''); if ($hpSeen.ContainsKey($k)) { $false } else { $hpSeen[$k] = 1; $true } } | Sort-Object { Get-Random })
     if ($cands.Count -eq 0) { Remove-Item -LiteralPath $tf -Force -ErrorAction SilentlyContinue; $tested = @() }
   }
   $tries = 0
@@ -9204,7 +10589,7 @@ function Run-Cli([string[]]$a) {
 function Get-Chat {
   if ($env:OC_CHAT_FILE) { return (Get-Content -LiteralPath $env:OC_CHAT_FILE -Raw -Encoding UTF8 | ConvertFrom-Json) }
   $j = @((Run-Cli @('session', 'list', '--format', 'json', '-n', '1')) | ConvertFrom-Json)
-  if ($j.Count -eq 0 -or -not $j[0].id) { return $null }
+  if ($j.Count -eq 0 -or -not $j[0].id -or ([string]$j[0].id) -notmatch '^[A-Za-z0-9_-]+$') { return $null }
   return ((Run-Cli @('session', 'export', [string]$j[0].id)) | ConvertFrom-Json)
 }
 try {

@@ -2,7 +2,7 @@
 # OpenCode Infinite for Linux: the Windows launcher's flow in bash.
 # Egress WARP / TOR / PROXY / NONE, target IP hunt, probe, resume when a limit stops the chat.
 # Needs: bash 4.3+, curl, node + opencode. Optional: warp-cli, tor, privoxy, jq (menus in other languages).
-VERSION="linux-0.4.2"
+VERSION="linux-0.4.3"
 REPO="https://gitlab.com/jekooo/opencode-infinite"
 REPO_RAW="https://gitlab.com/jekooo/opencode-infinite/-/raw/main"
 
@@ -36,6 +36,7 @@ SETDEF=(
 'OC_EGRESS_DEFAULT|Connection|enum|ASK|Egress|ASK = pick at each start. WARP, TOR, PROXY or NONE = used for OpenCode. System traffic stays direct.|ASK,WARP,TOR,PROXY,NONE'
 # same keys as the Windows launcher; an OC_APP environment variable is the default of the path setting
 'OC_MODE_DEFAULT|Connection|enum|CLI|Run mode|CLI = OpenCode in this terminal. DESKTOP = the OpenCode desktop app, closed and started again at each new IP. The probe and the opencode command always use the CLI.|CLI,DESKTOP'
+'OC_OTHER_WINDOW|Connection|enum|OPEN|If already open|What a start does when OpenCode already runs from another launcher window. OPEN = open anyway. CLOSE = close that one first. ASK = ask. Auto never asks: it opens anyway.|OPEN,CLOSE,ASK'
 "OC_APP|Connection|text|${OC_APP:-}|Desktop app path|Empty = /opt/OpenCode/ai.opencode.desktop, then ai.opencode.desktop on the PATH. Type - to clear.|"
 'PROXY_PORT|Connection|num|40000|WARP proxy port|Local port of the WARP proxy.|1:65535'
 'WARP_WAIT|Connection|num|20|WARP wait (s)|Seconds to wait after (re)connecting WARP.|1:120'
@@ -68,7 +69,7 @@ SETDEF=(
 'RESUME_MODE|Watcher|enum|continue|Resume mode|continue = the resume message. custom = the custom text below.|continue,custom'
 'RESUME_TEXT|Watcher|text||Custom resume text|Text sent when the resume mode is custom.|'
 'PROBE|Probe|bool|1|Test every new IP|Send one cheap message through each candidate IP.|'
-'PROBE_MODEL|Probe|text|opencode/big-pickle|Probe model|Model used by the IP probe.|'
+'PROBE_MODEL|Probe|text|opencode/deepseek-v4.1-flash-free|Probe model|Model used by the IP probe.|'
 'PROBE_BROKEN_MAX|Probe|num|3|Probe failures tolerated|Non-limit probe failures before the hunt stops and says the probe is broken.|1:50'
 'UPDATE_CHECK|Updates|bool|1|Launcher self-update|Check GitHub for a newer launcher at every start.|'
 'UPDATE_ASK|Updates|enum|ask|Update prompts|ask = offer newer versions at start. never = no checks and no prompts.|ask,never'
@@ -76,7 +77,7 @@ SETDEF=(
 'OCUI_THEME|Appearance|enum|ocean|Color theme|Accent colors of the menus.|ocean,forest,sunset,mono,rainbow'
 'OCUI_COLOR|Appearance|enum|auto|Colors|auto follows the terminal and NO_COLOR. on or off forces it.|auto,on,off'
 'OCUI_ICONS|Appearance|enum|auto|Borders|auto = UTF-8 borders when the locale is UTF-8. unicode or emoji = UTF-8 borders. ascii = plain.|auto,emoji,unicode,ascii'
-'OCUI_LANG|Appearance|enum|auto|Language|Language of the menus. auto follows LANG. Only the chosen file is downloaded.|auto,en,de,es,fr,it,pt,tr'
+'OCUI_LANG|Appearance|enum|auto|Language|Language of the menus. auto follows LANG. Only the chosen file is downloaded.|auto,en,de,es,fr,it,pt,tr,ru'
 'KEY_ROTATE|Shortcuts|key|R|Rotate key|Closed-OpenCode prompt: new IP and resume the chat. One letter.|'
 'KEY_MENU|Shortcuts|key|M|Menu key|Closed-OpenCode prompt: open the menu. One letter.|'
 'KEY_QUIT|Shortcuts|key|Q|Quit key|Closed-OpenCode prompt: quit. Ctrl+C always quits too. One letter.|'
@@ -122,6 +123,7 @@ load_cfg(){
   [[ $ROTATE_TRIES_MAX =~ ^[0-9]+$ ]] || ROTATE_TRIES_MAX=4
   OCUI_THEME=$(cfg_get OCUI_THEME "$(cfg_get THEME "$OCUI_THEME")")
   load_patterns
+  load_themes
 }
 # v0.3.3: pat_get <key> <default>: key missing = default, key present but empty = never matches
 pat_get(){
@@ -151,7 +153,7 @@ load_lang(){
   TRMAP=()
   local code=$OCUI_LANG
   if [ "$code" = auto ]; then code=${LC_ALL:-${LANG:-en}}; code=${code%%[_.@]*}; fi
-  case $code in de|es|fr|it|pt|tr) ;; *) return 0;; esac
+  case $code in de|es|fr|it|pt|tr|ru) ;; *) return 0;; esac
   command -v jq >/dev/null || { log 'jq missing: menus stay in English'; return 0; }
   local f="$STATE_DIR/langs/$code.json" k v
   if [ ! -s "$f" ]; then
@@ -164,16 +166,63 @@ load_lang(){
 }
 
 # ---------------------------------------------------------------- theme and drawing
+# v2.61: more themes are read from themes/themes.txt of the repository, cached in $STATE_DIR/themes (like the
+# languages). The five built-in themes are in set_theme, so the launcher works offline. Line format:
+# name|title|accent|border|selected|rainbow (codes are digits and ;; rainbow 1 or 0). Bad lines are skipped, max 30.
+THEMES_VER=1
+THEME_BUILTIN="ocean forest sunset mono rainbow"
+THEME_SGR_RE='^[0-9;]{1,20}$'
+declare -A THEME_EXTRA=()
+load_themes(){
+  local f="$STATE_DIR/themes/themes.txt" base=${OC_THEME_BASE:-$REPO_RAW/themes} n t a b s r cnt=0 names="" i
+  if [ ! -s "$f" ] || [ "$(cat "$f.ver" 2>/dev/null)" != "$THEMES_VER" ]; then
+    if [ ! -e "$f.failed" ] || [ -n "$(find "$f.failed" -mmin +60 2>/dev/null)" ]; then
+      mkdir -p "$STATE_DIR/themes"
+      case $base in
+        http*) curl -fsSL -m 8 "$base/themes.txt" -o "$f.tmp" 2>/dev/null;;
+        *)     cp "$base/themes.txt" "$f.tmp" 2>/dev/null;;
+      esac
+      if [ -s "$f.tmp" ] && grep -Eq '^[a-z][a-z0-9_-]{1,19}\|[0-9;]{1,20}\|[0-9;]{1,20}\|[0-9;]{1,20}\|[0-9;]{1,20}\|[01]\r?$' "$f.tmp"; then
+        mv "$f.tmp" "$f"; echo "$THEMES_VER" > "$f.ver"; rm -f "$f.failed"; log 'themes downloaded'
+      else
+        rm -f "$f.tmp"; : > "$f.failed"; log 'themes not downloaded'
+      fi
+    fi
+  fi
+  THEME_EXTRA=()
+  if [ -s "$f" ]; then
+    while IFS='|' read -r n t a b s r; do
+      r=${r%$'\r'}
+      [[ $n =~ ^[a-z][a-z0-9_-]{1,19}$ ]] || continue
+      case " $THEME_BUILTIN " in *" $n "*) continue;; esac
+      [[ $t =~ $THEME_SGR_RE && $a =~ $THEME_SGR_RE && $b =~ $THEME_SGR_RE && $s =~ $THEME_SGR_RE && $r =~ ^[01]$ ]] || continue
+      THEME_EXTRA[$n]="$t|$a|$b|$s|$r"; names+=" $n"; cnt=$((cnt + 1))
+      [ "$cnt" -ge 30 ] && break
+    done < "$f"
+  fi
+  names=$(printf '%s\n' $names | sort | paste -sd, -)
+  for i in "${!SK[@]}"; do [ "${SK[i]}" = OCUI_THEME ] && SO[i]="ocean,forest,sunset,mono,rainbow${names:+,$names}"; done
+}
 set_theme(){
+  local t a b s r
   OCUI_THEME=$1
   case $OCUI_THEME in
     forest)  TH=([title]='1;92' [acc]='32' [border]='32' [sel]='30;42' [panel]='' [warn]='33' [ok]='32' [err]='31' [dim]='90');;
     sunset)  TH=([title]='1;95' [acc]='35' [border]='35' [sel]='30;45' [panel]='' [warn]='33' [ok]='32' [err]='31' [dim]='90');;
     mono)    TH=([title]='1' [acc]='0' [border]='0' [sel]='7' [panel]='' [warn]='0' [ok]='0' [err]='0' [dim]='2');;
     rainbow) TH=([title]='rain' [acc]='rain' [border]='rain' [sel]='' [panel]='' [warn]='33' [ok]='32' [err]='31' [dim]='90');;
-    *)       OCUI_THEME=ocean; TH=([title]='1;96' [acc]='36' [border]='34' [sel]='30;46' [panel]='' [warn]='33' [ok]='32' [err]='31' [dim]='90');;
+    *)
+      if [ -n "${THEME_EXTRA[$OCUI_THEME]:-}" ]; then
+        IFS='|' read -r t a b s r <<< "${THEME_EXTRA[$OCUI_THEME]}"
+        TH=([title]=$t [acc]=$a [border]=$b [sel]=$s [panel]='' [warn]='33' [ok]='32' [err]='31' [dim]='90')
+      else
+        OCUI_THEME=ocean; TH=([title]='1;96' [acc]='36' [border]='34' [sel]='30;46' [panel]='' [warn]='33' [ok]='32' [err]='31' [dim]='90')
+      fi;;
   esac
   RAIN=0; [ "$OCUI_THEME" = rainbow ] && RAIN=1
+  if [ "${r:-0}" = 1 ]; then
+    RAIN=1; TH=([title]='rain' [acc]='rain' [border]='rain' [sel]='' [panel]='' [warn]='33' [ok]='32' [err]='31' [dim]='90')
+  fi
   COLOR=1; [ -n "${NO_COLOR:-}" ] && COLOR=0
   case $OCUI_COLOR in on) COLOR=1;; off) COLOR=0;; esac
   if [ "$OCUI_ICONS" = ascii ] || { [ "$OCUI_ICONS" = auto ] && [[ "${LC_ALL:-${LANG:-}}" != *UTF-8* && "${LC_ALL:-${LANG:-}}" != *utf8* ]]; }; then
@@ -343,7 +392,7 @@ ask(){
   [ -z "$ANSWER" ] && ANSWER=$2
   return 0
 }
-say(){ local kind=$1; shift; printf '\n%s%s%s%s\n' "$MARG" "${ESC}[${TH[$kind]}m" "$*" "${ESC}[0m"; }
+say(){ local kind=$1; shift; [ "${OPT_QUIET:-0}" = 1 ] && [ "$kind" != err ] && return 0; printf '\n%s%s%s%s\n' "$MARG" "${ESC}[${TH[$kind]}m" "$*" "${ESC}[0m"; }  # --quiet: only errors show
 pause(){ printf '\n%sPress any key to continue...' "$MARG"; IFS= read -rsn1 _; }
 # confirm <question>: 0 when the user picks Yes
 confirm(){
@@ -467,8 +516,18 @@ warp_check(){ # prints the exit IP when the WARP proxy answers with warp=on
   printf '%s' "$out" | grep -qE '^warp=(on|plus)' || return 1
   printf '%s' "$out" | sed -n 's/^ip=//p'
 }
+# warp_svc_ensure: starts the WARP service when it is down. Auto uses sudo -n (never asks); otherwise one sudo prompt
+warp_svc_ensure(){
+  command -v systemctl >/dev/null || return 0
+  systemctl is-active --quiet warp-svc && return 0
+  if [ "$(id -u)" -eq 0 ]; then systemctl enable --now warp-svc >>"$LOG" 2>&1
+  elif [ "${OPT_AUTO:-0}" = 1 ]; then sudo -n systemctl enable --now warp-svc >>"$LOG" 2>&1
+  else with_tty sudo systemctl enable --now warp-svc >>"$INSTALL_LOG" 2>&1; fi
+  sleep 2; systemctl is-active --quiet warp-svc
+}
 warp_up(){
   command -v warp-cli >/dev/null || { log 'warp-cli missing'; return 1; }
+  warp_svc_ensure || { log 'warp-svc is not running and could not be started (sudo)'; return 1; }
   warp_wc registration show >/dev/null 2>&1 || warp_wc registration new
   warp_wc mode proxy; warp_wc proxy port "$PROXY_PORT"; warp_wc connect
   local i; for i in $(seq 1 "$WARP_WAIT"); do warp-cli --accept-tos status 2>/dev/null | grep -q 'Connected' && break; sleep 1; done
@@ -504,7 +563,9 @@ tor_start(){
   return 1
 }
 tor_stop(){
-  [ -f "$STATE_DIR/tor.pid" ] && kill "$(cat "$STATE_DIR/tor.pid")" 2>/dev/null
+  local tp; tp=$(cat "$STATE_DIR/tor.pid" 2>/dev/null)
+  # v2.60: kill only while that PID is still our tor (a reused PID must not be killed)
+  if [ -n "$tp" ] && tr '\0' ' ' < "/proc/$tp/cmdline" 2>/dev/null | grep -q "DataDirectory $STATE_DIR/tor"; then kill "$tp" 2>/dev/null; fi
   pkill -f "DataDirectory $STATE_DIR/tor" 2>/dev/null
   rm -f "$STATE_DIR/tor.pid"
 }
@@ -535,15 +596,44 @@ proxy_pick(){ # the list is a URL or a local file, any format: every ip:port in 
 }
 
 # ---------------------------------------------------------------- egress control
+# method_installed <WARP|TOR|PROXY>: PROXY needs no install (its list is downloaded at each use)
+method_installed(){
+  case $1 in
+    WARP) command -v warp-cli >/dev/null;;
+    TOR) command -v tor >/dev/null && command -v privoxy >/dev/null;;
+    PROXY) command -v curl >/dev/null;;
+    *) return 1;;
+  esac
+}
+# method_ms <method>: the last measured route time in ms (empty = never measured on this machine)
+method_ms(){ cat "$STATE_DIR/method_$1.ms" 2>/dev/null; }
+# auto_pick: the installed method with the lowest measured time; none measured = PROXY (same rule as the .bat)
+auto_pick(){
+  local m ms best="" bestms=""
+  for m in WARP TOR PROXY; do
+    method_installed "$m" || continue
+    ms=$(method_ms "$m"); [[ $ms =~ ^[0-9]+$ ]] || continue
+    if [ -z "$bestms" ] || [ "$ms" -lt "$bestms" ]; then best=$m; bestms=$ms; fi
+  done
+  printf '%s' "${best:-PROXY}"
+}
+# auto_chain <first>: the picked method, then the other installed ones in WARP, TOR, PROXY order
+auto_chain(){
+  local m; printf '%s\n' "$1"
+  for m in WARP TOR PROXY; do [ "$m" = "$1" ] && continue; method_installed "$m" && printf '%s\n' "$m"; done
+  return 0
+}
 egress_up(){
-  PROXY_URL=""
+  local t0; PROXY_URL=""; t0=$(date +%s%3N)
   case $EGRESS in
     WARP) warp_up && PROXY_URL="http://127.0.0.1:$PROXY_PORT";;
     TOR) tor_start && PROXY_URL="http://127.0.0.1:$TOR_HTTP_PORT";;
     PROXY) proxy_pick;;
     *) return 0;;
   esac
-  [ -n "$PROXY_URL" ]
+  [ -n "$PROXY_URL" ] || return 1
+  printf '%s' $(( $(date +%s%3N) - t0 )) > "$STATE_DIR/method_$EGRESS.ms"  # the route time Auto ranks the methods by
+  return 0
 }
 egress_rotate(){ # one new route for the current egress; 0 when it is up
   case $EGRESS in
@@ -594,14 +684,15 @@ same_ip(){ [ -n "$1" ] && [ -n "$2" ] && [ "$(ip_key "$1")" = "$(ip_key "$2")" ]
 rot_log(){ log "rotate prev=${prev:-none} new=${ip:-none} try=$i/$tries t=$(( $(date +%s) - start ))s reason=$1"; }
 # hunt_new: rotates until a route passes the target and the probe. 0 = accepted, 1 = gave up
 hunt_new(){
-  local tries interval goal=0 i t ip gl burned=0 broken=0 start p prev="" seen="" same=0 end
+  local tries interval goal=0 i t ip gl burned=0 broken=0 start p prev="" seen="" same=0 end r0
   [ "$EGRESS" = NONE ] && { say warn 'Egress is NONE - nothing to rotate.'; return 1; }
   if [ -n "$TARGET_COUNTRY$TARGET_PREFIX" ]; then goal=1; tries=$TARGET_TRIES; interval=$TARGET_INTERVAL; else tries=$ROTATE_TRIES_MAX; interval=$ROTATE_COOLDOWN; fi
   start=$(date +%s)
   [ -n "${PROXY_URL:-}" ] && prev=$(current_ip); seen=$prev  # v0.3.3: the IP to get away from
   for ((i = 1; i <= tries; i++)); do
     if [ "$goal" = 1 ] && [ $(( $(date +%s) - start )) -gt $(( TARGET_MINUTES * 60 )) ]; then say warn 'target hunt: time is up.'; return 1; fi
-    printf '\n%s  [%d/%d] rotating...\n' "$MARG" "$i" "$tries"
+    [ "${OPT_QUIET:-0}" = 1 ] || printf '\n%s  [%d/%d] rotating...\n' "$MARG" "$i" "$tries"
+    r0=$(date +%s%3N)
     if ! egress_rotate; then say warn '  rotation failed'; ip=""; rot_log rotate_failed; sleep "$interval"; continue; fi
     # v0.3.3: poll the new route every second for up to WARP_WAIT s
     end=$(( SECONDS + WARP_WAIT ))
@@ -613,6 +704,7 @@ hunt_new(){
       sleep 1
     done
     if [ -z "$ip" ] || ! route_ok "$t"; then say warn '  route not answering'; rot_log route_down; sleep "$interval"; continue; fi
+    printf '%s' $(( $(date +%s%3N) - r0 )) > "$STATE_DIR/method_$EGRESS.ms"  # route time for Auto's pick
     say ok "  exit IP $ip (country $gl)"
     # v0.3.3: the same IP (same /64 on IPv6) is no rotation: retry after ROTATE_COOLDOWN, give up after ROTATE_TRIES_MAX in a row
     if same_ip "$ip" "$seen"; then
@@ -629,7 +721,7 @@ hunt_new(){
          if [ "$IP_FIND_MAX" -gt 0 ] && [ "$burned" -ge "$IP_FIND_MAX" ]; then say err 'burned IP limit reached.'; return 1; fi
          if [ "$EGRESS" = PROXY ] && [ "$burned" -ge "$PROXY_ROT_MAX" ]; then
            burned=0
-           confirm 'Too many burned proxies. Switch this hunt to Tor?' && { EGRESS=TOR; say ok 'switched to Tor for this run.'; }
+           if [ "$OPT_AUTO" != 1 ] && confirm 'Too many burned proxies. Switch this hunt to Tor?'; then EGRESS=TOR; say ok 'switched to Tor for this run.'; fi  # Auto never asks: it stays on PROXY
          fi;;
       *) broken=$(( broken + 1 )); rot_log probe_failed; say err "  probe failed for a reason that is not a limit ($broken of $PROBE_BROKEN_MAX)"
          if [ "$broken" -ge "$PROBE_BROKEN_MAX" ]; then say err 'the probe looks broken. Check Probe model in Settings > Probe.'; return 1; fi;;
@@ -747,6 +839,9 @@ line_class(){
 limit_hit(){
   local l c act ask=1 now; now=$(date +%s)
   while IFS= read -r l; do
+    # an old limit line from an earlier run stays in the shared log: skip lines stamped before this start
+    ts=$(printf '%s' "$l" | sed -nE 's/.*timestamp=([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}).*/\1/p')
+    [ -n "$ts" ] && [ -n "${LIMIT_T0:-}" ] && [[ $ts < $LIMIT_T0 ]] && continue
     c=$(line_class "$l"); [ -n "$c" ] || continue
     act=ignore
     case $c in
@@ -762,11 +857,11 @@ limit_hit(){
 # ask_rotate: the rate limit question, 60 s, no answer = no. Terminal in normal mode while it waits
 ask_rotate(){
   local ans=""
-  printf '\n%sRate limit detectado. ¿Rotar IP ahora? [s/N] ' "$MARG"
+  printf '\n%s%s' "$MARG" "$(tx 'Rate limit detected. Rotate the IP now? [y/N] ')"
   stty echo icanon 2>/dev/null
   IFS= read -t 60 -r ans; stty -echo -icanon 2>/dev/null; printf '\n'
   log "rate limit: asked, answer='${ans:-timeout/empty}'"
-  [[ ${ans,,} == s || ${ans,,} == si || ${ans,,} == y ]]
+  [[ ${ans,,} == s || ${ans,,} == si || ${ans,,} == sí || ${ans,,} == y || ${ans,,} == yes ]]
 }
 # v0.3.3: anti-loop. 0 and records the rotation when fewer than 5 happened in the last 30 minutes
 rot_gate(){
@@ -779,6 +874,7 @@ watch_log(){ # background: on a limit line, flags LIMIT_FLAG and stops the TUI
   local start=$1 cur="" pos=0 f size hit
   # sizes at start: a log that only grows (the desktop app appends to opencode.log) is read from there, not from its old limit lines
   local -A base; for f in "$DATA_DIR"/log/*.log; do [ -f "$f" ] && base[$f]=$(stat -c%s "$f"); done
+  LIMIT_T0=$(date -u -d "@$start" +%Y-%m-%dT%H:%M:%S)  # only log lines stamped after this start count (the log is shared)
   while sleep 2; do
     f=$(ls -t "$DATA_DIR"/log/*.log 2>/dev/null | head -n1)
     [ -n "$f" ] || continue
@@ -816,11 +912,45 @@ resume_run(){ # sends RESUME_MSG to the chat, bounded by RESUME_TIMEOUT. 2 = the
   if grep -Eiq "$OC_PAT|usage limit|rate limit|out of usage|insufficient credits|payment required" "$out" "$err" 2>/dev/null; then return 2; fi
   return $rc
 }
-run_session(){ # run_session <folder> [opencode args...]
+# ---- one running OpenCode per launcher window: OC_OTHER_WINDOW decides when another one is already open
+LOCK="$STATE_DIR/session.lock"  # "pid starttime" of the launcher that runs OpenCode now
+other_open(){ # 0 = another live launcher holds the lock
+  local p st
+  [ -s "$LOCK" ] || return 1
+  read -r p st < "$LOCK"
+  [[ $p =~ ^[0-9]+$ ]] && [ "$p" != "$$" ] || return 1
+  kill -0 "$p" 2>/dev/null || return 1
+  [ -z "$st" ] || [ "$(pid_start "$p")" = "$st" ]
+}
+lock_take(){ printf '%s %s\n' "$$" "$(pid_start $$)" > "$LOCK"; }
+lock_free(){ local p; [ -s "$LOCK" ] && read -r p _ < "$LOCK" && [ "$p" = "$$" ] && rm -f "$LOCK"; return 0; }
+other_window_check(){ # 0 = go on, 1 = stop. Auto never asks: ASK opens anyway
+  local choice=$OC_OTHER_WINDOW
+  other_open || return 0
+  [ "$OPT_AUTO" = 1 ] && [ "$choice" = ASK ] && choice=OPEN
+  if [ "$choice" = ASK ]; then
+    reset_items; HEAD=("${TH[warn]}|$(tx 'OpenCode is already open in another window.')" ""); SHOW_BANNER=0
+    item "$(tx 'Close it and continue')" '' 'Stop the OpenCode of the other window, then start this one.'
+    item "$(tx 'Open anyway')" '' 'Start this one next to the other.'
+    item "$(tx 'Exit')" '' 'Do nothing.'
+    SEL=0; menu 'OpenCode Infinite'
+    case $MRES in 0) choice=CLOSE;; 1) choice=OPEN;; *) return 1;; esac
+  fi
+  if [ "$choice" = CLOSE ]; then log 'other window: its OpenCode was closed (OC_OTHER_WINDOW=CLOSE)'; stop_opencode
+  else log 'other window: opened anyway'; fi
+  return 0
+}
+run_session(){ # run_session <folder> [opencode args...]: checks the window rule, holds the lock while OpenCode runs
+  other_window_check || return 1
+  lock_take; run_session_inner "$@"; local rc=$?
+  lock_free; return $rc
+}
+run_session_inner(){ # run_session_inner <folder> [opencode args...]
   local folder=$1; shift
   local cont="" start rc wpid
   [ "${START_CONTINUE:-0}" = 1 ] && cont=1; START_CONTINUE=0
   [ -d "$folder" ] || { say err "folder not found: $folder"; return 1; }
+  printf '%s' "$folder" > "$STATE_DIR/last_folder"  # Auto opens this folder next time
   [ -x "$OC_REAL" ] || { say err 'opencode is not set up. Run "Connect with opencode" first.'; return 1; }
   APP_EXE=""  # set = desktop mode for this session; the CLI is still needed for the probe
   if [ "$OC_MODE_DEFAULT" = DESKTOP ] && ! APP_EXE=$(app_find); then
@@ -839,17 +969,17 @@ run_session(){ # run_session <folder> [opencode args...]
     start=$(date +%s); wpid=""
     [ -n "$cont" ] && [ -z "$APP_EXE" ] && log_resume "${RUNNER[*]} -c" "$@"  # v0.3.3
     rm -f "$STATE_DIR/watch.stopped"
-    if [ "$WATCH" = 1 ]; then watch_log "$start" & wpid=$!; fi
+    if [ "$WATCH" = 1 ]; then watch_log "$start" & wpid=$!; WPID=$wpid; fi
     if [ -n "$APP_EXE" ]; then app_run "$folder" "$APP_EXE"; rc=$?
     # v0.3.3: exec keeps the PID, saved so stop_opencode kills only this one
     else ( cd "$folder" && echo $BASHPID > "$OC_PIDS" && exec "${RUNNER[@]}" ${cont:+-c} "$@" ); rc=$?; fi
     : > "$OC_PIDS"
-    [ -n "$wpid" ] && kill "$wpid" 2>/dev/null
+    [ -n "$wpid" ] && kill "$wpid" 2>/dev/null; WPID=
     [ -f "$STATE_DIR/watch.stopped" ] && { say warn 'Watcher stopped: 5 rotations in 30 minutes. Not rotating again by itself; use New IP from the menu.'; rm -f "$STATE_DIR/watch.stopped"; }
     log "opencode exited rc=$rc"
     if [ -f "$ASK_FLAG" ]; then  # v0.3.3: rate limit. Yes = the limit path below; no = the same chat reopens on the same IP
       rm -f "$ASK_FLAG"
-      if ask_rotate; then
+      if [ "$OPT_AUTO" = 1 ] || ask_rotate; then  # Auto rotates without asking
         if rot_gate; then : > "$LIMIT_FLAG"; else say warn '5 rotations in 30 minutes: not rotating.'; cont=1; continue; fi
       else cont=1; continue; fi
     fi
@@ -857,7 +987,7 @@ run_session(){ # run_session <folder> [opencode args...]
       case $rc in 0|130|143) return 0;; esac # clean exit or Ctrl+C / kill: not a crash
       crash_retry "$rc"; case $? in
         0) resume_run "$folder" >/dev/null 2>&1; cont=1; continue;;
-        1) pause; return 1;;
+        1) [ "$OPT_AUTO" = 1 ] || pause; return 1;;
         *) return 0;;
       esac
     fi
@@ -899,15 +1029,22 @@ fix_old_shim(){ # v2.52 and older replaced $BIN_DIR/opencode with a launcher shi
   if [ ! -e "$p" ]; then rm -f "$p"; say warn 'opencode was replaced by an old launcher shim and could not be restored. Run opencodeinf: it installs opencode again.'; fi
   if find_real_opencode; then cfg_set OC_REAL "$OC_REAL"; cfg_set OC_LINK "$OC_LINK"; fi
 }
-write_shims(){ # the commands: opencodeinf (menu), opencodeoc (plain OpenCode). opencode itself is never written: it stays the real one
-  local app="$APP_DIR/opencode-infinite.sh"
+write_shims(){ # the commands. opencode itself is never written: it stays the real one
   mkdir -p "$BIN_DIR" "$APP_DIR"
-  cp "$SELF" "$app"
+  cp "$SELF" "$APP_DIR/opencode-infinite.sh"
   oc_runner
   fix_old_shim
+  write_bin_cmds
+}
+# write_bin_cmds: opencodeinf (menu), opencodeoc (plain OpenCode) and the direct commands opencode-warp, -tor, -proxy. Needs oc_runner first
+write_bin_cmds(){
+  local app="$APP_DIR/opencode-infinite.sh" p
   printf '#!/usr/bin/env bash\nexec bash "%s" "$@"\n' "$app" > "$BIN_DIR/opencodeinf"
   printf '#!/usr/bin/env bash\nexec %s "$@"\n' "${RUNNER[*]}" > "$BIN_DIR/opencodeoc"
-  chmod +x "$BIN_DIR/opencodeinf" "$BIN_DIR/opencodeoc"
+  for p in warp tor proxy; do
+    printf '#!/usr/bin/env bash\nexec bash "%s" --preset %s --here --same-ip --quiet -- "$@"\n' "$app" "$p" > "$BIN_DIR/opencode-$p"
+  done
+  chmod +x "$BIN_DIR/opencodeinf" "$BIN_DIR/opencodeoc" "$BIN_DIR/opencode-warp" "$BIN_DIR/opencode-tor" "$BIN_DIR/opencode-proxy"
 }
 find_real_opencode(){ # sets OC_REAL and OC_LINK to the Linux opencode, never a Windows one (/mnt/...) or our own command
   local d p
@@ -924,8 +1061,9 @@ find_real_opencode(){ # sets OC_REAL and OC_LINK to the Linux opencode, never a 
 }
 INSTALL_LOG="$STATE_DIR/install.log"
 SUDO=()
-sudo_ok(){ # root needs nothing; anyone else gets one sudo password prompt, then the cache covers the rest
+sudo_ok(){ # root needs nothing; anyone else gets one sudo password prompt, then the cache covers the rest. Auto: cached sudo only, never a prompt
   if [ "$(id -u)" -eq 0 ]; then SUDO=(); return 0; fi
+  if [ "$OPT_AUTO" = 1 ]; then sudo -n true 2>/dev/null && { SUDO=(sudo -n); return 0; }; return 1; fi
   command -v sudo >/dev/null && with_tty sudo -v && { SUDO=(sudo); return 0; }
   return 1
 }
@@ -1009,7 +1147,7 @@ ensure_deps(){ # installs what is missing, each step on its own: a failed step n
   fi
   if ! find_real_opencode; then did=1; say warn 'installing opencode...'; install_opencode; fi
   if [ "$SETUP_DONE" != 1 ] && find_real_opencode; then apply_setup; fi
-  [ "$did" = 1 ] && pause
+  [ "$did" = 1 ] && [ "${OPT_QUIET:-0}" != 1 ] && [ "$OPT_AUTO" != 1 ] && pause
   return 0
 }
 connect_setup(){
@@ -1042,7 +1180,7 @@ make_shortcut(){
 # v0.3.3: backup_auth: auth.json is copied to $STATE_DIR/backup/auth/<date-time>/ before anything may delete it. 1 = no backup, do not delete
 backup_auth(){
   [ -f "$DATA_DIR/auth.json" ] || return 0
-  local d="$STATE_DIR/backup/auth/$(date +%Y%m%d-%H%M%S)"
+  local d stamp; stamp=$(date +%Y%m%d-%H%M%S); d="$STATE_DIR/backup/auth/$stamp"
   (umask 077; mkdir -p "$d") && cp -p "$DATA_DIR/auth.json" "$d/auth.json" && log "auth.json backed up to $d" || { say err "could not back up auth.json to $d: tokens kept"; return 1; }
 }
 renew_session(){
@@ -1056,7 +1194,7 @@ renew_session(){
 }
 uninstall(){
   confirm 'Remove the opencode commands and shortcuts and restore the old opencode command? Settings are kept.' || return 0
-  rm -f "$BIN_DIR/opencodeinf" "$BIN_DIR/opencodeoc"
+  rm -f "$BIN_DIR/opencodeinf" "$BIN_DIR/opencodeoc" "$BIN_DIR/opencode-warp" "$BIN_DIR/opencode-tor" "$BIN_DIR/opencode-proxy"
   rm -f "$HOME/.local/share/applications/opencode-infinite.desktop" "$(desk_dir)/opencode-infinite.desktop"
   if [ -n "$OC_LINK" ]; then fix_old_shim; elif grep -q 'opencode-infinite' "$BIN_DIR/opencode" 2>/dev/null; then rm -f "$BIN_DIR/opencode"; fi
   [ -f "$HOME/.bashrc" ] && sed -i '/opencode-infinite/d' "$HOME/.bashrc"
@@ -1067,11 +1205,39 @@ uninstall(){
   load_cfg
 }
 
+cmd_state(){ if [ -x "$BIN_DIR/opencodeinf" ]; then echo installed; else echo 'not installed'; fi; }
+# Commands on their own (not tied to Connect with opencode): opencodeinf and opencodeoc in $BIN_DIR, folder on PATH
+commands_install(){ # commands_install [quiet]: quiet = --install, no pause
+  local q=${1:-}
+  [ -f "$SELF" ] || { say err 'run the script from a file, not from a pipe or process substitution'; [ "$q" = quiet ] || pause; return 1; }
+  OC_REAL=""; OC_LINK=""
+  if ! find_real_opencode; then say err "opencode was not found. Install it first: npm i -g opencode-ai"; [ "$q" = quiet ] || pause; return 1; fi
+  mkdir -p "$BIN_DIR" "$APP_DIR"
+  cp "$SELF" "$APP_DIR/opencode-infinite.sh"; oc_runner
+  write_bin_cmds
+  cfg_set OC_REAL "$OC_REAL"; cfg_set OC_LINK "$OC_LINK"
+  ensure_path
+  log 'commands installed'
+  say ok "commands installed in $BIN_DIR: opencodeinf, opencodeoc, opencode-warp, opencode-tor, opencode-proxy"
+  [ "$q" = quiet ] || pause
+  return 0
+}
+commands_remove(){
+  confirm 'Remove the opencode-infinite commands (opencodeinf, opencodeoc, opencode-warp/-tor/-proxy)? The opencode command and your settings are kept.' || return 0
+  rm -f "$BIN_DIR/opencodeinf" "$BIN_DIR/opencodeoc" "$BIN_DIR/opencode-warp" "$BIN_DIR/opencode-tor" "$BIN_DIR/opencode-proxy"
+  if [ -z "$(ls -A "$BIN_DIR" 2>/dev/null)" ] && [ -f "$HOME/.bashrc" ]; then sed -i '/opencode-infinite/d' "$HOME/.bashrc"; fi
+  log 'commands removed'
+  say ok 'commands removed. The folder stays on PATH while other files are in it.'
+  pause
+}
+
 # ---------------------------------------------------------------- deep reset and restore
 archive_file(){ # copy, compare sizes, delete the original only when they match
   [ -f "$1" ] || return 1
   cp -p "$1" "$2" || return 1
-  if [ "$(stat -c%s "$1")" != "$(stat -c%s "$2")" ]; then rm -f "$2"; return 1; fi
+  local s1 s2; s1=$(stat -c%s "$1" 2>/dev/null); s2=$(stat -c%s "$2" 2>/dev/null)
+  # v2.60: an empty size (stat failed) never counts as a match
+  if [ -z "$s1" ] || [ "$s1" != "$s2" ]; then rm -f "$2"; return 1; fi
   rm -f "$1"
 }
 deep_reset(){
@@ -1084,7 +1250,8 @@ deep_reset(){
   say warn "archiving chats to: $target"
   if [ -d "$DATA_DIR/storage" ] && mv "$DATA_DIR/storage" "$target/storage"; then moved=1; fi
   for f in opencode.db opencode.db-wal opencode.db-shm; do archive_file "$DATA_DIR/$f" "$target/$f" && moved=1; done
-  if backup_auth && archive_file "$DATA_DIR/auth.json" "$target/auth.json"; then say ok 'auth.json archived.'; moved=1; fi
+  # v2.60: tokens never go to the Desktop in plain text. backup_auth keeps a private copy (umask 077) under STATE_DIR.
+  if [ -f "$DATA_DIR/auth.json" ] && backup_auth && rm -f "$DATA_DIR/auth.json"; then say ok 'auth.json backed up privately and cleared.'; moved=1; fi
   # v0.3.3: snapshot and cache go only when the tokens were backed up and removed
   if [ ! -e "$DATA_DIR/auth.json" ]; then drop_snapshot; [ -n "$HOME" ] && rm -rf "$HOME/.cache/opencode"; fi
   if [ "$moved" = 0 ]; then rmdir "$target" 2>/dev/null; say warn 'nothing to archive.'
@@ -1134,7 +1301,7 @@ chats_menu(){
 # ---------------------------------------------------------------- updates
 update_launcher(){ # newest GitLab release only; the file must match SHA256SUMS at that tag. This script is backed up first
   local tag sum new
-  tag=$(curl -fsSL -m 10 "https://gitlab.com/api/v4/projects/88367491/releases?order_by=released_at&sort=desc&per_page=1" 2>/dev/null | grep -o '"tag_name":"v[0-9]*\.[0-9]*"' | head -n1 | cut -d'"' -f4)
+  tag=$(curl -fsSL -m 10 "https://gitlab.com/api/v4/projects/88367491/releases?order_by=released_at&sort=desc&per_page=1" 2>/dev/null | grep -o '"tag_name":"v[0-9]*\.[0-9][0-9.]*"' | head -n1 | cut -d'"' -f4)
   [ -n "$tag" ] || return 0
   sum=$(curl -fsSL -m 10 "$REPO/-/raw/$tag/SHA256SUMS" 2>/dev/null | sed -n 's/^\([0-9a-f]\{64\}\) [ *]opencode-infinite\.sh$/\1/p' | head -n1)
   [ -n "$sum" ] || return 0
@@ -1190,6 +1357,115 @@ support_report(){
   pause
 }
 
+# ---------------------------------------------------------------- auto, direct commands, status, commands menu
+# auto_run: no questions. The last folder, the fastest installed route, a new IP, a fresh chat
+auto_run(){
+  local first m folder; local -a chain=()
+  OPT_AUTO=1; ROUTE_READY=0
+  [ "$SETUP_DONE" = 1 ] || { say err 'Connect with opencode first (Commands menu).'; return 1; }
+  ensure_deps
+  first=$(auto_pick); mapfile -t chain < <(auto_chain "$first")  # an array: a command in the loop may read stdin
+  for m in "${chain[@]}"; do
+    EGRESS=$m
+    if egress_new; then ROUTE_READY=1; break; fi
+    log "auto: $m gave no new route, trying the next one"
+  done
+  if [ "$ROUTE_READY" != 1 ]; then say err 'no route came up (WARP, TOR or PROXY). Details in launcher.log.'; return 1; fi
+  folder=$(cat "$STATE_DIR/last_folder" 2>/dev/null); [ -d "$folder" ] || folder=$HOME
+  log "auto: folder=$folder route=$EGRESS first=$first"
+  START_CONTINUE=0; run_session "$folder"
+}
+auto_home(){ auto_run || pause; OPT_AUTO=0; }  # back to the menu: questions are asked again
+# preset_run <warp|tor|proxy> [opencode args]: the direct commands. This folder, no menu. --new-ip rotates first; the default keeps the route
+preset_run(){
+  local m=${1^^}; shift
+  case $m in WARP|TOR|PROXY) ;; *) say err "unknown route: $1 (use warp, tor or proxy)"; return 2;; esac
+  [ "$SETUP_DONE" = 1 ] || { say err 'Connect with opencode first (Commands menu).'; return 1; }
+  EGRESS=$m; OC_MODE_DEFAULT=CLI; OPT_AUTO=0; ROUTE_READY=0
+  if [ "$NEWIP" = 1 ]; then egress_new || { say err "no new route on $m."; return 1; }
+  else egress_up || { say err "$m did not come up. Check it, then try again."; return 1; }; fi
+  ROUTE_READY=1
+  run_session "$PWD" "$@"
+}
+print_help(){
+cat <<EOF
+OpenCode Infinite $VERSION
+
+  opencodeinf                        the menu
+  opencodeinf --auto                 last folder, fastest installed route, new IP, fresh chat. No questions
+  opencodeinf --install              write the commands and exit
+  opencodeinf --preset NAME          OpenCode on WARP, TOR or PROXY in this folder (NAME = warp, tor, proxy)
+  opencodeinf --warp|--tor|--proxy   same as --preset NAME --here --same-ip --quiet
+  opencodeinf --run [args]           OpenCode in this terminal on the default route; args go to opencode
+  opencodeinf --here                 this folder (presets always use it)
+  opencodeinf --same-ip              keep the current route (default for presets)
+  opencodeinf --new-ip               get a new IP before OpenCode starts
+  opencodeinf --quiet                print only errors
+  opencodeinf -- args                everything after -- goes to opencode
+  opencodeinf --help                 this text
+EOF
+}
+method_help(){
+  case $1 in
+    WARP) echo 'Cloudflare WARP. Installing it needs sudo.';;
+    TOR) echo 'Tor with a privoxy bridge. Installing it needs sudo.';;
+    PROXY) echo 'A free HTTP proxy list. Nothing to install.';;
+  esac
+}
+# install_method <WARP|TOR>: Enter on a missing route. sudo asks once
+install_method(){
+  local had_privoxy
+  case $1 in
+    WARP) sudo_ok && install_warp;;
+    TOR) had_privoxy=$(command -v privoxy)
+         if sudo_ok; then pkg_refresh; pkg_install tor privoxy
+           [ -z "$had_privoxy" ] && command -v systemctl >/dev/null && with_tty "${SUDO[@]}" systemctl disable --now privoxy >>"$INSTALL_LOG" 2>&1
+         fi;;
+  esac
+  if method_installed "$1"; then say ok "$1 is installed."; else say err "$1 was not installed. Log: $INSTALL_LOG"; fi
+  pause
+}
+# status_menu: which routes are installed and the last measured time of each. Enter on a missing one installs it
+status_menu(){
+  local -a names=(WARP TOR PROXY); local m st ms
+  while :; do
+    reset_items; SHOW_BANNER=0; HEAD=()
+    for m in "${names[@]}"; do
+      if method_installed "$m"; then st=installed; else st='not installed'; fi
+      ms=$(method_ms "$m"); [ -n "$ms" ] && st="$st, last route ${ms} ms"
+      item "$m" "$st" "$(method_help "$m")"
+    done
+    item "$(tx 'Back')" '' 'Return to the home screen.'
+    menu "$(tx 'Status')"
+    case $MRES in
+      0|1|2) m=${names[MRES]}; method_installed "$m" || install_method "$m";;
+      *) return 0;;
+    esac
+  done
+}
+# commands_menu: the commands, the Connect setup, uninstall
+commands_menu(){
+  local act
+  while :; do
+    reset_items; SHOW_BANNER=0; HEAD=(); local -a acts=()
+    item "$(tx 'Install commands')" "$(tx "$(cmd_state)")" 'Writes opencodeinf, opencodeoc and opencode-warp, opencode-tor, opencode-proxy into ~/.local/bin and puts that folder on PATH. Does not need Connect with opencode.'; acts+=(commands_install)
+    item "$(tx 'Remove commands')" "$(tx "$(cmd_state)")" 'Deletes the opencode-infinite commands. Asks first.' '' err; acts+=(commands_remove)
+    if [ "$SETUP_DONE" = 1 ]; then
+      item "$(tx 'Connect with opencode')" "Configured - $OC_EGRESS_DEFAULT" 'Connection and commands. Run it again to change the default route.'; acts+=(connect_setup)
+      item "$(tx 'Uninstall')" '' 'Removes the opencode commands and shortcuts and restores the old opencode command. Asks first.' '' err; acts+=(uninstall)
+    else
+      item "$(tx 'Connect with opencode')" 'Not configured' 'Guided setup: installs what is missing, then WARP, Tor, a proxy list or direct. Creates opencode, opencodeinf and opencodeoc.' '' warn; acts+=(connect_setup)
+    fi
+    item "$(tx 'Back')" '' 'Return to the home screen.'; acts+=(back)
+    menu "$(tx 'Commands')"
+    [ "$MRES" -ge 0 ] || return 0
+    act=${acts[MRES]}
+    [ "$act" = back ] && return 0
+    "$act"
+    [ "$QUIT" = 1 ] && return 0
+  done
+}
+
 # ---------------------------------------------------------------- screens
 main_menu(){ # the screen after Launch: pick a route and start
   local folder=$1
@@ -1237,16 +1513,16 @@ home(){
     if [ "$CHECKED" = 0 ]; then CHECKED=1; ensure_deps; load_cfg; set_theme "$OCUI_THEME"; load_lang; [ "$UPDATE_ASK" = ask ] && check_updates auto; fi
     reset_items; SHOW_BANNER=1; HEAD=()
     local -a acts=()
+    item "$(tx 'Auto opencode')" '' 'Last folder, the fastest installed route, a new IP and a fresh chat. No questions asked.'; acts+=(auto_home)
     item "$(tx 'Launch OpenCode')" '' 'Pick a folder and a connection, then start OpenCode.'; acts+=(launch)
+    item "$(tx 'Status')" '' 'Which routes are installed, and the last measured time of each. Enter on a missing one installs it.'; acts+=(status_menu)
     if [ "$SETUP_DONE" = 1 ]; then
-      item "$(tx 'Connect with opencode')" "Configured - $OC_EGRESS_DEFAULT" 'Connection and commands. Run it again to change the egress.'; acts+=(connect_setup)
       item "$(tx 'Renew session')" '' 'Use it when the limit is hit or the login expired: backs up auth.json in the launcher state folder, clears tokens, gets a new IP.'; acts+=(renew_session)
-      item "$(tx 'Uninstall')" '' 'Removes the opencode commands and shortcuts and restores the old opencode command. Asks first.' '' err; acts+=(uninstall)
     else
       item "$(tx 'Connect with opencode')" 'Not configured' 'Guided setup: installs what is missing, then WARP, Tor, a proxy list or direct. Creates opencode, opencodeinf and opencodeoc.' '' warn; acts+=(connect_setup)
     fi
-    item "$(tx 'Settings')" '' 'View and change the launcher options. Saved at once.'; acts+=(settings)
-    item "$(tx 'Support report')" '' 'Write one text file with versions, settings and the log, for help.'; acts+=(support_report)
+    item "$(tx 'Settings')" '' 'View and change the launcher options. Saved at once. Support is in here too.'; acts+=(settings)
+    item "$(tx 'Commands')" "$(tx "$(cmd_state)")" 'Install or remove the commands, connect with opencode, uninstall.'; acts+=(commands_menu)
     item "$(tx 'Exit')" '' 'Close the launcher.'; acts+=(quit)
     menu 'OpenCode Infinite' "$VERSION"
     [ "$MRES" -lt 0 ] && return 0
@@ -1259,6 +1535,9 @@ home(){
 cleanup(){
   printf '\e[?25h\e[0m'
   stty sane 2>/dev/null
+  lock_free  # this launcher no longer runs OpenCode, so another window may start
+  # v2.60: Ctrl+C also stops the watcher started by run_session (WPID), not only the normal exit
+  [ -n "${WPID:-}" ] && kill "$WPID" 2>/dev/null
   [ -f "$STATE_DIR/tor.pid" ] && tor_stop
   [ -f "$STATE_DIR/privoxy.pid" ] && kill "$(cat "$STATE_DIR/privoxy.pid")" 2>/dev/null && rm -f "$STATE_DIR/privoxy.pid"
 }
@@ -1267,15 +1546,39 @@ trap 'exit 130' INT TERM
 
 # ---------------------------------------------------------------- entry (OCI_NO_MAIN=1 loads the functions only, for tests)
 if [ -z "${OCI_NO_MAIN:-}" ]; then
+  OPT_HELP=0; OPT_INSTALL=0; OPT_AUTO=0; OPT_QUIET=0; OPT_HERE=0; OPT_SAMEIP=0; NEWIP=0; RUN=0; PRESET=""; RUN_ARGS=()
+  while [ $# -gt 0 ]; do
+    case $1 in
+      -h|--help) OPT_HELP=1;;
+      --install) OPT_INSTALL=1;;
+      --auto) OPT_AUTO=1;;
+      --run) RUN=1; shift; RUN_ARGS+=("$@"); break;;   # the rest goes to opencode
+      --preset) PRESET=${2:-}; shift;;
+      --warp) PRESET=WARP; OPT_SAMEIP=1;;
+      --tor) PRESET=TOR; OPT_SAMEIP=1;;
+      --proxy) PRESET=PROXY; OPT_SAMEIP=1;;
+      --here) OPT_HERE=1;;
+      --same-ip) OPT_SAMEIP=1;;
+      --new-ip) NEWIP=1;;
+      --quiet) OPT_QUIET=1;;
+      --) shift; RUN_ARGS+=("$@"); break;;
+      -*) echo "unknown option: $1 (try --help)" >&2; exit 2;;
+      *) RUN_ARGS+=("$1");;
+    esac
+    shift
+  done
+  [ "$OPT_HELP" = 1 ] && { print_help; exit 0; }
+  if [ ${#RUN_ARGS[@]} -gt 0 ] && [ "$RUN" != 1 ] && [ -z "$PRESET" ]; then echo "unexpected argument: ${RUN_ARGS[0]} (try --help)" >&2; exit 2; fi
   load_cfg
   if [ "$SETUP_DONE" = 1 ]; then fix_old_shim; fi  # repairs an old shim at every start, also for the plain opencode command
   set_theme "$OCUI_THEME"
   shopt -s checkwinsize
+  SEL=0; MRES=0; QUIT=0; ROUTE_READY=0
+  if [ "$OPT_INSTALL" = 1 ]; then commands_install quiet; exit $?; fi
+  if [ "$OPT_AUTO" = 1 ]; then auto_run; exit $?; fi
+  if [ -n "$PRESET" ]; then preset_run "$PRESET" "${RUN_ARGS[@]}"; exit $?; fi
+  if [ "$RUN" = 1 ]; then ensure_deps; OC_MODE_DEFAULT=CLI; run_session "$PWD" "${RUN_ARGS[@]}"; exit $?; fi  # the opencode command takes CLI arguments: always the CLI
   stty -echo -icanon 2>/dev/null
   printf '\e[?25l'
-  SEL=0; MRES=0; QUIT=0; ROUTE_READY=0
-  case ${1:-} in
-    --run) shift; ensure_deps; OC_MODE_DEFAULT=CLI; run_session "$PWD" "$@"; exit $?;;  # the opencode command takes CLI arguments: always the CLI
-    *)     home;;
-  esac
+  home
 fi
