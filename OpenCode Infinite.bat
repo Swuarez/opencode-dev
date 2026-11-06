@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 title opencode-infinity
 REM ============================================================
-REM  OpenCode launcher  (v2.60.1)
+REM  OpenCode launcher  (v2.60.2)
 REM  Multi-egress (WARP / TOR / free HTTP) + dependency bootstrap
 REM  + auto-resume.
 REM  v2.22 - v2.29: every fixed bug carries an inline "REM v2.2x:"
@@ -234,9 +234,10 @@ REM model the chat uses (OC_MODEL overrides it when set): a probe on another mod
 REM passes while the chat's free model is out of quota, and every "continue" then
 REM goes to a dead IP.
 set "PROBE_MODEL=opencode/deepseek-v4.1-flash-free"
-REM PROBE=0 skips the probe entirely (IPs are accepted without testing).
-REM Default ON so burned free-tier IPs are skipped before resume.
-set "PROBE=1"
+REM PROBE=0 skips the probe entirely (IPs are accepted without testing). Default 0 since after v2.60.1.
+REM Off by default (after v2.60.1): each probe uses the free quota and leaves an ocinf-probe session,
+REM so it made the next chat hit the limit. Turn it on in Settings > Probe if you want burned IPs skipped first.
+set "PROBE=0"
 REM How many probe failures that are NOT a limit error are tolerated
 REM before the hunt stops and asks. Catches a retired PROBE_MODEL id or
 REM an auth problem: a broken probe that would otherwise read every
@@ -336,6 +337,8 @@ REM host that does not resolve rejects every proxy and kills PROXY mode.
 REM Set it to 1 only after checking the URL by hand.
 set "PROXY_API_CHECK=0"
 set "PROXY_API_CHECK_URL=https://api.opencode.ai/"
+REM v3.8: one proxy typed in Settings (host:port or http://host:port). Empty = use the list.
+set "PROXY_FIXED="
 REM v2.28: official release metadata (version, url, sha256 for every file).
 REM GitHub "releases/latest", the npm package opencode-ai and winget SST.opencode
 REM are all frozen on the old v1 line (1.19.5) - the current v2 is published here
@@ -797,6 +800,8 @@ set "T_386=not installed"
 REM v2.60.1: the CLI is installed only after the user says yes.
 set "T_387=   OpenCode CLI is not installed. Install it now? [Y/N]: "
 set "T_388=  OpenCode CLI was not installed. Run the launcher again and answer Y, or install it by hand."
+set "T_389=  WARP is stopped or disabled. Turning it on needs administrator rights: accept the Windows prompt to continue."
+set "T_390=  VPN Gate uses OpenVPN: Windows may ask for administrator rights once per session (and to install OpenVPN if it is missing). Accept to continue."
 REM Batch messages are translated from lang\<code>.json; the UI writes lang\messages.txt (data only).
 set "OC_TUI=mki18n"
 set "OC_STATE=%STATE_DIR%"
@@ -912,7 +917,7 @@ REM path) would reach launcher.log in clear and the support report masks no free
 set "LOG_ARGS=redacted"
 set "LOG_OSV="
 for /f "tokens=*" %%v in ('ver') do if not defined LOG_OSV set "LOG_OSV=%%v"
-call :log "start v2.60.1 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
+call :log "start v2.60.2 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
 REM v2.30: one official copy. Setup copies this file to STATE_DIR\app and the opencode
 REM command runs that copy. A duplicate (a second download, "(1)") hands over to it, or
 REM replaces it when it is the newer one.
@@ -1104,6 +1109,7 @@ if defined AQ set "AQ=%AQ:"=%"
 if defined AQ if exist "%AQ%\" set "OPFOLDER=%AQ%"
 if not defined OPFOLDER goto :home_start
 call :auto_pick
+call :auto_method_ok
 set "AUTO_ROTATE=1"
 set "AUTO_FAILS=0"
 set "AUTO_GIVEUPS=0"
@@ -1576,7 +1582,7 @@ if defined OC_CMD goto :ready
 REM v2.40: Desktop mode launches the app, not the CLI: no CLI is not an error there, so do not install it or quit.
 if /i "%APP_MODE%"=="DESKTOP" goto :ready
 
-REM Not found: ask first (v2.60.1). Auto and quiet runs never install on their own.
+REM Not found: ask first (v2.60.2). Auto and quiet runs never install on their own.
 if defined OPT_AUTO goto :oc_missing
 if defined OPT_QUIET goto :oc_missing
 echo.
@@ -2356,7 +2362,8 @@ set "PTXT=%T_378%"
 if defined PMSG set "PTXT=%T_377%"
 if "%PCODE%"=="3" set "PTXT=%T_379%"
 if "%PCODE%"=="9009" set "PTXT=%T_380%"
-call :msg %PTXT%
+REM After v2.60.1: echo, not :msg. The shims always pass --quiet and :msg prints nothing in quiet mode, so a failed preset was silent.
+call echo %PTXT%
 :preset_clean
 call :restore_env
 call :watch_stop
@@ -3387,6 +3394,7 @@ set "VPN_TOOL="
 set "VPN_DIR="
 set "VPN_PORT="
 if exist "%STATE_DIR%\vpn_result.txt" del /f /q "%STATE_DIR%\vpn_result.txt" >nul 2>&1
+if /i "%~1"=="switch" if /i "%EGRESS%"=="VPNGATE" if not defined OPT_AUTO call echo %T_390%
 set "OC_VPN_ACT=%~1"
 set "OC_STATE=%STATE_DIR%"
 set "OC_VPN_M_TRY=%T_280%"
@@ -4794,6 +4802,7 @@ sc qc CloudflareWARP | findstr /i "DISABLED" >nul 2>&1
 if not errorlevel 1 set "WSF_NEED=1"
 if not defined WSF_NEED exit /b 0
 if defined OPT_AUTO exit /b 1
+call echo %T_389%
 call :log "WARP service is stopped or disabled: asking once for administrator rights to set it Automatic and start it" warp
 "%PSX%" -NoProfile -Command "try{ $c='Set-Service -Name CloudflareWARP -StartupType Automatic; Start-Service -Name CloudflareWARP'; $e=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($c)); Start-Process -FilePath powershell.exe -Verb RunAs -Wait -WindowStyle Hidden -ArgumentList @('-NoProfile','-EncodedCommand',$e) }catch{ exit 1 }" >nul 2>&1
 sc query CloudflareWARP | findstr /i "RUNNING" >nul 2>&1
@@ -5767,7 +5776,7 @@ REM - load config.env into this process; derived values follow the port
 REM N36: only the keys the launcher owns are taken from these files, so a
 REM hand-edited PATH, TEMP, STATE_DIR or COMSPEC cannot replace the environment
 REM of the running launcher.
-set "CFG_KEYS= AUTO_ROTATE CHAT_SNAPSHOT IP_FIND_MAX KEY_MENU KEY_QUIT KEY_ROTATE LIMIT_ACTION LIMIT_MODEL LIMIT_ROT_MAX LOG_ENABLED LOG_MASK_IP LOG_MAX_KB MENU_DEFAULT MULTI_INSTANCE OC_API_BASE OC_APP OC_EGRESS_DEFAULT OC_MODE_DEFAULT OC_MODEL OC_OTHER_WINDOW OCUI_COLOR OCUI_FONT OCUI_FONT_SIZE OCUI_ICONS OCUI_LANG OCUI_THEME ON_CLOSE POOL_ENABLE POOL_INTERVAL POOL_MAX PROBE PROBE_BROKEN_MAX PROBE_MODEL PROXY_API_CHECK PROXY_API_CHECK_URL PROXY_LIST_MIN_BYTES PROXY_LIST_URL PROXY_PORT PROXY_PROBE_TIMEOUT PROXY_ROT_MAX PROXY_TRY_MAX QUOTA_RESUME RESUME_AUTO RESUME_MODE RESUME_MSG RESUME_TEXT RESUME_TIMEOUT REUSE_EMPTY ROTATE_COOLDOWN ROTATE_TRIES_MAX TARGET_COUNTRY TARGET_INTERVAL TARGET_MINUTES TARGET_PREFIX TARGET_TRIES TOR_AUTO_INSTALL TOR_BOOTSTRAP_WAIT TOR_HTTP_PORT TOR_SOCKS_PORT TYPE_AHEAD UI_ACC UI_COLOR UPDATE_ASK UPDATE_CHECK VPN_TIMEOUT VPNGATE_COUNTRY VPNGATE_MAX WARP_CALL_TIMEOUT WARP_WAIT WATCH WG_DIR WHERE_TIMEOUT "
+set "CFG_KEYS= AUTO_ROTATE CHAT_SNAPSHOT IP_FIND_MAX KEY_MENU KEY_QUIT KEY_ROTATE LIMIT_ACTION LIMIT_MODEL LIMIT_ROT_MAX LOG_ENABLED LOG_MASK_IP LOG_MAX_KB MENU_DEFAULT MULTI_INSTANCE OC_API_BASE OC_APP OC_EGRESS_DEFAULT OC_MODE_DEFAULT OC_MODEL OC_OTHER_WINDOW OCUI_COLOR OCUI_FONT OCUI_FONT_SIZE OCUI_ICONS OCUI_LANG OCUI_THEME ON_CLOSE POOL_ENABLE POOL_INTERVAL POOL_MAX PROBE PROBE_BROKEN_MAX PROBE_MODEL PROXY_API_CHECK PROXY_API_CHECK_URL PROXY_FIXED PROXY_LIST_MIN_BYTES PROXY_LIST_URL PROXY_PORT PROXY_PROBE_TIMEOUT PROXY_ROT_MAX PROXY_TRY_MAX QUOTA_RESUME RESUME_AUTO RESUME_MODE RESUME_MSG RESUME_TEXT RESUME_TIMEOUT REUSE_EMPTY ROTATE_COOLDOWN ROTATE_TRIES_MAX TARGET_COUNTRY TARGET_INTERVAL TARGET_MINUTES TARGET_PREFIX TARGET_TRIES TOR_AUTO_INSTALL TOR_BOOTSTRAP_WAIT TOR_HTTP_PORT TOR_SOCKS_PORT TYPE_AHEAD UI_ACC UI_COLOR UPDATE_ASK UPDATE_CHECK VPN_TIMEOUT VPNGATE_COUNTRY VPNGATE_MAX WARP_CALL_TIMEOUT WARP_WAIT WATCH WG_DIR WHERE_TIMEOUT "
 if exist "%STATE_DIR%\ui.env" for /f "usebackq tokens=1* delims==" %%a in ("%STATE_DIR%\ui.env") do for %%k in (%CFG_KEYS%) do if /i "%%a"=="%%k" set "%%a=%%b"
 call :ui_style
 if not exist "%STATE_DIR%\config.env" goto :cfg_nums
@@ -6409,6 +6418,8 @@ set "ACTIVE_PROXY="
 REM v2.23: first candidate that passed the Cloudflare trace but not the
 REM (unverified) API check. Offered at the end instead of failing the mode.
 set "TRACE_ONLY="
+REM v3.8: a proxy typed in Settings is the only candidate: no list download, no pool.
+if defined PROXY_FIXED goto :pfp_fixed
 call :pool_take PROXY
 set "PPOOL_OK="
 if defined OC_POOL_PREFER if "%HAVE_CURL%"=="1" (
@@ -6470,6 +6481,11 @@ goto :pfp_listok
 :pfp_nolist
 call echo %T_252%
 exit /b 1
+:pfp_fixed
+set "PFX=%PROXY_FIXED%"
+if /i not "%PFX:~0,7%"=="http://" set "PFX=http://%PFX%"
+set "PLIST=%STATE_DIR%\proxy_fixed.txt"
+> "%PLIST%" echo %PFX%
 :pfp_listok
 set /a PTRY=0
 for /f "usebackq delims=" %%p in ("%PLIST%") do (
@@ -7292,6 +7308,7 @@ $Schema = @(
   S 'PROXY_ROT_MAX' 'Proxy list' 'Burned proxies before Tor offer' 'int' 10 'Burned proxies in a row before PROXY mode offers Tor.' 'now' 1 200
   S 'PROXY_API_CHECK' 'Proxy list' 'Check the API host' 'bool' 0 'A proxy must also reach the opencode API host.' 'now'
   S 'PROXY_API_CHECK_URL' 'Proxy list' 'API check URL' 'url' 'https://api.opencode.ai/' 'Host used by the API check.' 'now'
+  S 'PROXY_FIXED' 'Proxy list' 'Your own proxy' 'proxyaddr' '' 'One proxy to use instead of the list, as host:port, for example 203.0.113.5:8080. Type - to clear and use the list again.' 'now'
   S 'TOR_SOCKS_PORT' 'Tor' 'Tor SOCKS port' 'port' 9050 'SOCKS port of the Tor the launcher starts.' 'next Tor start'
   S 'TOR_HTTP_PORT' 'Tor' 'Tor HTTP bridge port' 'port' 8118 'HTTP port of the built-in bridge opencode uses.' 'next Tor start'
   S 'TOR_AUTO_INSTALL' 'Tor' 'Install Tor automatically' 'bool' 1 'Download the portable Tor bundle when nothing answers.' 'now'
@@ -7325,7 +7342,7 @@ $Schema = @(
   S 'RESUME_AUTO' 'Session' 'Unattended resume' 'bool' 1 'The resume auto-approves tool permissions.' 'now'
   S 'QUOTA_RESUME' 'Session' 'Resume after quota' 'bool' 1 'After a quota stop the chat resumes on a later start only with a new exit IP and a fresh probe.' 'now'
   S 'RESUME_TIMEOUT' 'Session' 'Resume timeout (s)' 'int' 90 'Seconds before a silent resume counts as a dead IP.' 'now' 10 900
-  S 'PROBE' 'Probe' 'Test every new IP' 'bool' 1 'Send one cheap message through each candidate IP.' 'now'
+  S 'PROBE' 'Probe' 'Test every new IP' 'bool' 0 'Send one cheap message through each candidate IP. Off by default: each probe uses the free quota and leaves a session.' 'now'
   S 'PROBE_MODEL' 'Probe' 'Probe model' 'string' 'opencode/deepseek-v4.1-flash-free' 'Model used by the IP probe (the chat model unless a model is set).' 'now'
   S 'PROBE_BROKEN_MAX' 'Probe' 'Probe failures tolerated' 'int' 3 'Non-limit probe failures before the hunt stops.' 'now' 1 50
   S 'OC_APP' 'Paths' 'Desktop app path' 'path' '' 'Full path of OpenCode.exe. Empty = search automatically.' 'now'
@@ -7513,6 +7530,11 @@ function Test-Val($s, [string]$t, [bool]$loading = $false) {
       if ($t.Length -gt 200) { return Fail 'Use up to 200 characters.' }
       return Pass $t
     }
+    'proxyaddr' {
+      if ($t -eq '') { return Pass '' }
+      if ($t -match '^(http://)?[A-Za-z0-9.-]+:\d{1,5}$') { return Pass $t }
+      return Fail 'Use host:port, for example 203.0.113.5:8080. No user or password, no https.'
+    }
   }
   return Fail 'Unknown setting type.'
 }
@@ -7600,7 +7622,7 @@ function Hue-Rgb([double]$h) {
 $Langs = @('en', 'es', 'fr', 'de', 'pt', 'it', 'tr', 'ru')
 $LangBase = if ($env:OC_LANG_BASE) { $env:OC_LANG_BASE } else { 'https://gitlab.com/jekooo/opencode-infinite/-/raw/main/langs' }
 # a cached language file is refreshed when it was downloaded by another launcher version (its .ver file)
-$LangVer = '2.60.1'
+$LangVer = '2.60.2'
 # T looks a text up in the selected language; no entry means the English text is shown. Leading
 # icons and spaces are kept. Tf fills {0} {1} after translating. OC_TUI_I18N_DUMP=<file> lists the misses.
 $script:TrCache = @{}
@@ -8283,7 +8305,7 @@ function Edit-Setting($s) {
       $t = Read-Text ((T $s.Label) + ' - ' + (T $s.Help)) ([string]$cur)
       if ($t -eq '<') { return $null }
       if ($t -eq '' -and $s.Type -ne 'path') { return $null }
-      if ($t -eq '-' -and @('path', 'dir', 'ostring', 'country') -contains $s.Type) { $t = '' }
+      if ($t -eq '-' -and @('path', 'dir', 'ostring', 'country', 'proxyaddr') -contains $s.Type) { $t = '' }
       $r = Test-Val $s $t
       if ($r.ok) { $new = $r.v; break }
       Say 'err' $r.err
@@ -8675,7 +8697,7 @@ function Shim-Original([string]$exe) {
 # D02: body of a direct command: start the official launcher with that preset and
 # pass on the caller's arguments and exit code.
 function Shim-Preset([string]$flag) {
-  return "@echo off`r`ncall `"$Official`" --preset $flag --here --same-ip --quiet %*`r`nexit /b %errorlevel%`r`n"
+  return "@echo off`r`ncall `"$Official`" --preset $flag --here --quiet %*`r`nexit /b %errorlevel%`r`n"
 }
 # Keeps the commands current: "opencode" is always the real OpenCode, never the launcher, and the
 # shortcuts open opencodeinf. Runs at every start, so installs made by older versions are fixed too.
@@ -9020,7 +9042,7 @@ function New-Report {
   $total = 6
   & $A 'OpenCode Infinite - support report'
   & $A ('Generated   ' + (Get-Date).ToString('o'))
-  & $A 'Launcher    v2.60.1'
+  & $A 'Launcher    v2.60.2'
   & $A ('File        ' + $Self)
   try { $fi = Get-Item -LiteralPath $Self; & $A ('Size/date   ' + $fi.Length + ' bytes, ' + $fi.LastWriteTime.ToString('s')); & $A ('SHA-256     ' + (Get-FileHash -LiteralPath $Self -Algorithm SHA256).Hash) } catch { }
   & $A 'Personal data (user name, PC name, e-mails, tokens, passwords, and by default public IPs) is removed from this file. Read it before sharing.'
@@ -9215,7 +9237,7 @@ function Menu-Main {
     @{ L = ($script:I.back + ' Back'); C = 10; H = 'Return to the home screen.' },
     @{ L = ($script:I.err + ' Exit'); C = 6; H = 'Close the launcher.' })
   $head = Header-Lines
-  $r = Show-Menu 'OpenCode' $items ('v2.60.1   ' + $Repo) $head 0
+  $r = Show-Menu 'OpenCode' $items ('v2.60.2   ' + $Repo) $head 0
   if ($r -eq -1) { exit 10 }
   exit $items[$r].C
 }
@@ -9422,7 +9444,7 @@ function Home-Loop {
       $head += ''
     }
     if ($script:Notice) { $head += (P (Style $script:Notice[0]) ($script:I.warn + ' ' + (T $script:Notice[1]))); $head += ''; $script:Notice = $null }
-    $r = Show-Menu 'Main menu' $items ('v2.60.1   ' + $Self) $head $pos $true
+    $r = Show-Menu 'Main menu' $items ('v2.60.2   ' + $Self) $head $pos $true
     if ($r -eq -1) { continue }
     $pos = $r
     Log ('home -> ' + $acts[$r])
@@ -9457,6 +9479,7 @@ function Self-Test {
       'path' { $good = ''; $bad = 'C:\definitely\missing.exe' }
       'dir' { $good = ''; $bad = 'C:\definitely\missing_folder' }
       'ostring' { $good = 'test value'; $bad = 'a"b' }
+      'proxyaddr' { $good = '203.0.113.5:8080'; $bad = 'not a proxy' }
       'country' { $good = 'DE'; $bad = '1x' }
       'ipprefix' { $good = '104.28.'; $bad = 'abc' }
       'font' { $good = 'Consolas'; $bad = 'a"b' }

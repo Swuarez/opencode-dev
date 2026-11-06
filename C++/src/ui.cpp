@@ -489,10 +489,12 @@ static void drawTabs(App& app) {
 
 // ------------------------------------------------------------------- log
 
-static const float kLogH = 190.0f;   // log card height
+static const float kLogH = 190.0f;   // log card height when open
+static const float kLogRowH = 44.0f; // log card height when closed (one row)
 static const float kBarH = 40.0f;    // bottom action row
 
 static int    g_logFilter = 0;       // 0 ALL, 1 INFO, 2 WARN, 3 ERR
+static bool   g_logOpen = false;     // v2.60.1: closed by default, so the window shows the dashboard
 static bool   g_logPaused = false;
 static size_t g_lastLogCount = 0;
 static std::vector<LogLine> g_logSnap;   // frozen copy while paused
@@ -513,6 +515,18 @@ static void exportLog(App& app, const std::vector<LogLine>& lines) {
 }
 
 static void drawLogPanel(App& app) {
+    if (!g_logOpen) {
+        // Closed: one row only. Show log opens the full panel.
+        ImGui::BeginChild("##logcard", ImVec2(0, kLogRowH), true, ImGuiWindowFlags_NoScrollbar);
+        ImGui::AlignTextToFramePadding();
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+        ImGui::TextUnformatted(T("Log"));
+        ImGui::PopStyleColor();
+        ImGui::SameLine(ImGui::GetWindowWidth() - 150.0f - ImGui::GetStyle().WindowPadding.x);
+        if (UiButton(T("Show log"), ImVec2(150, 0), BtnKind::Ghost)) g_logOpen = true;
+        ImGui::EndChild();
+        return;
+    }
     std::vector<LogLine> lines = g_logPaused ? g_logSnap : app.logLines();
 
     ImGui::BeginChild("##logcard", ImVec2(0, kLogH), true, ImGuiWindowFlags_NoScrollbar);
@@ -520,6 +534,8 @@ static void drawLogPanel(App& app) {
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
     ImGui::TextUnformatted(T("Log"));
     ImGui::PopStyleColor();
+    ImGui::SameLine(0.0f, 12.0f);
+    if (UiButton(T("Hide log"), ImVec2(0, 0), BtnKind::Ghost)) g_logOpen = false;
 
     static const char* kFilters[4] = {"ALL", "INFO", "WARN", "ERR"};
     for (int i = 0; i < 4; ++i) {
@@ -849,6 +865,9 @@ static void drawSettings(App& app) {
     ImGui::Spacing();
 
     ImGui::BeginChild("##cfgscroll", ImVec2(0, 0));
+    // Wide windows put the settings of a group in two columns, so there is about half the scrolling.
+    const bool twoCols = ImGui::GetContentRegionAvail().x >= 900.0f;
+    if (twoCols) ImGui::Columns(2, "##cfgcols", false);
     for (const auto& g : groups) {
         if (g == g_group) {
             SectionHeader(T(g.c_str()));
@@ -871,6 +890,7 @@ static void drawSettings(App& app) {
             ImGui::Spacing();
         }
     }
+    if (twoCols) ImGui::Columns(1);
     ImGui::EndChild();
 }
 
@@ -1058,7 +1078,7 @@ void uiDraw(App& app) {
     updateIpHistory(app);
     drawTabs(app);
 
-    float reserve = kLogH + kBarH + ImGui::GetStyle().ItemSpacing.y * 2.0f;
+    float reserve = (g_logOpen ? kLogH : kLogRowH) + kBarH + ImGui::GetStyle().ItemSpacing.y * 2.0f;
     ImGui::BeginChild("##body", ImVec2(0, -reserve), false);
     switch (app.screen()) {
         case Screen::Home:       drawDashboard(app);  break;

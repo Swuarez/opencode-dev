@@ -160,7 +160,10 @@ static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 // fonts are sized in real pixels so Windows does not stretch them (the blur on scaled displays).
 static float g_uiScale = 1.0f;
 
-static void LoadUiFont(float size) {
+// The size is fixed (same text size always); only the family is a choice.
+static const float kUiFontPx = 15.0f;
+
+static void LoadUiFont(const std::string& family, float size) {
     ImGuiIO& io = ImGui::GetIO();
     io.Fonts->Clear();
 
@@ -182,6 +185,10 @@ static void LoadUiFont(float size) {
         "C:\\Windows\\Fonts\\tahoma.ttf",
         "C:\\Windows\\Fonts\\arial.ttf",
     };
+    // Family picked in Settings; if its file is missing, the list above is the fallback.
+    if (family == "tahoma") candidates[0] = "C:\\Windows\\Fonts\\tahoma.ttf";
+    else if (family == "arial") candidates[0] = "C:\\Windows\\Fonts\\arial.ttf";
+    else if (family == "consolas") candidates[0] = "C:\\Windows\\Fonts\\consola.ttf";
     bool done = false;
     for (const char* f : candidates) {
         if (GetFileAttributesA(f) == INVALID_FILE_ATTRIBUTES) continue;
@@ -256,9 +263,8 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.IniFilename = nullptr;
 
-    int fontSize = app.cfg().i("OCUI_FONT_SIZE");
-    if (fontSize < 11) fontSize = 16;
-    LoadUiFont((float)fontSize * g_uiScale);
+    std::string fontFamily = app.cfg().s("OCUI_FONT");
+    LoadUiFont(fontFamily, kUiFontPx * g_uiScale);
 
     ImGui::StyleColorsDark();
     ImGui::GetStyle().ScaleAllSizes(g_uiScale);   // paddings and spacing follow the DPI too
@@ -295,12 +301,11 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
         // Settings changed in config.json (by this app, the .bat or the .sh) -> reload them.
         app.reloadConfigIfChanged();
 
-        // Font size change -> rebuild atlas and device objects.
-        int wantSize = app.cfg().i("OCUI_FONT_SIZE");
-        if (wantSize < 11) wantSize = 16;
-        if (wantSize != fontSize) {
-            fontSize = wantSize;
-            LoadUiFont((float)fontSize * g_uiScale);
+        // Font family change -> rebuild atlas and device objects.
+        std::string wantFamily = app.cfg().s("OCUI_FONT");
+        if (wantFamily != fontFamily) {
+            fontFamily = wantFamily;
+            LoadUiFont(fontFamily, kUiFontPx * g_uiScale);
             ImGui_ImplDX11_InvalidateDeviceObjects();
             ImGui_ImplDX11_CreateDeviceObjects();
         }

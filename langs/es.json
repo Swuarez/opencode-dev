@@ -1,4 +1,11 @@
 {
+  "[%ROTATE_TRIES%] waiting %WARP_WAIT%s...": "[%ROTATE_TRIES%] esperando %WARP_WAIT%s...",
+  "  WARP is stopped or disabled. Turning it on needs administrator rights: accept the Windows prompt to continue.": "  WARP está parado o desactivado. Para encenderlo hacen falta permisos de administrador: acepta la ventana de Windows para continuar.",
+  "  VPN Gate uses OpenVPN: Windows may ask for administrator rights once per session (and to install OpenVPN if it is missing). Accept to continue.": "  VPN Gate usa OpenVPN: Windows puede pedir permisos de administrador una vez por sesión (y para instalar OpenVPN si falta). Acepta para continuar.",
+  "Your own proxy": "Tu propio proxy",
+  "One proxy to use instead of the list, as host:port, for example 203.0.113.5:8080. Type - to clear and use the list again.": "Un proxy para usar en lugar de la lista, como host:puerto, por ejemplo 203.0.113.5:8080. Escribe - para borrarlo y volver a usar la lista.",
+  "Show log": "Mostrar registro",
+  "Hide log": "Ocultar registro",
   " move   Enter select   Esc back   1-9 or letter jump": " mover   Intro elegir   Esc volver   1-9 o letra para saltar",
   "(Enter = keep \"{0}\")": "(Intro = mantener \"{0}\")",
   "(auto)": "(auto)",

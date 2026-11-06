@@ -1,4 +1,12 @@
 {
+  "Changing IP...": "Смена IP...",
+  "%C_WARN%  [*] this model is not available from this IP's country - changing IP.%C_RST%": "%C_WARN%  [*] эта модель недоступна из страны этого IP - меняем IP.%C_RST%",
+  "  WARP is stopped or disabled. Turning it on needs administrator rights: accept the Windows prompt to continue.": "  WARP остановлен или отключён. Для его включения нужны права администратора: подтвердите окно Windows, чтобы продолжить.",
+  "  VPN Gate uses OpenVPN: Windows may ask for administrator rights once per session (and to install OpenVPN if it is missing). Accept to continue.": "  VPN Gate использует OpenVPN: Windows может запросить права администратора один раз за сеанс (и для установки OpenVPN, если его нет). Подтвердите, чтобы продолжить.",
+  "Your own proxy": "Свой прокси",
+  "One proxy to use instead of the list, as host:port, for example 203.0.113.5:8080. Type - to clear and use the list again.": "Один прокси вместо списка, в виде хост:порт, например 203.0.113.5:8080. Введите -, чтобы удалить его и снова использовать список.",
+  "Show log": "Показать журнал",
+  "Hide log": "Скрыть журнал",
   " move   Enter select   Esc back   1-9 or letter jump": " перемещение   Enter выбрать   Esc назад   1-9 или буква для перехода",
   "(Enter = keep \"{0}\")": "(Enter = оставить \"{0}\")",
   "(auto)": "(авто)",

@@ -2,7 +2,7 @@
 # OpenCode Infinite for Linux: the Windows launcher's flow in bash.
 # Egress WARP / TOR / PROXY / NONE, target IP hunt, probe, resume when a limit stops the chat.
 # Needs: bash 4.3+, curl, node + opencode. Optional: warp-cli, tor, privoxy, jq (menus in other languages).
-VERSION="linux-0.4.4"
+VERSION="linux-0.4.5"
 REPO="https://gitlab.com/jekooo/opencode-infinite"
 REPO_RAW="https://gitlab.com/jekooo/opencode-infinite/-/raw/main"
 
@@ -68,7 +68,7 @@ SETDEF=(
 'RESUME_TIMEOUT|Watcher|num|90|Resume timeout (s)|Seconds before a silent resume counts as a dead IP.|10:900'
 'RESUME_MODE|Watcher|enum|continue|Resume mode|continue = the resume message. custom = the custom text below.|continue,custom'
 'RESUME_TEXT|Watcher|text||Custom resume text|Text sent when the resume mode is custom.|'
-'PROBE|Probe|bool|1|Test every new IP|Send one cheap message through each candidate IP.|'
+'PROBE|Probe|bool|0|Test every new IP|Send one cheap message through each candidate IP. Off by default: each probe uses the free quota.|'
 'PROBE_MODEL|Probe|text|opencode/deepseek-v4.1-flash-free|Probe model|Model used by the IP probe.|'
 'PROBE_BROKEN_MAX|Probe|num|3|Probe failures tolerated|Non-limit probe failures before the hunt stops and says the probe is broken.|1:50'
 'UPDATE_CHECK|Updates|bool|1|Launcher self-update|Check GitHub for a newer launcher at every start.|'

@@ -83,6 +83,7 @@ private:
     bool warpAvailable() const;
     bool warpCall(const std::string& args, int timeoutSec, std::string* out = nullptr) const;
     bool warpUp(ProgressFn log);
+    bool warpSvcFix(ProgressFn log);
     bool warpRotate(ProgressFn log);
     bool warpCheck(std::string* ip) const;
 

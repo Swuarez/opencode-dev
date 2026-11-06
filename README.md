@@ -8,9 +8,9 @@ resumes the same chat.
 
 | File | Platform | What it is | Latest release |
 |---|---|---|---|
-| `OpenCode Infinite.bat` | Windows 10 / 11 (x64, ARM64, x86 limited) | Full launcher: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages; single-instance lock that checks PID, start time, executable and .bat path | 2.60 |
-| `OpenCode Infinite.exe` | Windows 10 / 11 (x64) | Native C++ app: WARP, Tor, proxies, WireGuard, VPN Gate and direct connection; retries OpenCode after a crash; 7 languages. WireGuard and VPN Gate are included. See [section 14](#14-c-app-opencode-infiniteexe) | 3.4.3 |
-| `opencode-infinite.sh` | Linux (bash; Ubuntu 24.04 with apt; also dnf, pacman and zypper) | Full, including the desktop app, except the Windows-only items. See [Linux: what is different](#linux-what-is-different) | linux-0.4.3 |
+| `OpenCode Infinite.bat` | Windows 10 / 11 (x64, ARM64, x86 limited) | Full launcher: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages; single-instance lock that checks PID, start time, executable and .bat path | 2.60.2 |
+| `OpenCode Infinite.exe` | Windows 10 / 11 (x64) | Native C++ app: WARP, Tor, proxies, WireGuard, VPN Gate and direct connection; retries OpenCode after a crash; 7 languages. WireGuard and VPN Gate are included. See [section 14](#14-c-app-opencode-infiniteexe) | 3.4.5 |
+| `opencode-infinite.sh` | Linux (bash; Ubuntu 24.04 with apt; also dnf, pacman and zypper) | Full, including the desktop app, except the Windows-only items. See [Linux: what is different](#linux-what-is-different) | linux-0.4.5 |
 
 The sections marked **Windows only** below are not on Linux.
 
@@ -19,7 +19,7 @@ The sections marked **Windows only** below are not on Linux.
 
 ### Windows: .bat or .exe?
 
-- The `.bat` has VPN Gate and WireGuard. The `.exe` (3.4.4) has the same modes (section 14).
+- The `.bat` has VPN Gate and WireGuard. The `.exe` (3.4.5) has the same modes (section 14).
 - The `.exe` and the `.bat` share the state folder and `config.json` (section 14).
 - An `OpenCode Infinite.exe` that sits next to the `.bat` is offered for update by the launcher (section 11).
 
@@ -160,7 +160,7 @@ The egress default is set during setup and in Settings, Connection (`OC_EGRESS_D
 |---|---|
 | **WARP** | Cloudflare WARP in local proxy mode (MASQUE protocol, port 40000). Every rotation registers again, which gives a new exit IP. Offered when WARP is missing. If a step fails, WARP stops there; there is no WireGuard fallback |
 | **TOR** | Tor with an HTTP bridge on `127.0.0.1:8118`. **Windows:** a portable Tor with a built-in bridge, no Privoxy needed. **Linux:** `tor` and `privoxy` from your system. A Tor that is already running (Tor Browser on port 9150, or 9050) is used as it is and never closed by the launcher |
-| **PROXY** | Free HTTP proxies from a list. Settings > Proxy list offers ProxyScrape (default), proxifly, GeoNode (HTTP only, fastest first), monosans, TheSpeedX, or your own list (`PROXY_LIST_URL`: a URL or a local file). Each pick tests untried proxies in random order (`PROXY_TRY_MAX` per pick, default 40 on Windows and 25 on Linux); dead ones are skipped, and the list is reused once all of it was tried. In PROXY mode, after `PROXY_ROT_MAX` burned proxies the launcher asks whether to switch the hunt to Tor |
+| **PROXY** | Free HTTP proxies from a list. Settings > Proxy list offers ProxyScrape (default), proxifly, GeoNode (HTTP only, fastest first), monosans, TheSpeedX, or your own list (`PROXY_LIST_URL`: a URL or a local file). `PROXY_FIXED` (Settings > Proxy list > Your own proxy, `host:port`) replaces the list when it is set. Each pick tests untried proxies in random order (`PROXY_TRY_MAX` per pick, default 40 on Windows and 25 on Linux); dead ones are skipped, and the list is reused once all of it was tried. In PROXY mode, after `PROXY_ROT_MAX` burned proxies the launcher asks whether to switch the hunt to Tor |
 | **NONE** | Direct connection, no proxy |
 | **WIREGUARD** | **Windows only.** Your WireGuard `.conf` files from `WG_DIR` (default `...\opencode-infinite\wireguard`), run through [wireproxy](https://github.com/windtf/wireproxy), a local proxy that only OpenCode uses. Each switch takes the next file. Needs no WireGuard install and no administrator prompt |
 | **VPNGATE** | **Windows only.** Public servers from [vpngate.net](https://www.vpngate.net) through the normal OpenVPN client (`openvpn.exe`). Installed with winget when it is missing. OpenVPN creates a system tunnel, but the launcher adds routes only for the IPs of `opencode.ai`, `models.opencode.ai` and `opentunnel.xyz` as they resolve on your PC at start (`route-nopull`). Everything else stays direct. Filter by `VPNGATE_COUNTRY`, `VPNGATE_MAX` servers tried per start. A server that fails is skipped for the session. The administrator prompt comes once per launcher session, not on each start or switch |
@@ -273,7 +273,7 @@ Setting names are the same on Windows (`config.json`) and Linux (`config.env`). 
 | `RESUME_MSG` | `continue` | Message sent when a chat is resumed | both |
 | `RESUME_AUTO` | `1` | The resume approves tool permissions (`opencode run --auto`) | both |
 | `RESUME_TIMEOUT` | `90` | Seconds before a stuck resume is stopped and the launcher rotates | both |
-| `PROBE` / `PROBE_MODEL` | `1` / `opencode/deepseek-v4.1-flash-free` | Probe each new IP with one cheap message, and the model it uses. The probe creates its own session (titled `ocinf-probe`) and deletes it afterwards, so no fixed session id is needed | both |
+| `PROBE` / `PROBE_MODEL` | `0` / `opencode/deepseek-v4.1-flash-free` | Probe each new IP with one cheap message, and the model it uses. Off by default: each probe uses the free quota and leaves a session. The probe creates its own session (titled `ocinf-probe`) and deletes it afterwards, so no fixed session id is needed | both |
 | `PROBE_BROKEN_MAX` | `3` | Non-limit probe failures before the hunt stops | both |
 | `UPDATE_CHECK` | `1` | Check for a newer launcher at start (section 11) | both |
 | `UPDATE_ASK` | `ask` | `ask` offers updates at start, `never` turns checks off | both |
@@ -487,7 +487,7 @@ A native Windows app with the same job as the `.bat`: a new exit IP, then OpenCo
 
 **Screens.** Top tabs: Dashboard, Settings, Chats, Support and More. The dashboard shows four cards (Exit IP, Route, OpenCode, Rotation), the egress panel with Copy IP and Copy previous, the IP history of this session, the switches for `AUTO_ROTATE`, `WATCH` and `PROBE`, and the system paths. The bottom row changes with the state. While OpenCode runs: **Rotate IP** (new IP, then start OpenCode) and **Stop** (stops OpenCode; the connection stays up until Exit). While it is stopped: **Start** (OpenCode on the current connection, no new IP and no picker) and Rotate IP. Both states also have **Open CLI** (opens `opencodeinf` in a new console window, where you choose the folder) and **More**. More holds New IP and start, Reconnect, Clear tokens, Change IP (test), Deep reset or restore chats, Install commands, Remove commands, Renew session, Uninstall and Exit. Install commands writes `opencodeinf` and `opencode-auto` into `%LOCALAPPDATA%\opencode-infinite\bin` and adds that folder to your user PATH. Remove commands deletes the two commands and takes the folder off PATH, unless other files are still in it (for example the `opencode` command of the `.bat`). Uninstall removes the two commands as well. The commands do not depend on Set up connection. They need the launcher `.bat` installed in `%LOCALAPPDATA%\opencode-infinite\app`. Open a new terminal after a change to PATH.
 
-**Settings.** The language is a row of chips at the top (Automatic, English, Español, Français, Deutsch, Português, Italiano, Türkçe) and applies at once. Below it are the groups as tabs. The window hides the settings it does not use: keyboard keys (the window has buttons), the URLs of the `.bat` and `.sh` updaters, and a few technical values. They keep their stored value in `config.json`, so the `.bat` and `.sh` still use them. Settings saved by the `.bat`, the `.sh` or the window are reloaded in the window within a second, without a restart. A font size change is applied at once too. The log has the filters ALL, INFO, WARN and ERR, and the buttons Pause, Clear and Export (Export writes `opencode-infinite-log.txt` to the state folder). The log panel shows the time as HH:MM:SS.
+**Settings.** The language is a row of chips at the top (Automatic, English, Español, Français, Deutsch, Português, Italiano, Türkçe) and applies at once. Below it are the groups as tabs. The window hides the settings it does not use: keyboard keys (the window has buttons), the URLs of the `.bat` and `.sh` updaters, and a few technical values. They keep their stored value in `config.json`, so the `.bat` and `.sh` still use them. Settings saved by the `.bat`, the `.sh` or the window are reloaded in the window within a second, without a restart. The typeface can be changed in Settings > Appearance and is applied at once; the text size stays the same. The log has the filters ALL, INFO, WARN and ERR, and the buttons Pause, Clear and Export (Export writes `opencode-infinite-log.txt` to the state folder). The log panel shows the time as HH:MM:SS.
 
 **Connection.** WARP, Tor, proxy and NONE, with the same meaning as in section 4.
 
@@ -532,8 +532,28 @@ A native Windows app with the same job as the `.bat`: a new exit IP, then OpenCo
 
 ## Versions
 
-**Latest version:** launcher 2.60.1 (`.bat`), app 3.4.4 (`.exe`), Linux script 0.4.4.
-**Latest published release:** 2.60.1 (2026-11-06). **Previous:** 2.60 (2026-11-06).
+**Latest version:** launcher 2.60.2 (`.bat`), app 3.4.5 (`.exe`), Linux script 0.4.5.
+**Latest published release:** 2.60.2 (2026-11-06). **Previous:** 2.60.1 (2026-11-06).
+
+### 2.60.2
+
+- **Admin asked once, after a message:** when the WARP service is stopped, the launcher says why and then asks Windows for administrator rights once. VPN Gate prints its note before the administrator prompt.
+- **Preset commands:** `opencode-warp` and `opencode-tor` print the reason when they cannot start, instead of exiting silently.
+- **Auto:** the automatic start uses WARP, Tor or a proxy, whichever is installed and fastest; choices that are not set up (none, WireGuard, VPN Gate) become WARP.
+- **Test every new IP is off by default:** each probe uses the free quota and leaves a session. Turn it on in Settings > Probe.
+- **Your own proxy:** Settings > Proxy list > Your own proxy (`host:port`) is used instead of the list.
+- **Languages:** the missing translations are filled in.
+
+### C++ app 3.4.5
+
+- **Probe off by default**, as in the `.bat`. A probe deletes the session it created.
+- **Font:** you choose the typeface (Segoe UI, Tahoma, Arial or Consolas). The text size is always the same.
+- **Log panel:** closed by default, with Show log and Hide log.
+- **Your own proxy** and the WARP service prompt work as in the `.bat`.
+
+### Linux script 0.4.5
+
+- **Probe off by default**, as in the `.bat`.
 
 ### 2.60.1
 

@@ -146,8 +146,25 @@ bool EgressEngine::warpCheck(std::string* ip) const {
     return warp == "on" || warp == "plus";
 }
 
+// The WARP daemon must run before warp-cli can connect. Starting it needs administrator rights, so the
+// message comes first and the prompt once, and only when the service is really stopped (same command as the .bat).
+bool EgressEngine::warpSvcFix(ProgressFn log) {
+    RunResult q = runCapture("sc.exe", "query CloudflareWARP", {}, 10000);
+    if (q.out.find("STOPPED") == std::string::npos) return true;   // running, starting or not installed: warp-cli decides
+    say(log, 0, tx("WARP service is stopped or disabled. Turning it on needs administrator rights: accept the Windows prompt to continue."));
+    std::string ps = joinPath(envVar("SystemRoot"), "System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+    std::wstring w = utf8ToWide("Set-Service -Name CloudflareWARP -StartupType Automatic; Start-Service -Name CloudflareWARP");
+    std::string bytes((const char*)w.data(), w.size() * sizeof(wchar_t));
+    uint32_t code = 0;
+    Spawned sp = spawnElevated(ps, "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand " + base64Encode(bytes), true, &code);
+    if (!sp.ok) { say(log, 2, tx("the administrator prompt was refused.")); return false; }
+    logInfo(fmt("[warp] service start exit %u", code));
+    return code == 0;
+}
+
 bool EgressEngine::warpUp(ProgressFn log) {
     if (!warpAvailable()) { say(log, 3, "warp-cli missing"); return false; }
+    if (!warpSvcFix(log)) return false;
     int port = cfg_->i("PROXY_PORT");
     int callTo = cfg_->i("WARP_CALL_TIMEOUT");
     warpCall("registration show", callTo);
@@ -382,6 +399,18 @@ bool EgressEngine::parseProxies(const std::string& text, std::vector<std::string
 }
 
 bool EgressEngine::proxyPick(ProgressFn log) {
+    // the user's own proxy replaces the list; it must still answer the trace check
+    std::string fixed = trim(cfg_->s("PROXY_FIXED"));
+    if (startsWith(fixed, "http://")) fixed = fixed.substr(7);
+    if (!fixed.empty()) {
+        if (fixed.find(':') == std::string::npos) { say(log, 3, "your own proxy must be host:port."); return false; }
+        HttpResult r = httpGet(kTraceUrl, "http://" + fixed, cfg_->i("PROXY_PROBE_TIMEOUT"));
+        if (!r.ok || r.body.find("ip=") == std::string::npos) { say(log, 2, fmt("your own proxy %s did not answer.", fixed.c_str())); return false; }
+        st_->activeProxy = fixed;
+        st_->proxyUrl = "http://" + fixed;
+        say(log, 1, fmt("proxy picked: %s", fixed.c_str()));
+        return true;
+    }
     std::string src = cfg_->s("PROXY_LIST_URL");
     std::string raw;
     if (fileExists(src)) raw = readFileText(src);
@@ -991,6 +1020,23 @@ int EgressEngine::probe(ProgressFn log, const std::string& cli, const std::strin
     say(log, 0, fmt("probing the new IP with %s...", model.c_str()));
     RunResult r = runCapture(cli, fmt("run --format json --model %s --auto \"reply with the word ok\"", quoteArg(model).c_str()),
                              env, 120000, userProfile());
+
+    // v3.4.5: delete the session this probe created, the same way opencode-infinite.sh does.
+    // The id is the first ses_ token in the JSON output. Without this every probe left a chat behind.
+    {
+        size_t p = r.out.find("ses_");
+        if (p != std::string::npos) {
+            size_t e = p + 4;
+            while (e < r.out.size()) {
+                char c = r.out[e];
+                bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+                if (!ok) break;
+                ++e;
+            }
+            std::string sid = r.out.substr(p, e - p);
+            if (sid.size() > 4) runCapture(cli, "session delete " + sid, env, 30000, userProfile());
+        }
+    }
 
     std::string delta = readFileFrom(logFile, offset);
     bool limit = probeClassifyLimit(r.out) || probeClassifyLimit(r.err) || probeClassifyLimit(delta);
