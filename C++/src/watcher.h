@@ -12,6 +12,7 @@ namespace oi {
 struct WatchConfig {
     std::string logFile;
     int64_t     startOffset = 0;
+    std::string sinceUtc;        // "YYYY-MM-DDTHH:MM:SS" (UTC): lines stamped before this are old, ignored
     std::string probeHostPort;   // "127.0.0.1:40000"; empty = no egress watchdog
 };
 
@@ -28,9 +29,9 @@ public:
     bool running() const { return running_; }
 
     // The fatal shape: level=ERROR on the line plus a quota/limit phrase.
-    static bool lineHasFatal(const std::string& line);
-    // 0 = none, 1 = usage limit (rotate=), 2 = rate limit (ask=).
-    static int lineKind(const std::string& line);
+    static bool lineHasFatal(const std::string& line, const std::string& sinceUtc = std::string());
+    // 0 = none, 1 = usage limit (rotate=), 2 = rate limit (ask=). A line stamped before sinceUtc is 0.
+    static int lineKind(const std::string& line, const std::string& sinceUtc = std::string());
 
 private:
     void loop();

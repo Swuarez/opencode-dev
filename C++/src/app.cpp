@@ -14,11 +14,12 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <ctime>
 #include <thread>
 
 namespace oi {
 
-const char* kLauncherVersion = "3.4.2";
+const char* kLauncherVersion = "3.4.3";
 
 App::App() {}
 App::~App() { shutdown(); }
@@ -265,6 +266,7 @@ void App::startWatcher() {
     WatchConfig wc;
     wc.logFile     = lf;
     wc.startOffset = (int64_t)fileSizeOf(lf);
+    wc.sinceUtc    = runSinceUtc_;
     if (!est_.proxyUrl.empty()) wc.probeHostPort = proxyHostPort(est_.proxyUrl);
     watcher_.start(
         wc,
@@ -462,6 +464,7 @@ void App::doUninstall() {
         log(0, tx("Removing the launcher settings."));
         stopApp();
         removeFile(cfg_.path());
+        removeCommands();
         cfg_.resetAll();
         cfg_.save();
         detectAt_ = 0;   // OC_APP went back to automatic
@@ -558,6 +561,198 @@ void App::openFolder(const std::string& path) {
     spawnDetached(joinPath(envVar("SystemRoot"), "explorer.exe"), quoteArg(p), {}, "", false);
 }
 
+void App::stopNow() {
+    runAsync([this] {
+        log(0, tx("Stopping OpenCode..."));
+        stopApp();
+        log(1, tx("OpenCode stopped. The connection is still up; Exit releases it."));
+    });
+}
+
+// Connection already up: start OpenCode on it. Connection down: reuse the mode picked this session
+// (or ask once if none). The IP is not changed either way.
+void App::startNow() {
+    if (busy_ || appRunning()) return;
+    if (est_.mode == Egress::None) {
+        if (lastConnMode_.empty()) startLaunch();
+        else connectAndStart(lastConnMode_);
+        return;
+    }
+    runAsync([this] {
+        if (appExe_.empty()) { log(3, tx("OpenCode was not found.")); return; }
+        log(0, tx("Starting OpenCode on the current connection."));
+        if (startDesktop()) log(1, tx("OpenCode started."));
+        else log(3, tx("OpenCode did not start."));
+    });
+}
+
+// The same command the shortcuts run: the launcher menu, where the folder is chosen.
+void App::openCli() {
+    std::string shim = joinPath(localAppData(), "opencode-infinite\\bin\\opencodeinf.cmd");
+    bool haveShim = GetFileAttributesA(shim.c_str()) != INVALID_FILE_ATTRIBUTES;
+    std::wstring cmd = haveShim ? widen("cmd.exe /d /k \"\"" + shim + "\"\"") : widen("cmd.exe /d /k opencode");
+    std::wstring cwd = widen(envVar("USERPROFILE"));
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi{};
+    if (CreateProcessW(nullptr, &cmd[0], nullptr, nullptr, FALSE, CREATE_NEW_CONSOLE, nullptr,
+                       cwd.empty() ? nullptr : cwd.c_str(), &si, &pi)) {
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        log(1, tx("Opened the opencode CLI in a new window."));
+    } else {
+        log(3, fmt("could not open the opencode CLI (error %lu)", GetLastError()));
+    }
+}
+
+// The two launcher commands the .bat's setup also writes. They call the official .bat. The folder
+// goes on PATH through the .bat's setup, so this only checks it and says so when it is missing.
+static std::string commandsDir() { return joinPath(localAppData(), "opencode-infinite\\bin"); }
+static std::string officialBat() { return joinPath(localAppData(), "opencode-infinite\\app\\OpenCode Infinite.bat"); }
+
+// The user PATH is the raw HKCU\Environment\Path value (REG_EXPAND_SZ, %VAR% kept), as the .bat writes it.
+static bool userPathRead(std::wstring& out, DWORD& type) {
+    HKEY hk;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Environment", 0, KEY_READ, &hk) != ERROR_SUCCESS) return false;
+    DWORD bytes = 0;
+    LONG rc = RegQueryValueExW(hk, L"Path", nullptr, &type, nullptr, &bytes);
+    if (rc == ERROR_FILE_NOT_FOUND) { RegCloseKey(hk); out.clear(); type = REG_EXPAND_SZ; return true; }
+    if (rc != ERROR_SUCCESS) { RegCloseKey(hk); return false; }
+    std::vector<wchar_t> buf(bytes / sizeof(wchar_t) + 2, 0);
+    rc = RegQueryValueExW(hk, L"Path", nullptr, &type, reinterpret_cast<LPBYTE>(buf.data()), &bytes);
+    RegCloseKey(hk);
+    if (rc != ERROR_SUCCESS) return false;
+    out = buf.data();
+    return true;
+}
+
+static bool userPathWrite(const std::wstring& v) {
+    HKEY hk;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Environment", 0, KEY_WRITE, &hk) != ERROR_SUCCESS) return false;
+    LONG rc = RegSetValueExW(hk, L"Path", 0, REG_EXPAND_SZ, reinterpret_cast<const BYTE*>(v.c_str()),
+                             (DWORD)((v.size() + 1) * sizeof(wchar_t)));
+    RegCloseKey(hk);
+    if (rc != ERROR_SUCCESS) return false;
+    DWORD_PTR r = 0;   // tell open programs (Explorer, new terminals) that the environment changed
+    SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, 0, reinterpret_cast<LPARAM>(L"Environment"),
+                        SMTO_ABORTIFHUNG, 2000, &r);
+    return true;
+}
+
+// Compare folders the way Windows does: no case, no trailing backslash.
+static std::wstring folderKey(std::wstring s) {
+    while (!s.empty() && (s.back() == L'\\' || s.back() == L' ')) s.pop_back();
+    if (!s.empty()) CharLowerBuffW(&s[0], (DWORD)s.size());
+    return s;
+}
+
+static std::vector<std::wstring> splitPathList(const std::wstring& p) {
+    std::vector<std::wstring> out;
+    size_t start = 0;
+    while (start <= p.size()) {
+        size_t end = p.find(L';', start);
+        if (end == std::wstring::npos) end = p.size();
+        std::wstring part = p.substr(start, end - start);
+        if (!part.empty()) out.push_back(part);
+        start = end + 1;
+    }
+    return out;
+}
+
+// Adds (add = true) or removes the folder in the user PATH. Other entries are kept in their order.
+static bool editUserPath(const std::wstring& dir, bool add, bool& changed) {
+    std::wstring raw;
+    DWORD type = REG_EXPAND_SZ;
+    if (!userPathRead(raw, type)) return false;
+    std::vector<std::wstring> parts = splitPathList(raw);
+    std::wstring key = folderKey(dir);
+    bool found = false;
+    std::vector<std::wstring> kept;
+    for (const auto& p : parts) {
+        if (folderKey(p) == key) { found = true; continue; }
+        kept.push_back(p);
+    }
+    changed = add ? !found : found;
+    if (add) kept.push_back(dir);
+    if (!changed) return true;
+    std::wstring joined;
+    for (size_t i = 0; i < kept.size(); ++i) { if (i) joined += L';'; joined += kept[i]; }
+    return userPathWrite(joined);
+}
+
+// True when the folder still holds files (other commands), so it must stay on PATH.
+static bool folderHasFiles(const std::string& dir) {
+    WIN32_FIND_DATAW fd{};
+    HANDLE h = FindFirstFileW(widen(dir + "\\*").c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    bool any = false;
+    do {
+        if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) any = true;
+    } while (!any && FindNextFileW(h, &fd));
+    FindClose(h);
+    return any;
+}
+
+void App::installCommands() {
+    runAsync([this] {
+        std::string dir = commandsDir();
+        std::string bat = officialBat();
+        if (!fileExists(bat)) {
+            log(3, tx("The launcher .bat is not installed. Run OpenCode Infinite.bat once, then try again."));
+            return;
+        }
+        makeDirs(dir);
+        writeFileText(joinPath(dir, "opencodeinf.cmd"), "@echo off\r\ncall \"" + bat + "\" %*\r\n");
+        writeFileText(joinPath(dir, "opencode-auto.cmd"), "@echo off\r\ncall \"" + bat + "\" --auto\r\n");
+        bool changed = false;
+        if (!editUserPath(widen(dir), true, changed)) {
+            log(2, tx("Commands written, but the PATH could not be changed. Add {0} to your PATH by hand.", dir));
+            return;
+        }
+        log(1, changed ? tx("Commands installed in {0}, which is now on your PATH. Open a new terminal to use them.", dir)
+                       : tx("Commands installed in {0}. The folder was already on your PATH.", dir));
+    });
+}
+
+void App::removeCommands() {
+    runAsync([this] {
+        std::string dir = commandsDir();
+        removeFile(joinPath(dir, "opencodeinf.cmd"));
+        removeFile(joinPath(dir, "opencode-auto.cmd"));
+        // Leave the folder on PATH while other commands are in it (the .bat's opencode, for example).
+        if (folderHasFiles(dir)) {
+            log(1, tx("Commands removed. The folder stays on your PATH because other files are in it."));
+            return;
+        }
+        bool changed = false;
+        if (!editUserPath(widen(dir), false, changed)) {
+            log(2, tx("Commands removed, but the PATH could not be changed. Remove {0} from your PATH by hand.", dir));
+            return;
+        }
+        log(1, changed ? tx("Commands removed and the folder taken off your PATH.") : tx("Commands removed."));
+    });
+}
+
+// config.json is also written by the .bat and the .sh. Reload it when its write time changes.
+static int64_t fileWriteTime(const std::string& p) {
+    WIN32_FILE_ATTRIBUTE_DATA d{};
+    if (!GetFileAttributesExA(p.c_str(), GetFileExInfoStandard, &d)) return 0;
+    return ((int64_t)d.ftLastWriteTime.dwHighDateTime << 32) | d.ftLastWriteTime.dwLowDateTime;
+}
+
+void App::reloadConfigIfChanged() {
+    int64_t now = nowSeconds();
+    if (now - cfgCheckAt_ < 1 || busy_) return;
+    cfgCheckAt_ = now;
+    int64_t m = fileWriteTime(cfg_.path());
+    if (cfgMtime_ == 0) { cfgMtime_ = m; return; }
+    if (m == cfgMtime_) return;
+    cfgMtime_ = m;
+    std::string before = cfg_.exportJson();
+    cfg_.load(stateDir());
+    if (cfg_.exportJson() != before) log(1, tx("Settings reloaded from config.json."));
+}
+
 // ------------------------------------------------------------ desktop process
 
 bool App::startDesktop() {
@@ -568,6 +763,14 @@ bool App::startDesktop() {
     if (desktopRunning())
         log(2, tx("An OpenCode opened outside the launcher is running. Close it so OpenCode uses the new route."));
     void* proc = nullptr;
+    {   // the log stamps are UTC: a run only sees error lines written after its own start
+        std::time_t t = (std::time_t)nowSeconds();
+        std::tm utc{};
+        gmtime_s(&utc, &t);
+        char buf[24];
+        std::strftime(buf, sizeof buf, "%Y-%m-%dT%H:%M:%S", &utc);
+        runSinceUtc_ = buf;
+    }
     if (!launchDesktop(appExe_, est_.proxyUrl, est_.nodeOptions, &appPid_, &proc)) return false;
     {
         std::lock_guard<std::mutex> lk(mtx_);

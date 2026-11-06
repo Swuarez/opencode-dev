@@ -38,7 +38,12 @@ static bool hasWord(const std::string& s, const char* w) {
     return false;
 }
 
-int LogWatcher::lineKind(const std::string& line) {
+int LogWatcher::lineKind(const std::string& line, const std::string& sinceUtc) {
+    // the OpenCode log is shared by every run: an error stamped before this start is an old one
+    if (!sinceUtc.empty()) {
+        size_t t = line.find("timestamp=");
+        if (t != std::string::npos && line.substr(t + 10, 19) < sinceUtc) return 0;
+    }
     std::string l = lower(line);
     size_t e = l.find("level=error");
     if (e == std::string::npos) return 0;
@@ -48,7 +53,7 @@ int LogWatcher::lineKind(const std::string& line) {
     return 0;
 }
 
-bool LogWatcher::lineHasFatal(const std::string& line) { return lineKind(line) != 0; }
+bool LogWatcher::lineHasFatal(const std::string& line, const std::string& sinceUtc) { return lineKind(line, sinceUtc) != 0; }
 
 LogWatcher::~LogWatcher() { stop(); }
 
@@ -119,7 +124,7 @@ void LogWatcher::loop() {
         std::string delta = readFileFrom(wc_.logFile, offset_);
         if (delta.empty()) continue;
         offset_ += (int64_t)delta.size();
-        if (!lineHasFatal(delta)) continue;
+        if (!lineHasFatal(delta, wc_.sinceUtc)) continue;
 
         // a fatal line often scrolls past a chat that recovers on its own:
         // settle, then look at what followed the error.
@@ -135,7 +140,7 @@ void LogWatcher::loop() {
 
         auto lines = split(all, '\n');
         int lastFatal = -1;
-        for (size_t i = 0; i < lines.size(); ++i) if (lineHasFatal(lines[i])) lastFatal = (int)i;
+        for (size_t i = 0; i < lines.size(); ++i) if (lineHasFatal(lines[i], wc_.sinceUtc)) lastFatal = (int)i;
 
         bool recovered = false;
         for (size_t i = (size_t)(lastFatal + 1); i < lines.size(); ++i) {
@@ -150,7 +155,7 @@ void LogWatcher::loop() {
             continue;
         }
         bool usage = false;
-        for (const auto& l : lines) if (lineKind(l) == 1) usage = true;
+        for (const auto& l : lines) if (lineKind(l, wc_.sinceUtc) == 1) usage = true;
         if (!usage) {
             // rate limit only: the app asks (at most once per 10 min); keep watching meanwhile
             logInfo("a stuck rate limit error was confirmed in the OpenCode log; asking, not rotating");

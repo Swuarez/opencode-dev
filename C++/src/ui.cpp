@@ -567,13 +567,22 @@ static void drawLogPanel(App& app) {
     ImGui::EndChild();
 }
 
-// Bottom row: the three actions that matter most while OpenCode runs.
+// Bottom row. Running: Rotate IP and Stop. Stopped: Start (same connection, no new IP) and Rotate IP.
+// Open CLI and More are always there, so the window stays open for the whole session.
 static void drawActionBar(App& app) {
     float gap = ImGui::GetStyle().ItemSpacing.x;
-    float w = (ImGui::GetContentRegionAvail().x - gap * 2.0f) / 3.0f;
-    if (PrimaryButton(T("Rotate IP"), ImVec2(w, kBarH))) app.newIpAndStart();
+    float w = (ImGui::GetContentRegionAvail().x - gap * 3.0f) / 4.0f;
+    if (app.appRunning()) {
+        if (PrimaryButton(T("Rotate IP"), ImVec2(w, kBarH))) app.newIpAndStart();
+        ImGui::SameLine();
+        if (DangerButton(T("Stop"), ImVec2(w, kBarH))) app.stopNow();
+    } else {
+        if (PrimaryButton(T("Start"), ImVec2(w, kBarH))) app.startNow();
+        ImGui::SameLine();
+        if (GhostButton(T("Rotate IP"), ImVec2(w, kBarH))) app.newIpAndStart();
+    }
     ImGui::SameLine();
-    if (GhostButton(T("Reconnect"), ImVec2(w, kBarH))) app.connectWith();
+    if (GhostButton(T("Open CLI"), ImVec2(w, kBarH))) app.openCli();
     ImGui::SameLine();
     if (GhostButton(T("More"), ImVec2(w, kBarH))) app.setScreen(Screen::Menu);
 }
@@ -761,12 +770,47 @@ static void drawMenu(App& app) {
     const ImVec2 w(280, 32);
     if (GhostButton(T("New IP and start OpenCode"), w)) app.newIpAndStart();
     if (GhostButton(T("Clear tokens, then start"), w)) app.clearTokensAndStart();
+    if (GhostButton(T("Reconnect"), w)) app.connectWith();
     if (GhostButton(T("Change IP (test)"), w)) app.changeIpTest();
     if (GhostButton(T("Deep reset or restore chats"), w)) { app.refreshArchives(); app.setScreen(Screen::Chats); }
     if (GhostButton(T("Renew session"), w)) app.setScreen(Screen::Renew);
+    if (GhostButton(T("Install commands"), w)) app.installCommands();
+    if (GhostButton(T("Remove commands"), w)) app.removeCommands();
     if (GhostButton(T("Uninstall"), w)) app.setScreen(Screen::Uninstall);
     ImGui::Spacing();
     if (GhostButton(T("Exit"), w)) app.requestQuit();
+}
+
+// Settings the window does not show. They stay in config.json with their stored value, and the
+// .bat and .sh keep using them: they are either shared with those scripts or technical, or they
+// need a keyboard or a second URL that a window with buttons does not use.
+static bool hiddenInExe(const std::string& key) {
+    static const char* hidden[] = {
+        "OCUI_LANG",                                  // the language row at the top of Settings
+        "KEY_ROTATE", "KEY_MENU", "KEY_QUIT",         // the window has buttons; the closed-app prompt keeps R, M, Q
+        "OC_API_BASE", "LAUNCHER_UPDATE_URL", "UPDATE_ASK",   // the window does not replace itself
+        "PROXY_API_CHECK_URL", "PROXY_LIST_MIN_BYTES", "PROBE_MODEL", "LOG_MAX_KB",
+    };
+    for (const char* h : hidden) if (key == h) return true;
+    return false;
+}
+
+// Language chips at the top of Settings: one click, applied at once.
+static void drawLanguageRow(App& app) {
+    static const char* codes[] = { "auto", "en", "es", "fr", "de", "pt", "it", "tr" };
+    std::string cur = app.cfg().s("OCUI_LANG");
+    ImGui::TextDisabled("%s", T("Language"));
+    float gap = ImGui::GetStyle().ItemSpacing.x;
+    for (size_t i = 0; i < sizeof(codes) / sizeof(codes[0]); ++i) {
+        const char* label = enumDisplay("OCUI_LANG", codes[i]);
+        float bw = ImGui::CalcTextSize(label).x + 28.0f;
+        if (i > 0 && ImGui::GetContentRegionAvail().x > bw + gap) ImGui::SameLine();
+        if (topTab(label, cur == codes[i]) && cur != codes[i]) {
+            app.cfg().set("OCUI_LANG", codes[i]);
+            app.saveCfg();
+            app.swapLangRefresh();
+        }
+    }
 }
 
 static void drawSettings(App& app) {
@@ -784,8 +828,16 @@ static void drawSettings(App& app) {
     ImGui::Separator();
     ImGui::Spacing();
 
-    // Settings groups were in the sidebar; they are a tab row now.
-    std::vector<std::string> groups = Config::groups();
+    drawLanguageRow(app);
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    // Settings groups were in the sidebar; they are a tab row now. A group with nothing left to show is not listed.
+    std::vector<std::string> groups;
+    for (const auto& g : Config::groups())
+        for (const auto& d : Config::defs())
+            if (d.group == g && !hiddenInExe(d.key)) { groups.push_back(g); break; }
     if (g_group.empty() || std::find(groups.begin(), groups.end(), g_group) == groups.end())
         g_group = groups.empty() ? std::string() : groups[0];
     for (size_t i = 0; i < groups.size(); ++i) {
@@ -804,7 +856,7 @@ static void drawSettings(App& app) {
             ImGui::Spacing();
             ImGui::Indent(14.0f);
             for (const auto& d : Config::defs()) {
-                if (d.group != g) continue;
+                if (d.group != g || hiddenInExe(d.key)) continue;
                 drawSetting(app, d);
             }
             if (g == "Paths") {

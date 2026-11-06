@@ -99,6 +99,12 @@ public:
 
     void openFolder(const std::string& path);
     void saveCfg();
+    void stopNow();                              // Action bar: stop OpenCode (the egress stays up until Exit)
+    void startNow();                             // Action bar: start OpenCode on the current connection, no new IP, no picker
+    void openCli();                              // Action bar: opencodeinf in a new console window
+    void installCommands();                      // More: write opencodeinf and opencode-auto next to the .bat's commands
+    void removeCommands();                       // More and Uninstall: remove those two commands
+    void reloadConfigIfChanged();                // once per frame, checks config.json at most once a second
 
     void rescanDesktop();                        // Settings: detect the desktop app again
     void clearCacheNow();                        // Settings: clear the OpenCode cache only
@@ -157,6 +163,10 @@ private:
     std::queue<std::function<void()>> tasks_;
     std::mutex               taskMtx_;
     std::condition_variable  taskCv_;
+
+    std::string runSinceUtc_;                 // UTC start of the current OpenCode run: the watcher ignores older log lines
+    int64_t     cfgMtime_     = 0;        // last seen write time of config.json (0 = not read yet)
+    int64_t     cfgCheckAt_   = 0;
 
     bool        configured_   = false;
     bool        closePrompt_  = false;

@@ -102,7 +102,8 @@ static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
         case WM_GETMINMAXINFO: {
             MINMAXINFO* mm = (MINMAXINFO*)lParam;
             mm->ptMinTrackSize.x = 760;
-            mm->ptMinTrackSize.y = 960;   // the dashboard panels need this height without a scrollbar
+            // the dashboard panels need this height without a scrollbar; scaled with the window's DPI
+            mm->ptMinTrackSize.y = (LONG)(960 * ::GetDpiForWindow(hWnd) / 96);
             // maximise inside the work area (a popup would otherwise cover the taskbar)
             HMONITOR mon = ::MonitorFromWindow(hWnd, MONITOR_DEFAULTTONEAREST);
             MONITORINFO mi = { sizeof(mi) };
@@ -155,6 +156,10 @@ static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
     return DefWindowProcW(hWnd, msg, wParam, lParam);
 }
 
+// Pixels per logical unit of the screen (1.0 at 96 DPI). Set once at start: the window and the
+// fonts are sized in real pixels so Windows does not stretch them (the blur on scaled displays).
+static float g_uiScale = 1.0f;
+
 static void LoadUiFont(float size) {
     ImGuiIO& io = ImGui::GetIO();
     io.Fonts->Clear();
@@ -191,6 +196,15 @@ static void LoadUiFont(float size) {
 }
 
 int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
+    // Per-monitor DPI awareness before any window exists: without it Windows bitmap-stretches the UI.
+    ::SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    {
+        HDC screenDc = ::GetDC(nullptr);
+        g_uiScale = (float)::GetDeviceCaps(screenDc, LOGPIXELSY) / 96.0f;
+        ::ReleaseDC(nullptr, screenDc);
+        if (g_uiScale < 1.0f) g_uiScale = 1.0f;
+    }
+
     // one launcher per session: two would fight over the same OpenCode and egress (released at exit)
     HANDLE single = ::CreateMutexW(nullptr, FALSE, L"Local\\OpenCodeInfiniteLauncher");
     if (single && ::GetLastError() == ERROR_ALREADY_EXISTS) {
@@ -213,7 +227,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
     ::SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0);
     int waW = wa.right - wa.left;
     int waH = wa.bottom - wa.top;
-    int w = 1180, h = 960;
+    int w = (int)(1180 * g_uiScale), h = (int)(960 * g_uiScale);
     if (w > waW - 40) w = waW - 40;
     if (h > waH - 40) h = waH - 40;
     HWND hwnd = ::CreateWindowExW(WS_EX_APPWINDOW, wc.lpszClassName, L"opencode-infinity",
@@ -244,9 +258,10 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
 
     int fontSize = app.cfg().i("OCUI_FONT_SIZE");
     if (fontSize < 11) fontSize = 16;
-    LoadUiFont((float)fontSize);
+    LoadUiFont((float)fontSize * g_uiScale);
 
     ImGui::StyleColorsDark();
+    ImGui::GetStyle().ScaleAllSizes(g_uiScale);   // paddings and spacing follow the DPI too
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
 
@@ -277,12 +292,15 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int) {
             CreateRenderTarget();
         }
 
+        // Settings changed in config.json (by this app, the .bat or the .sh) -> reload them.
+        app.reloadConfigIfChanged();
+
         // Font size change -> rebuild atlas and device objects.
         int wantSize = app.cfg().i("OCUI_FONT_SIZE");
         if (wantSize < 11) wantSize = 16;
         if (wantSize != fontSize) {
             fontSize = wantSize;
-            LoadUiFont((float)fontSize);
+            LoadUiFont((float)fontSize * g_uiScale);
             ImGui_ImplDX11_InvalidateDeviceObjects();
             ImGui_ImplDX11_CreateDeviceObjects();
         }
