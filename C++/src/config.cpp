@@ -2,6 +2,7 @@
 #include "config.h"
 #include "util.h"
 #include "json.h"
+#include "log.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -67,8 +68,8 @@ const std::vector<SettingDef>& Config::defs() {
           "How many proxies to test before giving up.", SettingKind::NumK, "12", {}, 1, 500),
         S("PROXY_PROBE_TIMEOUT", "Proxy list", "Proxy test timeout (s)",
           "Seconds a single proxy test may take.", SettingKind::NumK, "8", {}, 1, 120),
-        S("PROXY_ROT_MAX", "Proxy list", "Burned proxies before Tor offer",
-          "Burned proxies in a row before PROXY mode offers Tor.", SettingKind::NumK, "10", {}, 1, 200),
+        S("PROXY_ROT_MAX", "Proxy list", "Burned proxies before a warning",
+          "Burned proxies in a row before a warning and a counter reset.", SettingKind::NumK, "10", {}, 1, 200),
         S("PROXY_API_CHECK", "Proxy list", "Check the API host",
           "A proxy must also reach the opencode API host.", SettingKind::BoolK, "0"),
         S("PROXY_API_CHECK_URL", "Proxy list", "API check URL",
@@ -114,9 +115,9 @@ const std::vector<SettingDef>& Config::defs() {
           "Rotate when a fatal error appears while opencode runs. Off by default since 2.60.3.", SettingKind::BoolK, "0"),
         // Probe ------------------------------------------------------------
         S("PROBE", "Probe", "Test every new IP",
-          "Send one cheap message through each candidate IP. Off by default: each probe uses the free quota and leaves a session.", SettingKind::BoolK, "0"),
+          "Send one cheap message through each candidate IP. Off by default: each probe uses the free quota; the session it creates is deleted afterwards.", SettingKind::BoolK, "0"),
         S("PROBE_MODEL", "Probe", "Probe model",
-          "Model used by the IP probe.", SettingKind::TextK, "opencode/big-pickle"),
+          "Model used by the IP probe (empty = the chat model).", SettingKind::TextK, ""),
         S("PROBE_BROKEN_MAX", "Probe", "Probe failures tolerated",
           "Non-limit probe failures before the hunt stops.", SettingKind::NumK, "3", {}, 1, 50),
         // Paths ------------------------------------------------------------
@@ -184,7 +185,7 @@ void Config::load(const std::string& stateDir) {
     if (!fileExists(p)) return;
     std::string err;
     Json j = Json::parse(readFileText(p), &err);
-    if (!j.isObject()) return;
+    if (!j.isObject()) { removeFile(p + ".bad"); if (!moveFileTo(p, p + ".bad")) logWarn("config.json is not valid and could not be moved aside"); return; }  // keep the unreadable file; save() must not overwrite it silently
     raw_ = j;   // keeps keys this build does not know (the .bat's own settings)
     // The .bat keeps its values under "settings"; older builds of this exe wrote them at the top level.
     const Json& src = j.has("settings") && j["settings"].isObject() ? j["settings"] : j;
@@ -217,7 +218,7 @@ void Config::save() const {
     root.set("settings", st);
     root.set("setup", raw_.has("setup") ? raw_["setup"] : Json::object());
     root.set("font", raw_.has("font") ? raw_["font"] : Json::object());
-    writeFileText(path(), root.dump(2) + "\n");
+    if (!writeFileText(path(), root.dump(2) + "\n")) logWarn("config.json could not be written");
 
     std::string env;
     for (const auto& d : defs()) {
@@ -292,6 +293,7 @@ bool Config::importJson(const std::string& text) {
             for (const auto& c : d->choices) if (iequals(c, val)) { val = c; ok = true; }
             if (!ok) continue;
         }
+        if (d->kind == SettingKind::NumK && d->maxv > d->minv && (atoll(val.c_str()) < d->minv || atoll(val.c_str()) > d->maxv)) continue;
         vals_[k] = val;
         ++taken;
     }

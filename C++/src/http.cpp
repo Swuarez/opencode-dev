@@ -67,7 +67,7 @@ HttpResult httpGet(const std::string& url, const std::string& proxyArg, int time
     if (!ph.empty()) proxyW = utf8ToWide(ph);
 
     Handle sess;
-    sess.h = WinHttpOpen(L"OpenCodeInfinite/3.0",
+    sess.h = WinHttpOpen(L"OpenCodeInfinite/3.4.7",
                          proxyW.empty() ? WINHTTP_ACCESS_TYPE_NO_PROXY : WINHTTP_ACCESS_TYPE_NAMED_PROXY,
                          proxyW.empty() ? WINHTTP_NO_PROXY_NAME : proxyW.c_str(),
                          WINHTTP_NO_PROXY_BYPASS, 0);
@@ -138,7 +138,7 @@ bool httpDownload(const std::string& url, const std::string& outPath, const std:
     if (!ph.empty()) proxyW = utf8ToWide(ph);
 
     Handle sess;
-    sess.h = WinHttpOpen(L"OpenCodeInfinite/3.0",
+    sess.h = WinHttpOpen(L"OpenCodeInfinite/3.4.7",
                          proxyW.empty() ? WINHTTP_ACCESS_TYPE_NO_PROXY : WINHTTP_ACCESS_TYPE_NAMED_PROXY,
                          proxyW.empty() ? WINHTTP_NO_PROXY_NAME : proxyW.c_str(),
                          WINHTTP_NO_PROXY_BYPASS, 0);

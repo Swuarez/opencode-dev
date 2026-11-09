@@ -1,0 +1,2159 @@
+diff --git a/packages/app/src/new-session/brick-breaker.tsx b/packages/app/src/new-session/brick-breaker.tsx
+index a6706b4..e20fe2b 100644
+--- a/packages/app/src/new-session/brick-breaker.tsx
++++ b/packages/app/src/new-session/brick-breaker.tsx
+@@ -1,3 +1,4 @@
++import { COLS } from "./wordmark-glyphs"
+ import { For, onCleanup, onMount } from "solid-js"
+ import {
+   BRICK_BREAKER_LIVES,
+@@ -131,11 +132,11 @@ function mountGame(
+     // Walls sit on the wordmark's outer pin edges, using the board's integer pitch and rounded origin, so the
+     // ball can only reach the top by breaking through.
+     const logo = panel.querySelector('[data-slot="wordmark-box"]')?.getBoundingClientRect()
+-    const pitch = logo ? Math.max(3, Math.round(logo.width / 78)) : 0
+-    const x0 = logo ? Math.round(logo.left - r.left + (logo.width - pitch * 78) / 2) : 0
++    const pitch = logo ? Math.max(3, Math.round(logo.width / COLS)) : 0
++    const x0 = logo ? Math.round(logo.left - r.left + (logo.width - pitch * COLS) / 2) : 0
+     const c = composerBox()
+     view.l = logo ? x0 : Math.max(0, c.x)
+-    view.r = logo ? x0 + pitch * 78 : Math.min(view.w, c.x + c.w)
++    view.r = logo ? x0 + pitch * COLS : Math.min(view.w, c.x + c.w)
+     parts.walls[0].style.transform = `translateX(${view.l - 1}px)`
+     parts.walls[1].style.transform = `translateX(${view.r}px)`
+     pad.w = Math.max(84, Math.min(136, (view.r - view.l) * 0.15))
+@@ -220,7 +221,7 @@ function mountGame(
+     if (prev.status === "serve" && next.status === "play") launch()
+ 
+     if (prev.status === "play" && next.status === "miss" && sound())
+-      PinSound.sweep({ duration: 0.45, columns: 78, reverse: true })
++      PinSound.sweep({ duration: 0.45, columns: COLS, reverse: true })
+ 
+     if (prev.status === "miss") {
+       const spares = brickBreakerSpares(next)
+@@ -379,7 +380,7 @@ function mountGame(
+     board.restore()
+     ball.done()
+ 
+-    if (sound()) PinSound.sweep({ duration: 0.9, columns: 78, reverse: kind !== "win" })
++    if (sound()) PinSound.sweep({ duration: 0.9, columns: COLS, reverse: kind !== "win" })
+   }
+ 
+   // The paddle grows back into the composer, then the composer content fades in over it.
+diff --git a/packages/app/src/new-session/pin-board.tsx b/packages/app/src/new-session/pin-board.tsx
+index 5359ab1..2989681 100644
+--- a/packages/app/src/new-session/pin-board.tsx
++++ b/packages/app/src/new-session/pin-board.tsx
+@@ -1,6 +1,7 @@
+ import { createEffect, onCleanup, onMount } from "solid-js"
+ import { createQuads, type Quads, type Rgba } from "./pin-quads"
+ import { PinSound } from "./pin-sound"
++import { COLS, GRID } from "./wordmark-glyphs"
+ import { prefersReducedMotion } from "@opencode/ui/motion"
+ import {
+   acceptsGameInput,
+@@ -17,26 +18,6 @@ import {
+   type Pin,
+ } from "./pin-board-machine"
+ 
+-// The wordmark as a 78×14 pin grid: 1 = counter shadow, 2 = "open", 3 = "code".
+-const GRID = [
+-  "..................................................................33..........",
+-  "..................................................................33..........",
+-  "22222222..22222222..22222222..222222....33333333..33333333..33333333..33333333",
+-  "22222222..22222222..22222222..222222....33333333..33333333..33333333..33333333",
+-  "22....22..22....22..22....22..22....22..33........33....33..33....33..33....33",
+-  "22....22..22....22..22....22..22....22..33........33....33..33....33..33....33",
+-  "22111122..22111122..22222222..22111122..33111111..33111133..33111133..33333333",
+-  "22111122..22111122..22222222..22111122..33111111..33111133..33111133..33333333",
+-  "22111122..22111122..22111111..22111122..33111111..33111133..33111133..33111111",
+-  "22111122..22111122..22111111..22111122..33111111..33111133..33111133..33111111",
+-  "22222222..22222222..22222222..22111122..33333333..33333333..33333333..33333333",
+-  "22222222..22222222..22222222..22111122..33333333..33333333..33333333..33333333",
+-  "..........22..................................................................",
+-  "..........22..................................................................",
+-]
+-
+-const COLS = 78
+-
+ const ROWS = 14
+ 
+ export type PinEntrance = "sweep" | "chain"
+diff --git a/packages/app/src/new-session/wordmark-glyphs.ts b/packages/app/src/new-session/wordmark-glyphs.ts
+new file mode 100644
+index 0000000..65496e8
+--- /dev/null
++++ b/packages/app/src/new-session/wordmark-glyphs.ts
+@@ -0,0 +1,138 @@
++// The "opencode-infinite" wordmark. Generated from the original "opencode" letters plus hand-drawn
++// "-infinite" glyphs in the same 3-unit grid; the first eight letters are byte-identical to the original.
++
++/** Logo width in SVG units; the height is 42. One pin cell is 3 units. */
++export const W = 432
++
++/** Pin grid columns. */
++export const COLS = 144
++
++/** Index of the final "e", whose top counter is the lodger's hole. */
++export const LAST = 16
++
++/** The final "e"'s centre, in SVG units. */
++export const E_CX = 420
++
++// Each letter in the 432×42 logo viewBox, with its counter shadow, stem, and bottom-centre pivot.
++export const LETTERS = [
++  {
++    cx: 12,
++    weak: "M18 30H6V18H18V30Z",
++    fill: "var(--icon-base)",
++    stem: "M18 12H6V30H18V12ZM24 36H0V6H24V36Z",
++  },
++  {
++    cx: 42,
++    weak: "M48 30H36V18H48V30Z",
++    fill: "var(--icon-base)",
++    stem: "M36 30H48V12H36V30ZM54 36H36V42H30V6H54V36Z",
++  },
++  {
++    cx: 72,
++    weak: "M84 24V30H66V24H84Z",
++    fill: "var(--icon-base)",
++    stem: "M84 24H66V30H84V36H60V6H84V24ZM66 18H78V12H66V18Z",
++  },
++  {
++    cx: 102,
++    weak: "M108 36H96V18H108V36Z",
++    fill: "var(--icon-base)",
++    stem: "M108 12H96V36H90V6H108V12ZM114 36H108V12H114V36Z",
++  },
++  {
++    cx: 132,
++    weak: "M144 30H126V18H144V30Z",
++    fill: "var(--icon-strong-base)",
++    stem: "M144 12H126V30H144V36H120V6H144V12Z",
++  },
++  {
++    cx: 162,
++    weak: "M168 30H156V18H168V30Z",
++    fill: "var(--icon-strong-base)",
++    stem: "M168 12H156V30H168V12ZM174 36H150V6H174V36Z",
++  },
++  {
++    cx: 192,
++    weak: "M198 30H186V18H198V30Z",
++    fill: "var(--icon-strong-base)",
++    stem: "M198 12H186V30H198V12ZM204 36H180V6H198V0H204V36Z",
++  },
++  {
++    cx: 222,
++    weak: "M234 24V30H216V24H234Z",
++    fill: "var(--icon-strong-base)",
++    stem: "M216 12V18H228V12H216ZM234 24H216V30H234V36H210V6H234V24Z",
++  },
++  {
++    cx: 249,
++    weak: "M0 0Z",
++    fill: "var(--icon-base)",
++    stem: "M240 18H258V24H240V18Z",
++  },
++  {
++    cx: 267,
++    weak: "M0 0Z",
++    fill: "var(--icon-base)",
++    stem: "M264 0H270V6H264V0ZM264 12H270V36H264V12Z",
++  },
++  {
++    cx: 288,
++    weak: "M294 36H282V18H294V36Z",
++    fill: "var(--icon-base)",
++    stem: "M294 12H282V36H276V6H294V12ZM300 36H294V12H300V36Z",
++  },
++  {
++    cx: 315,
++    weak: "M324 36H312V24H324V36Z",
++    fill: "var(--icon-base)",
++    stem: "M306 0H324V6H312V12H324V18H312V36H306V0Z",
++  },
++  {
++    cx: 333,
++    weak: "M0 0Z",
++    fill: "var(--icon-base)",
++    stem: "M330 0H336V6H330V0ZM330 12H336V36H330V12Z",
++  },
++  {
++    cx: 354,
++    weak: "M360 36H348V18H360V36Z",
++    fill: "var(--icon-base)",
++    stem: "M360 12H348V36H342V6H360V12ZM366 36H360V12H366V36Z",
++  },
++  {
++    cx: 375,
++    weak: "M0 0Z",
++    fill: "var(--icon-base)",
++    stem: "M372 0H378V6H372V0ZM372 12H378V36H372V12Z",
++  },
++  {
++    cx: 393,
++    weak: "M402 30H390V18H402V30Z",
++    fill: "var(--icon-base)",
++    stem: "M384 0H390V6H402V12H390V30H402V36H384V0Z",
++  },
++  {
++    cx: 420,
++    weak: "M432 24V30H414V24H432Z",
++    fill: "var(--icon-base)",
++    stem: "M414 12V18H426V12H414ZM432 24H414V30H432V36H408V6H432V24Z",
++  },
++] as const
++
++// The wordmark as a 144×14 pin grid: 1 = counter shadow, 2 = light letters, 3 = "code".
++export const GRID = [
++  "..................................................................33....................22............222222..22............22..22..............",
++  "..................................................................33....................22............222222..22............22..22..............",
++  "22222222..22222222..22222222..222222....33333333..33333333..33333333..33333333..............222222....22..........222222........222222..22222222",
++  "22222222..22222222..22222222..222222....33333333..33333333..33333333..33333333..............222222....22..........222222........222222..22222222",
++  "22....22..22....22..22....22..22....22..33........33....33..33....33..33....33..........22..22....22..222222..22..22....22..22..22......22....22",
++  "22....22..22....22..22....22..22....22..33........33....33..33....33..33....33..........22..22....22..222222..22..22....22..22..22......22....22",
++  "22111122..22111122..22222222..22111122..33111111..33111133..33111133..33333333..222222..22..22111122..22......22..22111122..22..221111..22222222",
++  "22111122..22111122..22222222..22111122..33111111..33111133..33111133..33333333..222222..22..22111122..22......22..22111122..22..221111..22222222",
++  "22111122..22111122..22111111..22111122..33111111..33111133..33111133..33111111..........22..22111122..221111..22..22111122..22..221111..22111111",
++  "22111122..22111122..22111111..22111122..33111111..33111133..33111133..33111111..........22..22111122..221111..22..22111122..22..221111..22111111",
++  "22222222..22222222..22222222..22111122..33333333..33333333..33333333..33333333..........22..22111122..221111..22..22111122..22..222222..22222222",
++  "22222222..22222222..22222222..22111122..33333333..33333333..33333333..33333333..........22..22111122..221111..22..22111122..22..222222..22222222",
++  "..........22....................................................................................................................................",
++  "..........22....................................................................................................................................",
++]
+diff --git a/packages/app/src/new-session/wordmark.tsx b/packages/app/src/new-session/wordmark.tsx
+index 067bcda..6af90f2 100644
+--- a/packages/app/src/new-session/wordmark.tsx
++++ b/packages/app/src/new-session/wordmark.tsx
+@@ -1,7 +1,7 @@
+-import { Logo } from "@opencode/ui/logo"
+ import { prefersReducedMotion } from "@opencode/ui/motion"
+ import { type Accessor, createEffect, For, onCleanup, onMount, Show } from "solid-js"
+ import { PinSound } from "./pin-sound"
++import { COLS, E_CX, LAST, LETTERS, W } from "./wordmark-glyphs"
+ import {
+   LODGER_POP,
+   selectWordmarkAnimating,
+@@ -16,72 +16,18 @@ import {
+ } from "./wordmark-machine"
+ import "./wordmark.css"
+ 
+-// Each letter in the 234×42 logo viewBox, with its counter shadow, stem, and bottom-centre pivot.
+-const LETTERS = [
+-  {
+-    cx: 12,
+-    weak: "M18 30H6V18H18V30Z",
+-    fill: "var(--icon-base)",
+-    stem: "M18 12H6V30H18V12ZM24 36H0V6H24V36Z",
+-  },
+-  {
+-    cx: 42,
+-    weak: "M48 30H36V18H48V30Z",
+-    fill: "var(--icon-base)",
+-    stem: "M36 30H48V12H36V30ZM54 36H36V42H30V6H54V36Z",
+-  },
+-  {
+-    cx: 72,
+-    weak: "M84 24V30H66V24H84Z",
+-    fill: "var(--icon-base)",
+-    stem: "M84 24H66V30H84V36H60V6H84V24ZM66 18H78V12H66V18Z",
+-  },
+-  {
+-    cx: 102,
+-    weak: "M108 36H96V18H108V36Z",
+-    fill: "var(--icon-base)",
+-    stem: "M108 12H96V36H90V6H108V12ZM114 36H108V12H114V36Z",
+-  },
+-  {
+-    cx: 132,
+-    weak: "M144 30H126V18H144V30Z",
+-    fill: "var(--icon-strong-base)",
+-    stem: "M144 12H126V30H144V36H120V6H144V12Z",
+-  },
+-  {
+-    cx: 162,
+-    weak: "M168 30H156V18H168V30Z",
+-    fill: "var(--icon-strong-base)",
+-    stem: "M168 12H156V30H168V12ZM174 36H150V6H174V36Z",
+-  },
+-  {
+-    cx: 192,
+-    weak: "M198 30H186V18H198V30Z",
+-    fill: "var(--icon-strong-base)",
+-    stem: "M198 12H186V30H198V12ZM204 36H180V6H198V0H204V36Z",
+-  },
+-  {
+-    cx: 222,
+-    weak: "M234 24V30H216V24H234Z",
+-    fill: "var(--icon-strong-base)",
+-    stem: "M216 12V18H228V12H216ZM234 24H216V30H234V36H210V6H234V24Z",
+-  },
+-] as const
+-
+-// Lodger geometry, in the logo's 234×42 viewBox units. The lodger is drawn from its bottom centre.
+-const W = 234
+-
++// Lodger geometry, in the logo's viewBox units (see wordmark-glyphs.ts). The lodger is drawn from its bottom centre.
+ const H = 42
+ 
+-const HOLE = { x: 222, y: 15 }
++const HOLE = { x: E_CX, y: 15 }
+ 
+-const REST = { x: 222, y: 21 }
++const REST = { x: E_CX, y: 21 }
+ 
+-const PIN_SLOT = { x: 226.5, y: 10.5 }
++const PIN_SLOT = { x: E_CX + 4.5, y: 10.5 }
+ 
+ const GROUND = 36
+ 
+-const HOME = 246
++const HOME = W + 12
+ 
+ const SLIP = 60
+ 
+@@ -175,7 +121,7 @@ export function NewSessionWordmark(props: {
+           props.ref(el)
+         }}
+         data-slot="wordmark-box"
+-        class="relative mx-auto aspect-[234/42] w-4/5"
++        class="relative mx-auto aspect-[432/42] w-full"
+       >
+         <Show when={lodger}>
+           <WordmarkLodger
+@@ -233,7 +179,7 @@ function WordmarkLodger(props: {
+   return (
+     <div ref={stage} class="absolute">
+       <div ref={flat} data-slot="wordmark-flat" class="absolute inset-0">
+-        <svg viewBox="0 0 234 42" fill="none" class="block size-full overflow-visible">
++        <svg viewBox={`0 0 ${W} 42`} fill="none" class="block size-full overflow-visible">
+           <For each={LETTERS}>
+             {(item, i) => (
+               <g ref={(el) => (letters[i()] = el)}>
+@@ -241,10 +187,10 @@ function WordmarkLodger(props: {
+                   <path d={item.weak} fill="var(--icon-weak-base)" />
+                   <path d={item.stem} fill={item.fill} />
+                 </g>
+-                <Show when={i() === 7}>
++                <Show when={i() === LAST}>
+                   <rect
+                     ref={notch}
+-                    x="224.6"
++                    x={E_CX + 2.6}
+                     y="8.6"
+                     width="3.8"
+                     height="3.8"
+@@ -256,12 +202,12 @@ function WordmarkLodger(props: {
+             )}
+           </For>
+         </svg>
+-        <Logo class="wordmark-shimmer absolute inset-0 size-full" />
++        <WordmarkLogo class="wordmark-shimmer absolute inset-0 size-full" />
+       </div>
+       <svg
+         ref={svg}
+         data-slot="wordmark-lodger"
+-        viewBox="0 0 234 42"
++        viewBox={`0 0 ${W} 42`}
+         class="absolute inset-0 size-full overflow-visible"
+       >
+         <line ref={neck} stroke="var(--lodger-body)" stroke-linecap="round" style={{ opacity: 0 }} />
+@@ -412,11 +358,11 @@ function mountLodger(
+ 
+     if (!l.width) return
+     const s = parts.box.closest('[data-component="new-session"]')?.getBoundingClientRect()
+-    const pitch = Math.max(3, Math.round(l.width / 78))
++    const pitch = Math.max(3, Math.round(l.width / COLS))
+ 
+     const x = s
+-      ? Math.round(l.left - s.left + (l.width - pitch * 78) / 2) - (l.left - s.left)
+-      : (l.width - pitch * 78) / 2
++      ? Math.round(l.left - s.left + (l.width - pitch * COLS) / 2) - (l.left - s.left)
++      : (l.width - pitch * COLS) / 2
+ 
+     const y = s
+       ? Math.round(l.top - s.top + (l.height - pitch * 14) / 2) - (l.top - s.top)
+@@ -424,7 +370,7 @@ function mountLodger(
+ 
+     parts.stage.style.left = `${x}px`
+     parts.stage.style.top = `${y}px`
+-    parts.stage.style.width = `${pitch * 78}px`
++    parts.stage.style.width = `${pitch * COLS}px`
+     parts.stage.style.height = `${pitch * 14}px`
+     measure()
+   }
+@@ -438,7 +384,7 @@ function mountLodger(
+     }
+ 
+     parts.grip.style.display = ""
+-    const box = where === "hidden" ? { x: 213, y: 8, w: 18, h: 14 } : { x: 234, y: 18, w: 24, h: 24 }
++    const box = where === "hidden" ? { x: E_CX - 9, y: 8, w: 18, h: 14 } : { x: W, y: 18, w: 24, h: 24 }
+     parts.grip.style.left = `${(box.x / W) * 100}%`
+     parts.grip.style.top = `${(box.y / H) * 100}%`
+     parts.grip.style.width = `${(box.w / W) * 100}%`
+@@ -512,10 +458,10 @@ function mountLodger(
+     c.pinY = lerp(PIN_SLOT.y, c.y - 11, clamp01(out / 7))
+     c.pinRot = (c.x - REST.x) * 2.5
+     c.pinScale = 1 + stress * 0.35
+-    poses[7].x = (c.x - REST.x) * 0.12
+-    poses[7].y = (c.y - REST.y) * 0.12
+-    poses[7].sx = 1 + stress * 0.05
+-    poses[7].sy = 1 + stress * 0.05
++    poses[LAST].x = (c.x - REST.x) * 0.12
++    poses[LAST].y = (c.y - REST.y) * 0.12
++    poses[LAST].sx = 1 + stress * 0.05
++    poses[LAST].sy = 1 + stress * 0.05
+   }
+ 
+   const snapIn = (dt: number) => {
+@@ -544,7 +490,7 @@ function mountLodger(
+     send(SETTLED.snap)
+     restHidden()
+ 
+-    if (sound()) PinSound.slot(70, 78, c.x, W)
++    if (sound()) PinSound.slot(COLS - 8, COLS, c.x, W)
+     blinkOnce()
+   }
+ 
+@@ -593,7 +539,7 @@ function mountLodger(
+     {
+       at: 1.35,
+       run: () => {
+-        if (sound()) PinSound.slot(75, 78, PIN_SLOT.x, W)
++        if (sound()) PinSound.slot(COLS - 3, COLS, PIN_SLOT.x, W)
+       },
+     },
+     { at: 1.72, run: () => land(0.32) },
+@@ -804,7 +750,7 @@ function mountLodger(
+     {
+       at: 0.95,
+       run: () => {
+-        if (sound()) PinSound.slot(75, 78, HOLE.x, W)
++        if (sound()) PinSound.slot(COLS - 3, COLS, HOLE.x, W)
+       },
+     },
+     // The pin board unmounts once this cue has run (`selectPinBoard`).
+@@ -1220,3 +1166,19 @@ const seg = (t: number, from: number, to: number) => clamp01((t - from) / (to -
+ const easeOut = (t: number) => 1 - Math.pow(1 - t, 3)
+ 
+ const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
++
++/** The flat wordmark, drawn from the same letters as the pin grid. */
++function WordmarkLogo(props: { class?: string }) {
++  return (
++    <svg xmlns="http://www.w3.org/2000/svg" viewBox={`0 0 ${W} 42`} fill="none" class={props.class}>
++      <For each={LETTERS}>
++        {(item) => (
++          <>
++            <path d={item.weak} fill="var(--icon-weak-base)" />
++            <path d={item.stem} fill={item.fill} />
++          </>
++        )}
++      </For>
++    </svg>
++  )
++}
+diff --git a/packages/app/src/runtime/platform/platform.tsx b/packages/app/src/runtime/platform/platform.tsx
+index 38a1233..1259d19 100644
+--- a/packages/app/src/runtime/platform/platform.tsx
++++ b/packages/app/src/runtime/platform/platform.tsx
+@@ -114,6 +114,19 @@ type PlatformBase = {
+   /** Turn the native spellchecker on or off (desktop only) */
+   setSpellcheckEnabled?(enabled: boolean): Promise<void>
+ 
++  /** OpenCode Infinite: proxy mode and limit reset controls (desktop only) */
++  infinite?: {
++    getMode(): Promise<"WARP" | "TOR" | "PROXY" | "NONE">
++    setMode(mode: "WARP" | "TOR" | "PROXY" | "NONE"): Promise<{ ok: boolean; message: string; ip?: string }>
++    resetLimit(): Promise<{ ok: boolean; message: string; ip?: string }>
++    getOptions(): Promise<{ auto: boolean; country: string; custom: string }>
++    setOptions(options: { auto: boolean; country: string; custom: string }): Promise<{ auto: boolean; country: string; custom: string }>
++    checkIp(): Promise<{ ok: boolean; message: string; ip?: string }>
++    restoreSession(): Promise<{ ok: boolean; message: string; ip?: string }>
++    autoRotate(sessionID: string): Promise<void>
++    fetchList(url: string): Promise<{ ok: boolean; text: string }>
++  }
++
+   /** Run a desktop-only menu action from the app chrome */
+   runDesktopMenuAction?(action: DesktopMenuAction): Promise<void> | void
+ 
+diff --git a/packages/app/src/session/composer/region.tsx b/packages/app/src/session/composer/region.tsx
+index d1432a6..b79a448 100644
+--- a/packages/app/src/session/composer/region.tsx
++++ b/packages/app/src/session/composer/region.tsx
+@@ -20,6 +20,7 @@ import { showToast } from "@/shell/notifications/toast"
+ import { errorMessage } from "@/shell/layout/helpers"
+ import { useLocal } from "@/providers/models/selection"
+ import { usePlatform } from "@/runtime/platform/platform"
++import { autoRotate } from "@/shell/infinite-state"
+ import { uuid } from "@opencode/util/uuid"
+ import { contextItemKey } from "@/composer/schema"
+ import type { QuoteSource } from "@/composer/quote-source"
+@@ -262,6 +263,9 @@ export function createActiveSessionRegion(input: {
+ 
+       if (type !== "provider.free-limit" && type !== "provider.go-limit") return
+ 
++      // Auto-rotate renews the IP and resumes the session itself; the prompt stays where it is.
++      if (type === "provider.free-limit" && autoRotate()) return
++
+       if (recalled.has(event.data.assistantMessageID)) return
+       recalled.add(event.data.assistantMessageID)
+ 
+diff --git a/packages/app/src/session/usage-exceeded-dialogs.tsx b/packages/app/src/session/usage-exceeded-dialogs.tsx
+index 589a4f6..db57bc2 100644
+--- a/packages/app/src/session/usage-exceeded-dialogs.tsx
++++ b/packages/app/src/session/usage-exceeded-dialogs.tsx
+@@ -8,6 +8,8 @@ import { useSessionLayout } from "./session-layout"
+ import { useDialog, useI18n } from "@opencode/ui/context"
+ import { DialogUsageExceeded } from "@/providers/connect/usage-exceeded"
+ import { GoUpsellHero } from "@/providers/connect/go-upsell-hero"
++import { usePlatform } from "@/runtime/platform/platform"
++import { autoRotate } from "@/shell/infinite-state"
+ import { useLocal, type ModelSelection } from "@/providers/models/selection"
+ 
+ const GO_UPSELL_FREE_TIER_LAST_SEEN_AT = "go_upsell_last_seen_at"
+@@ -56,6 +58,7 @@ export function useUsageExceededDialogs(input?: {
+ }) {
+   const sdk = useWorkspaceLocation()
+   const dialog = useDialog()
++  const platform = usePlatform()
+   const local = useLocal()
+   const { params } = useSessionLayout()
+   const { t, locale } = useI18n()
+@@ -128,10 +131,13 @@ export function useUsageExceededDialogs(input?: {
+ 
+   onCleanup(
+     sdk().event.on("session.step.failed", (evt) => {
++      // The renderer is the one place that surely sees the limit; the desktop side rotates the IP and resumes.
++      if (autoRotate() && evt.data.error.type === "provider.free-limit") void platform.infinite?.autoRotate(evt.data.sessionID)
+       if (evt.data.sessionID !== params.id || dialog.active) return
+       const error = evt.data.error
+ 
+-      if (error.type === "provider.free-limit") return whenGoUpsellReady(showFreeLimitDialog, evt)
++      // Auto-rotate renews the IP and resumes the session itself, so there is no dialog to show.
++      if (error.type === "provider.free-limit") return autoRotate() ? undefined : whenGoUpsellReady(showFreeLimitDialog, evt)
+ 
+       if (error.type !== "provider.chatgpt-limit") return
+ 
+diff --git a/packages/app/src/shell/infinite-bar.tsx b/packages/app/src/shell/infinite-bar.tsx
+new file mode 100644
+index 0000000..c3518b0
+--- /dev/null
++++ b/packages/app/src/shell/infinite-bar.tsx
+@@ -0,0 +1,118 @@
++import { createSignal, For, onCleanup, onMount, Show } from "solid-js"
++import { useDialog } from "@opencode/ui/context/dialog"
++import { usePlatform } from "@/runtime/platform/platform"
++import { autoRotate as auto, setAutoRotate as setAuto } from "@/shell/infinite-state"
++import { SettingsDialog } from "@/shell/settings-dialog"
++
++type Mode = "WARP" | "TOR" | "PROXY" | "NONE"
++type Result = { ok: boolean; message: string; ip?: string }
++
++const modes: { id: Mode; label: string }[] = [
++  { id: "WARP", label: "WARP" },
++  { id: "TOR", label: "Tor" },
++  { id: "PROXY", label: "Proxy" },
++  { id: "NONE", label: "None" },
++]
++
++const button =
++  "px-2.5 py-1 rounded-md text-v2-text-text-base bg-v2-background-bg-layer-02 hover:bg-v2-overlay-simple-overlay-hover disabled:opacity-50 disabled:pointer-events-none"
++
++// Bottom bar with the OpenCode Infinite controls: connection mode, limit reset, IP check, session restore and themes.
++export function InfiniteBar() {
++  const platform = usePlatform()
++  const dialog = useDialog()
++  const infinite = platform.infinite
++  const [mode, setMode] = createSignal<Mode>("NONE")
++  const [busy, setBusy] = createSignal(false)
++  const [result, setResult] = createSignal<Result | undefined>()
++
++  onMount(() => {
++    void infinite?.getMode().then(setMode)
++    void infinite?.getOptions().then((options) => setAuto(options.auto))
++    void infinite?.checkIp().then(setResult)
++    // Keeps the dot honest between clicks: a dead proxy shows up within seconds.
++    const timer = setInterval(() => {
++      if (!busy()) void infinite?.checkIp().then((checked) => !busy() && setResult(checked))
++    }, 20_000)
++    onCleanup(() => clearInterval(timer))
++  })
++
++  const saveOptions = (next: boolean) => {
++    setAuto(next)
++    void infinite?.getOptions().then((options) => infinite.setOptions({ ...options, auto: next }))
++  }
++
++  // Every action is single-flight, and the service restart behind it can take a while.
++  const run = async (label: string, work: () => Promise<Result>) => {
++    if (busy()) return
++    setBusy(true)
++    setResult({ ok: true, message: label })
++    try {
++      setResult(await work())
++    } catch (error) {
++      setResult({ ok: false, message: error instanceof Error ? error.message : String(error) })
++    } finally {
++      setBusy(false)
++    }
++  }
++
++  return (
++    <Show when={infinite}>
++      <div
++        data-slot="infinite-bar"
++        class="shrink-0 flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-1.5 text-12-regular bg-v2-background-bg-deep border-t border-v2-border-border-muted text-v2-text-text-muted"
++      >
++        <div class="flex items-center gap-1 p-0.5 rounded-lg bg-v2-background-bg-layer-02" role="radiogroup" aria-label="Connection">
++          <For each={modes}>
++            {(item) => (
++              <button
++                type="button"
++                role="radio"
++                aria-checked={mode() === item.id}
++                disabled={busy()}
++                class="px-2.5 py-0.5 rounded-md disabled:pointer-events-none"
++                classList={{
++                  "bg-v2-background-bg-accent text-v2-text-text-base": mode() === item.id,
++                  "hover:bg-v2-overlay-simple-overlay-hover": mode() !== item.id,
++                }}
++                onClick={() => {
++                  setMode(item.id)
++                  void run(`Switching to ${item.label}…`, () => infinite!.setMode(item.id))
++                }}
++              >
++                {item.label}
++              </button>
++            )}
++          </For>
++        </div>
++
++        <button type="button" class={button} disabled={busy()} onClick={() => void run("Resetting limit…", () => infinite!.resetLimit())}>
++          Reset limit
++        </button>
++        <label class="flex items-center gap-1.5" title="Rotates the IP when a limit error shows up or the connection drops. Keeps your session.">
++          <input
++            type="checkbox"
++            checked={auto()}
++            onChange={(event) => saveOptions(event.currentTarget.checked)}
++          />
++          Auto-rotate
++        </label>
++        <button type="button" class={button} onClick={() => void dialog.show(() => <SettingsDialog />)}>
++          Settings
++        </button>
++
++        <span class="ms-auto flex items-center gap-1.5 min-w-0" role="status" aria-live="polite">
++          <span
++            class="size-2 shrink-0 rounded-full"
++            classList={{
++              "bg-v2-state-fg-warning animate-pulse": busy(),
++              "bg-v2-state-fg-danger": !busy() && result()?.ok === false,
++              "bg-green-500": !busy() && result()?.ok !== false,
++            }}
++          />
++          <span class="truncate text-v2-text-text-faint">{result()?.message ?? ""}</span>
++        </span>
++      </div>
++    </Show>
++  )
++}
+diff --git a/packages/app/src/shell/infinite-state.ts b/packages/app/src/shell/infinite-state.ts
+new file mode 100644
+index 0000000..aefc9a7
+--- /dev/null
++++ b/packages/app/src/shell/infinite-state.ts
+@@ -0,0 +1,5 @@
++import { createSignal } from "solid-js"
++
++// Whether Auto-rotate is on. While it is, a free-usage limit is handled by rotating the IP and resuming the session,
++// so the limit dialog and the "put the prompt back in the composer" recall step aside.
++export const [autoRotate, setAutoRotate] = createSignal(false)
+diff --git a/packages/app/src/shell/settings-dialog.tsx b/packages/app/src/shell/settings-dialog.tsx
+new file mode 100644
+index 0000000..d8cd290
+--- /dev/null
++++ b/packages/app/src/shell/settings-dialog.tsx
+@@ -0,0 +1,241 @@
++import { createSignal, For, Match, onMount, Show, Switch } from "solid-js"
++import { Dialog, DialogBody, DialogHeader, DialogTitleGroup } from "@opencode/ui/dialog"
++import { useTheme, type ColorScheme } from "@opencode/ui/theme/context"
++import { usePlatform } from "@/runtime/platform/platform"
++
++type Tab = "proxy" | "themes"
++
++const tabs: { id: Tab; label: string }[] = [
++  { id: "proxy", label: "Proxy" },
++  { id: "themes", label: "Themes" },
++]
++const schemes: ColorScheme[] = ["system", "light", "dark"]
++
++const chip = (active: boolean) =>
++  `px-4 py-2 rounded-xl text-13-regular transition-colors disabled:opacity-50 ${active ? "bg-v2-background-bg-accent text-v2-text-text-base" : "bg-v2-background-bg-layer-02 text-v2-text-text-muted hover:bg-v2-overlay-simple-overlay-hover"}`
++
++const field =
++  "w-full px-3.5 py-2.5 rounded-xl text-13-regular bg-v2-background-bg-layer-02 text-v2-text-text-base border border-v2-border-border-muted focus:outline-none focus:border-v2-background-bg-accent"
++
++// Two sections: the proxies used by the Proxy mode, and the color theme (applied at once, so it can be judged live).
++export function SettingsDialog() {
++  const [tab, setTab] = createSignal<Tab>("proxy")
++  return (
++    <Dialog size="wide">
++      <DialogHeader>
++        <DialogTitleGroup title="Settings" description="Proxy and appearance." />
++      </DialogHeader>
++      <DialogBody class="min-h-0">
++        <div class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-6 px-6 pb-6 pt-2">
++          <div class="flex gap-1 p-1 rounded-2xl bg-v2-background-bg-layer-02 self-start" role="tablist">
++            <For each={tabs}>
++              {(item) => (
++                <button
++                  type="button"
++                  role="tab"
++                  aria-selected={tab() === item.id}
++                  class="px-5 py-2 rounded-xl text-13-regular transition-colors"
++                  classList={{
++                    "bg-v2-background-bg-accent text-v2-text-text-base": tab() === item.id,
++                    "text-v2-text-text-muted hover:bg-v2-overlay-simple-overlay-hover": tab() !== item.id,
++                  }}
++                  onClick={() => setTab(item.id)}
++                >
++                  {item.label}
++                </button>
++              )}
++            </For>
++          </div>
++          <Switch>
++            <Match when={tab() === "proxy"}>
++              <ProxySection />
++            </Match>
++            <Match when={tab() === "themes"}>
++              <ThemeSection />
++            </Match>
++          </Switch>
++        </div>
++      </DialogBody>
++    </Dialog>
++  )
++}
++
++function ProxySection() {
++  const infinite = usePlatform().infinite
++  const [custom, setCustom] = createSignal("")
++  const [url, setUrl] = createSignal("")
++  const [note, setNote] = createSignal<{ ok: boolean; text: string } | undefined>()
++  const [busy, setBusy] = createSignal(false)
++  let file: HTMLInputElement | undefined
++  onMount(() => void infinite?.getOptions().then((options) => setCustom(options.custom)))
++
++  const append = (text: string) => setCustom((current) => `${current.trim()}\n${text}`.trim())
++
++  // A URL that ends in a port is a proxy itself; any other URL is a list to download.
++  const addUrl = async () => {
++    const value = url().trim()
++    if (!infinite || !value || busy()) return
++    if (/:\d{1,5}\/?$/.test(value)) {
++      append(value)
++      setUrl("")
++      return setNote({ ok: true, text: "Proxy added to the list. Press Save to use it." })
++    }
++    setBusy(true)
++    setNote({ ok: true, text: "Downloading the list…" })
++    try {
++      const fetched = await infinite.fetchList(value)
++      if (!fetched.ok) return setNote({ ok: false, text: "Could not download that URL (check the address and that it is plain text)." })
++      append(fetched.text)
++      setUrl("")
++      setNote({ ok: true, text: "List downloaded and added. Press Save to use it." })
++    } finally {
++      setBusy(false)
++    }
++  }
++
++  // The service reads its proxy only when it starts, so a change while Proxy is active re-applies the mode.
++  const save = async (value: string) => {
++    if (!infinite || busy()) return
++    setBusy(true)
++    setNote({ ok: true, text: "Saving…" })
++    try {
++      const options = await infinite.getOptions()
++      const saved = await infinite.setOptions({ ...options, custom: value })
++      setCustom(saved.custom)
++      const count = saved.custom ? saved.custom.split("\n").length : 0
++      const skipped = value.split(/[\s,;]+/).filter(Boolean).length - count
++      const kept = `${count} ${count === 1 ? "proxy" : "proxies"}${skipped > 0 ? `, ${skipped} invalid skipped` : ""}`
++      if ((await infinite.getMode()) !== "PROXY")
++        return setNote({ ok: true, text: count ? `Saved ${kept}. Used when you pick Proxy.` : "Saved. Proxy uses the free list." })
++      setNote({ ok: true, text: "Testing the proxies…" })
++      const applied = await infinite.setMode("PROXY")
++      setNote({ ok: applied.ok, text: applied.ok ? `Active. ${applied.message}` : applied.message })
++    } catch (error) {
++      setNote({ ok: false, text: error instanceof Error ? error.message : String(error) })
++    } finally {
++      setBusy(false)
++    }
++  }
++
++  return (
++    <section class="flex flex-col gap-5">
++      <p class="text-13-regular text-v2-text-text-muted">
++        One proxy or a whole list: host:port or http://user:password@host:port, separated by lines, spaces or commas. HTTP proxies only. Empty
++        means the free list.
++      </p>
++
++      <div class="flex flex-col gap-2">
++        <h3 class="text-13-medium text-v2-text-text-base">From a file</h3>
++        <div class="flex items-center gap-3">
++          <button type="button" class={chip(false)} disabled={busy()} onClick={() => file?.click()}>
++            Choose file…
++          </button>
++          <span class="text-12-regular text-v2-text-text-faint">.txt, .csv or .list, one proxy per line</span>
++        </div>
++        <input
++          ref={file}
++          type="file"
++          accept=".txt,.csv,.list,text/plain"
++          class="hidden"
++          onChange={async (event) => {
++            const picked = event.currentTarget.files?.[0]
++            event.currentTarget.value = ""
++            if (!picked) return
++            const text = await picked.text()
++            append(text)
++            setNote({ ok: true, text: `Loaded ${picked.name}. Press Save to use it.` })
++          }}
++        />
++      </div>
++
++      <div class="flex flex-col gap-2">
++        <h3 class="text-13-medium text-v2-text-text-base">From a URL</h3>
++        <div class="flex gap-2">
++          <input
++            type="text"
++            class={field}
++            placeholder="https://example.com/proxies.txt  or  http://host:3128"
++            spellcheck={false}
++            autocomplete="off"
++            value={url()}
++            onInput={(event) => setUrl(event.currentTarget.value)}
++            onKeyDown={(event) => event.key === "Enter" && void addUrl()}
++          />
++          <button type="button" class={chip(false)} disabled={busy() || !url().trim()} onClick={() => void addUrl()}>
++            Add
++          </button>
++        </div>
++      </div>
++
++      <div class="flex flex-col gap-2">
++        <h3 class="text-13-medium text-v2-text-text-base">Your list</h3>
++        <textarea
++          rows={7}
++          class={`${field} font-mono resize-y`}
++          placeholder={"127.0.0.1:8080\nhttp://user:password@host:3128"}
++          spellcheck={false}
++          autocomplete="off"
++          value={custom()}
++          onInput={(event) => setCustom(event.currentTarget.value)}
++        />
++      </div>
++
++      <div class="flex items-center gap-3 flex-wrap">
++        <button type="button" class={chip(true)} disabled={busy()} onClick={() => void save(custom())}>
++          Save
++        </button>
++        <button type="button" class={chip(false)} disabled={busy()} onClick={() => void save("")}>
++          Use free list
++        </button>
++        <Show when={note()}>
++          {(item) => (
++            <span class="flex items-center gap-2 min-w-0 text-12-regular text-v2-text-text-muted" role="status">
++              <span class="size-2 shrink-0 rounded-full" classList={{ "bg-green-500": item().ok, "bg-v2-state-fg-danger": !item().ok }} />
++              <span class="truncate">{item().text}</span>
++            </span>
++          )}
++        </Show>
++      </div>
++      <p class="text-12-regular text-v2-text-text-faint">
++        With a list, Auto-rotate moves to another proxy of it. A single proxy cannot change the IP unless the provider rotates it.
++      </p>
++    </section>
++  )
++}
++
++function ThemeSection() {
++  const theme = useTheme()
++  onMount(() => void theme.loadThemes())
++
++  // The pastel themes lead the list; the rest keep their alphabetical order.
++  const ids = () => [...theme.ids()].sort((a, b) => Number(b.startsWith("pastel")) - Number(a.startsWith("pastel")))
++
++  return (
++    <section class="flex flex-col gap-5">
++      <div class="flex flex-col gap-2">
++        <h3 class="text-13-medium text-v2-text-text-base">Mode</h3>
++        <div class="flex gap-2">
++          <For each={schemes}>
++            {(scheme) => (
++              <button type="button" class={chip(theme.colorScheme() === scheme)} onClick={() => theme.setColorScheme(scheme)}>
++                {scheme[0]!.toUpperCase() + scheme.slice(1)}
++              </button>
++            )}
++          </For>
++        </div>
++      </div>
++      <div class="flex flex-col gap-2">
++        <h3 class="text-13-medium text-v2-text-text-base">Theme</h3>
++        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
++          <For each={ids()}>
++            {(id) => (
++              <button type="button" class={`${chip(theme.themeId() === id)} truncate text-start`} onClick={() => theme.setTheme(id)}>
++                {theme.name(id)}
++              </button>
++            )}
++          </For>
++        </div>
++      </div>
++    </section>
++  )
++}
+diff --git a/packages/app/src/shell/shell.tsx b/packages/app/src/shell/shell.tsx
+index 0312e34..72bd14a 100644
+--- a/packages/app/src/shell/shell.tsx
++++ b/packages/app/src/shell/shell.tsx
+@@ -25,6 +25,7 @@ import {
+ } from "@/shell/sidebar-toggle"
+ import { createPanelMotion, guardClosingFocus, panelOpacity, setPanelResizing } from "@/shell/panel-motion"
+ import { createSidebarPeek } from "@/shell/sidebar-peek"
++import { InfiniteBar } from "@/shell/infinite-bar"
+ import { windowDragEnabled } from "@/session/header/drag-area"
+ 
+ type SidebarPose = { closed: number; peek: number | undefined }
+@@ -320,6 +321,7 @@ export default function Layout(props: ParentProps) {
+       {/* On touch devices the active composer moves its actions here: the bottom edge, or the top of the keyboard.
+           Last in order, so it stays below a bottom titlebar (also order-last, but earlier in the DOM). */}
+       <div data-slot="composer-touch-bar-mount" class="order-last shrink-0" />
++      <InfiniteBar />
+       <PluginSlot at="window.bottom" input={{}} />
+       <ToastRegion />
+       <UploadToastHost />
+diff --git a/packages/desktop/electron-builder.config.test.ts b/packages/desktop/electron-builder.config.test.ts
+index 3e29318..33eb267 100644
+--- a/packages/desktop/electron-builder.config.test.ts
++++ b/packages/desktop/electron-builder.config.test.ts
+@@ -127,6 +127,7 @@ test("shared packaging defaults", async () => {
+   expect(config.files).toContain("!resources/opencode-cli*")
+   expect(config.extraResources).toEqual([
+     { from: "resources/", to: "", filter: ["opencode-cli", "opencode-cli.exe", "opencode-cli.version"] },
++    { from: "resources/tor", to: "tor" },
+   ])
+ })
+ 
+diff --git a/packages/desktop/electron-builder.config.ts b/packages/desktop/electron-builder.config.ts
+index d147662..de4d456 100644
+--- a/packages/desktop/electron-builder.config.ts
++++ b/packages/desktop/electron-builder.config.ts
+@@ -82,6 +82,7 @@ const getBase = (appId: string): Configuration => {
+       "out/**/*",
+       "resources/**/*",
+       "!resources/opencode-cli*",
++      "!resources/tor{,/**/*}",
+       // Keep only the target platform's node-pty prebuild when cross-packaging with --cpu=*.
+       ...CLI_BINARIES.filter((item) => item.os !== target.os || item.cpu !== target.cpu).map(
+         (item) => `!**/node_modules/@lydell/node-pty-${item.os}-${item.cpu}{,/**/*}`,
+@@ -107,6 +108,8 @@ const getBase = (appId: string): Configuration => {
+         to: "",
+         filter: ["opencode-cli", "opencode-cli.exe", "opencode-cli.version"],
+       },
++      // Portable Tor for the Tor mode (Windows), so nothing has to be installed next to the app.
++      { from: "resources/tor", to: "tor" },
+     ],
+     afterPack: async (context) => {
+       const arch = Arch[context.arch]
+diff --git a/packages/desktop/src/main/infinite/infinite.ts b/packages/desktop/src/main/infinite/infinite.ts
+new file mode 100644
+index 0000000..1b8d597
+--- /dev/null
++++ b/packages/desktop/src/main/infinite/infinite.ts
+@@ -0,0 +1,620 @@
++import { app } from "electron"
++import { execFile, spawn, type ChildProcess } from "node:child_process"
++import { existsSync, readFileSync } from "node:fs"
++import { copyFile, mkdir, readdir, readFile, rm, stat, unlink, writeFile } from "node:fs/promises"
++import { connect as tcp, createServer, type Server, type Socket } from "node:net"
++import os from "node:os"
++import path from "node:path"
++import { SidecarCredentials } from "../service/sidecar-credentials"
++
++// Port of the useful core of "OpenCode Infinite.bat": WARP / TOR / PROXY rotation and session renewal.
++// shortcut: WIREGUARD and VPNGATE from the .bat are not ported (they need wireproxy / an admin OpenVPN helper).
++
++export type Mode = "WARP" | "TOR" | "PROXY" | "NONE"
++export type Result = { ok: boolean; message: string; ip?: string }
++
++const WARP_PORT = 40000
++const WARP_PROXY = `http://127.0.0.1:${WARP_PORT}`
++const TOR_SOCKS = 19050
++const TOR_CONTROL = 19051
++const TOR_HTTP = 18118
++const KEEP_BACKUPS = 5
++const TRACE = "https://www.cloudflare.com/cdn-cgi/trace"
++const LIST =
++  "https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&protocol=http&proxy_format=protocolipport&format=text"
++const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
++const settings = () => path.join(app.getPath("userData"), "infinite.json")
++
++// --- saved mode ---------------------------------------------------------------------------------------------------
++
++type Saved = { mode: Mode; proxy?: string; custom?: string; auto: boolean; country: string }
++let saved: Saved | undefined
++
++function load(): Saved {
++  if (saved) return saved
++  try {
++    // Sync on purpose: the first background-service spawn needs the mode before any IPC call arrives.
++    const raw = JSON.parse(readFileSync(settings(), "utf8"))
++    saved = {
++      mode: ["WARP", "TOR", "PROXY"].includes(raw.mode) ? raw.mode : "NONE",
++      proxy: raw.proxy,
++      custom: typeof raw.custom === "string" ? raw.custom : undefined,
++      auto: raw.auto === true,
++      country: typeof raw.country === "string" && /^[A-Za-z]{2}$/.test(raw.country) ? raw.country.toUpperCase() : "",
++    }
++  } catch {
++    saved = { mode: "NONE", auto: false, country: "" }
++  }
++  return saved
++}
++
++export type Options = { auto: boolean; country: string; custom: string }
++export const getOptions = (): Options => ({ auto: load().auto, country: load().country, custom: load().custom ?? "" })
++
++/** "host:port" or a full http(s) URL (credentials allowed); anything else counts as no custom proxy. */
++const normalizeProxy = (value: string) => {
++  const text = value.trim()
++  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(text) && !/^https?:\/\//i.test(text)) return undefined
++  if (!/:\d{1,5}\/?$/.test(text)) return undefined // a proxy always names its port
++  const url = /^https?:\/\//i.test(text) ? text : `http://${text}`
++  return text && URL.canParse(url) && new URL(url).hostname ? url : undefined
++}
++
++/** Any pasted list or file content: separated by lines, spaces, commas or semicolons. Invalid entries are dropped. */
++// shortcut: HTTP(S) proxies only (no socks://), at most 500 entries; fine for what OpenCode can use.
++const normalizeProxies = (text: string) =>
++  [...new Set(text.split(/[\s,;]+/).flatMap((token) => normalizeProxy(token) ?? []))].slice(0, 500)
++
++/** Downloads a proxy list from a URL the user typed (the renderer cannot: CORS). Text only, 2 MB at most. */
++export async function fetchList(url: string): Promise<{ ok: boolean; text: string }> {
++  if (!/^https?:\/\//i.test(url.trim()) || !URL.canParse(url.trim())) return { ok: false, text: "" }
++  const text = await fetch(url.trim(), { signal: AbortSignal.timeout(10_000) })
++    .then((res) => (res.ok ? res.text() : ""))
++    .catch(() => "")
++  return text && text.length <= 2_000_000 ? { ok: true, text } : { ok: false, text: "" }
++}
++
++const customList = () => (load().custom ?? "").split("\n").filter(Boolean)
++
++export async function setOptions(next: Options) {
++  load().auto = next.auto
++  load().custom = normalizeProxies(next.custom).join("\n") || undefined
++  load().country = /^[A-Za-z]{2}$/.test(next.country) ? next.country.toUpperCase() : ""
++  await save()
++}
++
++const save = () => writeFile(settings(), JSON.stringify(load()))
++
++export const getMode = () => load().mode
++
++export async function setMode(next: Mode) {
++  load().mode = next
++  await save()
++}
++
++function upstream() {
++  const { mode, proxy } = load()
++  if (mode === "WARP") return WARP_PROXY
++  if (mode === "TOR") return `http://127.0.0.1:${TOR_HTTP}`
++  if (mode === "PROXY") return proxy
++}
++
++/** Environment handed to the background service so only OpenCode goes through the proxy. */
++export function proxyEnv(): Record<string, string> {
++  const url = upstream()
++  if (!url) return {}
++  const skip = "127.0.0.1,localhost,::1"
++  return { HTTP_PROXY: url, HTTPS_PROXY: url, http_proxy: url, https_proxy: url, NO_PROXY: skip, no_proxy: skip }
++}
++
++function run(file: string, args: string[], timeout = 20_000) {
++  return new Promise<{ ok: boolean; out: string }>((resolve) => {
++    execFile(file, args, { timeout, windowsHide: true }, (error, stdout, stderr) =>
++      resolve({ ok: !error, out: `${stdout}${stderr}` }),
++    )
++  })
++}
++
++// --- WARP ---------------------------------------------------------------------------------------------------------
++
++const warpExe = () =>
++  process.platform === "win32" ? "C:\\Program Files\\Cloudflare\\Cloudflare WARP\\warp-cli.exe" : "warp-cli"
++const warp = (...args: string[]) => run(warpExe(), ["--accept-tos", ...args])
++
++/** The exit IP seen through the WARP proxy, or undefined while WARP is not on. */
++async function trace() {
++  const res = await run("curl", ["-s", "-m", "4", "-x", WARP_PROXY, TRACE], 6000)
++  if (!res.ok || !/^warp=on$/m.test(res.out)) return undefined
++  return { ip: /^ip=(.+)$/m.exec(res.out)?.[1], loc: /^loc=(.+)$/m.exec(res.out)?.[1] }
++}
++
++/** Polls every 400 ms for up to 30 s, so the answer lands as soon as WARP is up. */
++async function waitProxy() {
++  for (let i = 0; i < 75; i++) {
++    const found = await trace()
++    if (found?.ip) return found
++    await sleep(400)
++  }
++  return undefined
++}
++
++type Connected = Result & { loc?: string }
++
++async function connect(): Promise<Connected> {
++  if (!(await warp("status")).ok) return { ok: false, message: "warp-cli not found (is Cloudflare WARP installed?)." }
++  await warp("mode", "proxy")
++  await warp("proxy", "port", String(WARP_PORT))
++  if (!(await warp("connect")).ok) return { ok: false, message: "warp-cli connect failed." }
++  const found = await waitProxy()
++  return found
++    ? { ok: true, ip: found.ip, loc: found.loc, message: `WARP active, IP ${found.ip}` }
++    : { ok: false, message: "WARP does not answer on 127.0.0.1:40000." }
++}
++
++/** A new registration gives a new exit IP; with a target country it re-registers until the exit lands there. */
++async function rotateWarp(): Promise<Result> {
++  const want = load().country
++  const tries = want ? 8 : 1
++  let last: Connected = { ok: false, message: "" }
++  for (let attempt = 1; attempt <= tries; attempt++) {
++    last = await newWarpRegistration()
++    if (!last.ok) return last
++    if (!want || last.loc?.toUpperCase() === want) return want ? { ...last, message: `${last.message} (${want}, try ${attempt})` } : last
++  }
++  return { ...last, ok: false, message: `No ${want} exit after ${tries} tries (last: ${last.loc ?? "?"}, IP ${last.ip}).` }
++}
++
++/** Same steps and waits as :reg_drop / :reg_new in the .bat. */
++async function newWarpRegistration(): Promise<Connected> {
++  await warp("disconnect")
++  await warp("registration", "delete")
++  // The delete returns before the daemon lets go; wait until `registration show` stops answering.
++  for (let i = 0; i < 15 && (await warp("registration", "show")).ok; i++) await sleep(300)
++  let created = await warp("registration", "new")
++  if (!created.ok) {
++    await sleep(2000)
++    created = await warp("registration", "new")
++  }
++  if (!created.ok)
++    return {
++      ok: false,
++      message: "Could not create a WARP registration. Try warp-cli registration delete / new as administrator.",
++    }
++  return connect()
++}
++
++// --- session ------------------------------------------------------------------------------------------------------
++
++const dataDir = () => path.join(process.env.XDG_DATA_HOME ?? path.join(os.homedir(), ".local", "share"), "opencode")
++const backupDir = () =>
++  path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), ".local", "state"), "opencode-infinite", "backup", "auth")
++
++/** Copy auth.json to the private backup folder, verify it, then remove it. Returns false when there was none. */
++export async function archiveAuth() {
++  const file = path.join(dataDir(), "auth.json")
++  if (!(await stat(file).catch(() => undefined))) return false
++  const dir = path.join(backupDir(), new Date().toISOString().replace(/[:.]/g, "-"))
++  await mkdir(dir, { recursive: true })
++  const copy = path.join(dir, "auth.json")
++  await copyFile(file, copy)
++  const [a, b] = await Promise.all([readFile(file), readFile(copy)])
++  if (!a.equals(b)) throw new Error("The auth.json backup does not match; it was not removed.")
++  await unlink(file)
++  // The copies hold API keys in plain text: keep only the newest few.
++  const old = (await readdir(backupDir())).sort().slice(0, -KEEP_BACKUPS)
++  await Promise.all(old.map((name) => rm(path.join(backupDir(), name), { recursive: true, force: true })))
++  return true
++}
++
++/** Put back the newest auth.json backup made by "Reset limit"; never overwrites a live session. */
++export async function restoreSession(): Promise<Result> {
++  const target = path.join(dataDir(), "auth.json")
++  if (await stat(target).catch(() => undefined)) return { ok: false, message: "A session already exists; nothing restored." }
++  const newest = (await readdir(backupDir()).catch(() => [] as string[])).sort().at(-1)
++  if (!newest) return { ok: false, message: "No session backup found." }
++  await mkdir(dataDir(), { recursive: true })
++  await copyFile(path.join(backupDir(), newest, "auth.json"), target)
++  return { ok: true, message: `Session restored from ${newest}.` }
++}
++
++// --- Tor ----------------------------------------------------------------------------------------------------------
++
++const tor = { child: undefined as ChildProcess | undefined, bridge: undefined as Server | undefined }
++const tunnels = new Set<Socket>()
++// The Tor bundled with the app wins; the one the .bat installed under LOCALAPPDATA is the fallback (dev runs).
++const bundledTor = path.join(process.resourcesPath ?? "", "tor", "Tor", "tor.exe")
++const torExe = () =>
++  existsSync(bundledTor) ? bundledTor : path.join(process.env.LOCALAPPDATA ?? "", "opencode-infinite", "tor", "Tor", "tor.exe")
++
++/** The exit IP through Tor's SOCKS port, or undefined while no circuit works (forced exits can be slow to build). */
++async function torIp() {
++  const res = await run("curl", ["-s", "-m", "6", "--socks5-hostname", `127.0.0.1:${TOR_SOCKS}`, TRACE], 8000)
++  return res.ok ? /^ip=(.+)$/m.exec(res.out)?.[1] : undefined
++}
++
++/** One short conversation with Tor's control port; resolves with everything Tor answered. */
++function control(commands: string[]) {
++  return new Promise<string>((resolve) => {
++    let out = ""
++    const socket = tcp(TOR_CONTROL, "127.0.0.1")
++    socket.setTimeout(8000, () => socket.destroy())
++    socket.on("data", (chunk) => (out += chunk))
++    socket.on("error", () => undefined)
++    socket.on("close", () => resolve(out))
++    socket.write(["AUTHENTICATE", ...commands, "QUIT", ""].join("\r\n"))
++  })
++}
++
++/** Minimal HTTP CONNECT -> SOCKS5 bridge: OpenCode (Bun) only speaks HTTP proxies. */
++// shortcut: CONNECT (https) only, no plain-HTTP forwarding; fine for the API calls OpenCode makes.
++function startBridge() {
++  if (tor.bridge) return
++  tor.bridge = createServer((client) => {
++    tunnels.add(client)
++    client.once("close", () => tunnels.delete(client))
++    client.once("data", (head) => {
++      const match = /^CONNECT ([^:\s]+):(\d+) HTTP/.exec(head.toString("latin1"))
++      if (!match) return client.destroy()
++      const socks = tcp(TOR_SOCKS, "127.0.0.1")
++      const fail = () => {
++        client.destroy()
++        socks.destroy()
++      }
++      client.on("error", fail)
++      socks.on("error", fail)
++      socks.once("connect", () => socks.write(Buffer.from([5, 1, 0])))
++      socks.once("data", () => {
++        const host = Buffer.from(match[1]!)
++        const port = Number(match[2])
++        socks.write(Buffer.concat([Buffer.from([5, 1, 0, 3, host.length]), host, Buffer.from([port >> 8, port & 255])]))
++        socks.once("data", (reply) => {
++          if (reply[1] !== 0) return fail()
++          client.write("HTTP/1.1 200 Connection Established\r\n\r\n")
++          client.pipe(socks)
++          socks.pipe(client)
++        })
++      })
++    })
++  })
++    .on("error", () => undefined) // port already taken: another bridge is serving it
++    .listen(TOR_HTTP, "127.0.0.1")
++}
++
++let starting: Promise<Result> | undefined
++// Service start, mode change and IP check all call this; they share one start-up instead of racing to spawn two Tors.
++const startTor = () => (starting ??= bootTor().finally(() => (starting = undefined)))
++
++async function bootTor(): Promise<Result> {
++  startBridge()
++  if (!tor.child) {
++    if (!(await stat(torExe()).catch(() => undefined))) return { ok: false, message: `tor.exe not found at ${torExe()}` }
++    const dir = path.join(app.getPath("userData"), "tor")
++    await mkdir(dir, { recursive: true })
++    const rc = path.join(dir, "torrc")
++    const data = path.join(dir, "data").replace(/\\/g, "/")
++    // GeoIP files let Tor resolve ExitNodes={cc}; they ship next to the portable bundle.
++    const geo = path.join(path.dirname(path.dirname(torExe())), "data").replace(/\\/g, "/")
++    const hasGeo = await stat(`${geo}/geoip`).then(() => true, () => false)
++    const country = load().country
++    await writeFile(
++      rc,
++      [
++        `SocksPort 127.0.0.1:${TOR_SOCKS}`,
++        `ControlPort 127.0.0.1:${TOR_CONTROL}`,
++        "CookieAuthentication 0",
++        `DataDirectory ${data}`,
++        ...(hasGeo ? [`GeoIPFile ${geo}/geoip`, `GeoIPv6File ${geo}/geoip6`] : []),
++        ...(hasGeo && country ? [`ExitNodes {${country.toLowerCase()}}`, "StrictNodes 1"] : []),
++        "",
++      ].join("\n"),
++    )
++    tor.child = spawn(torExe(), ["-f", rc], { windowsHide: true, stdio: "ignore" })
++    tor.child.once("exit", () => (tor.child = undefined))
++    app.once("will-quit", () => tor.child?.kill())
++  }
++  for (let i = 0; i < 180; i++) {
++    const ip = await torIp()
++    if (ip) return { ok: true, ip, message: `Tor active, IP ${ip}` }
++    await sleep(500)
++  }
++  return { ok: false, message: "Tor did not finish connecting in 90 s." }
++}
++
++async function rotateTor(): Promise<Result> {
++  const up = await startTor()
++  if (!up.ok) return up
++  const country = load().country
++  const exits = country ? `SETCONF ExitNodes={${country.toLowerCase()}} StrictNodes=1` : "SETCONF ExitNodes StrictNodes"
++  const reply = await control([exits, "SIGNAL NEWNYM"])
++  if ((reply.match(/^250 OK/gm) ?? []).length < 3) return { ok: false, message: "Tor refused the new circuit request." }
++  // Open tunnels keep their old circuit alive; closing them makes the client reconnect through the new one.
++  tunnels.forEach((socket) => socket.destroy())
++  // The new circuit needs a moment to build; probe quickly instead of waiting a fixed time.
++  let latest: string | undefined
++  for (let i = 0; i < 40; i++) {
++    latest = (await torIp()) ?? latest
++    if (latest && latest !== known.TOR) break
++    await sleep(400)
++  }
++  // The same exit can legitimately come back; that still counts as a working circuit.
++  return latest
++    ? { ok: true, ip: latest, message: `Tor new circuit, IP ${latest}` }
++    : { ok: false, message: "Tor did not answer after the new circuit." }
++}
++
++// --- free proxies -------------------------------------------------------------------------------------------------
++
++const proxyWorks = (p: string) =>
++  run("curl", ["-s", "-m", "4", "-o", os.devNull, "-w", "%{http_code}", "-x", p, "https://opencode.ai"], 6000).then(
++    (c) => c.ok && /^[23]\d\d$/.test(c.out.trim()),
++  )
++
++/** Resolves with the first proxy of the list that works, without waiting for the slow ones. */
++const firstWorking = (list: string[]) =>
++  new Promise<string | undefined>((resolve) => {
++    let pending = list.length
++    for (const p of list)
++      void proxyWorks(p).then((ok) => {
++        if (ok) resolve(p)
++        else if (--pending === 0) resolve(undefined)
++      })
++  })
++
++/** Free HTTP proxies: test untried ones in parallel until one reaches opencode.ai. */
++async function pickProxy(): Promise<Result> {
++  const list = customList()
++  if (list.length) {
++    // With a list, rotating means moving to another entry; with one entry it can only re-test that one.
++    const pool = list.filter((p) => p !== load().proxy || list.length === 1).sort(() => Math.random() - 0.5)
++    for (let i = 0; i < pool.length; i += 20) {
++      const hit = await firstWorking(pool.slice(i, i + 20))
++      if (hit) {
++        load().proxy = hit
++        await save()
++        return { ok: true, ip: new URL(hit).hostname, message: `Your proxy (${list.length} in the list)` }
++      }
++    }
++    return { ok: false, message: `None of your ${list.length} proxies answers (check host, port and login).` }
++  }
++  const text = await fetch(LIST)
++    .then((r) => r.text())
++    .catch(() => "")
++  const all = text
++    .split(/\s+/)
++    .map((line) => line.replace(/^http:\/\//, ""))
++    .filter((line) => /^[\d.]+:\d+$/.test(line))
++    .sort(() => Math.random() - 0.5)
++    .slice(0, 60)
++    .map((line) => `http://${line}`)
++  if (!all.length) return { ok: false, message: "Could not download the proxy list." }
++  for (let i = 0; i < all.length; i += 20) {
++    const hit = await firstWorking(all.slice(i, i + 20))
++    if (hit) {
++      load().proxy = hit
++      await save()
++      return { ok: true, ip: hit.slice(7).split(":")[0], message: `Proxy ${hit}` }
++    }
++  }
++  return { ok: false, message: "No working free proxy found; try again." }
++}
++
++// --- public -------------------------------------------------------------------------------------------------------
++
++/** Kicks the current mode into shape before the background service starts behind it. */
++export async function prepareMode() {
++  if (getMode() === "TOR") await startTor()
++}
++
++export const rotate = (m: Mode): Promise<Result> =>
++  m === "WARP"
++    ? rotateWarp()
++    : m === "TOR"
++      ? rotateTor()
++      : m === "PROXY"
++        ? pickProxy()
++        : Promise.resolve({ ok: true, message: "No proxy (NONE)." })
++
++/** WARP, Tor and None keep the same proxy URL across a rotation, so the service can start before the new IP is ready. */
++export const upstreamKnown = () => getMode() !== "PROXY"
++
++/** Apply a mode change before the service is restarted behind it. */
++export async function applyMode(next: Mode): Promise<Result> {
++  await setMode(next)
++  if (next === "WARP") return remember(await connect())
++  if (next === "TOR") return remember(await startTor())
++  if (next === "PROXY") {
++    const kept = load().custom ? undefined : load().proxy
++    return remember(kept && (await proxyWorks(kept)) ? { ok: true, ip: kept.slice(7).split(":")[0], message: `Proxy ${kept}` } : await pickProxy())
++  }
++  return { ok: true, message: "No proxy (NONE)." }
++}
++
++// The last IP each mode was seen with, shown when a check cannot reach the internet right now.
++const known: Partial<Record<Mode, string>> = {}
++const remember = (result: Result) => {
++  if (result.ok && result.ip) known[getMode()] = result.ip
++  return result
++}
++
++/** The exit IP as the internet sees it through the current mode (direct for NONE). */
++export async function checkIp(): Promise<Result> {
++  const mode = getMode()
++  const label = { WARP: "WARP", TOR: "Tor", PROXY: "Proxy", NONE: "None" }[mode]
++  // Right after launch Tor may still be bootstrapping; wait for it instead of reporting a failure.
++  if (mode === "TOR") await startTor()
++  const url = upstream()
++  // A proxy mode without a proxy would answer with the real IP; that is not what OpenCode uses.
++  if (mode === "PROXY" && !url) return { ok: false, message: `${label} - connecting…` }
++  const res = await run("curl", ["-s", "-m", "10", ...(url ? ["-x", url] : []), TRACE])
++  const ip = /^ip=(.+)$/m.exec(res.out)?.[1]
++  // Saved mode WARP but the daemon is not connected yet (fresh launch): bring it up instead of waiting for a click.
++  if (!ip && mode === "WARP" && !locked) {
++    const up = await connect()
++    if (up.ok && up.ip) return { ok: true, ip: up.ip, message: `${label} - ${remember(up).ip}` }
++  }
++  if (res.ok && ip) {
++    known[mode] = ip
++    return { ok: true, ip, message: `${label} - ${ip}${autoNote ? ` · ${autoNote}` : ""}` }
++  }
++  // Not reachable right now (still connecting, or rotating): show the IP OpenCode was last using, not an error.
++  const last = known[mode]
++  return last ? { ok: false, ip: last, message: `${label} - ${last}` } : { ok: false, message: `${label} - connecting…` }
++}
++
++// --- auto-rotate --------------------------------------------------------------------------------------------------
++
++let locked = false
++let autoNote = ""
++
++/** One action at a time: a manual click and the watcher must never rotate the network at the same moment. */
++export function lock() {
++  if (locked) return undefined
++  locked = true
++  return () => void (locked = false)
++}
++
++/** Rotate the network only; unlike "Reset limit" the session (auth.json) stays untouched. */
++export const rotateOnly = () => rotate(getMode()).then(remember)
++
++const PROBE_MODEL = "opencode/deepseek-v4.1-flash-free"
++const PROBE_LIMIT = /free usage limit|usage limit|rate limit|insufficient credits|out of usage|payment required/i
++const HUNT_MAX = 10
++
++/** One cheap message on a throwaway session (`run --standalone` has its own server) through the current proxy. */
++function probeIp(command: readonly string[]) {
++  return new Promise<"ok" | "limit" | "failed">((resolve) => {
++    const proc = spawn(command[0]!, [...command.slice(1), "run", "--standalone", "-m", PROBE_MODEL, "Reply with exactly the word: pong"], {
++      env: { ...process.env, ...proxyEnv() },
++      windowsHide: true,
++    })
++    let out = ""
++    let err = ""
++    proc.stdout.on("data", (chunk) => (out += chunk))
++    proc.stderr.on("data", (chunk) => (err += chunk))
++    const timer = setTimeout(() => proc.kill(), 60_000)
++    proc.once("error", () => resolve("failed"))
++    proc.once("close", (code) => {
++      clearTimeout(timer)
++      if (PROBE_LIMIT.test(err) || (code !== 0 && PROBE_LIMIT.test(out))) return resolve("limit")
++      resolve(code === 0 && out.trim() ? "ok" : "failed")
++    })
++  })
++}
++
++/** Rotates until a probe on a throwaway session gets an answer, so the chat only ever meets a working IP. */
++export async function huntIp(command: readonly string[]): Promise<Result> {
++  let broken = 0
++  for (let attempt = 1; attempt <= HUNT_MAX; attempt++) {
++    autoNote = `looking for a free IP (${attempt}/${HUNT_MAX})`
++    const net = await rotateOnly()
++    if (!net.ok) return net
++    const state = await probeIp(command)
++    if (state === "ok") return { ...net, message: `${net.message} - works after ${attempt} ${attempt === 1 ? "try" : "tries"}` }
++    // A probe that fails for another reason is no proof the IP is burned; two in a row mean the probe itself is broken.
++    if (state === "failed" && ++broken >= 2) return { ok: false, message: "The IP probe failed twice for a reason that is not a limit." }
++  }
++  return { ok: false, message: `No free IP after ${HUNT_MAX} tries.` }
++}
++
++// What the server calls a limit: see toSessionError in packages/core/src/session/to-session-error.ts. Only the ones a
++// new IP can lift: the free allowance and rate limits. Account budgets (Go, ChatGPT, quota) would not change.
++const LIMIT_ERRORS = /^provider\.(free-limit|rate-limit)$/
++
++/** The session a server-sent event block reports as stopped by a limit, `""` when it names none, else undefined. */
++export function limitSession(block: string) {
++  const data = block
++    .split("\n")
++    .filter((line) => line.startsWith("data:"))
++    .map((line) => line.slice(5).trim())
++    .join("")
++  try {
++    const event = JSON.parse(data)
++    if (event?.type !== "session.step.failed" && event?.type !== "session.error") return undefined
++    // v2 events carry the error in `data`, the older ones in `properties`.
++    const body = event.data ?? event.properties
++    const type: unknown = body?.error?.type
++    if (typeof type !== "string" || !LIMIT_ERRORS.test(type)) return undefined
++    return typeof body.sessionID === "string" ? body.sessionID : ""
++  } catch {
++    return undefined
++  }
++}
++
++/** Sends "continue" to a session so the conversation goes on after the IP changed. True when the server took it. */
++export async function resumeSession(sessionID: string) {
++  if (!sessionID) return false
++  const text = "continue"
++  // After a service restart the new one needs a moment before it accepts requests.
++  for (let attempt = 0; attempt < 20; attempt++) {
++    const sidecar = SidecarCredentials.get()
++    const url = sidecar && `${sidecar.url}/api/session/${encodeURIComponent(sessionID)}/prompt`
++    const auth = url && SidecarCredentials.authorization(sidecar, url)
++    const res = url
++      ? await fetch(url, {
++          method: "POST",
++          headers: { "content-type": "application/json", ...(auth ? { Authorization: auth } : {}) },
++          body: JSON.stringify({ text }),
++        }).catch(() => undefined)
++      : undefined
++    if (res?.ok) return true
++    if (res && res.status < 500) return false
++    await sleep(500)
++  }
++  return false
++}
++
++/** Watches the service's event stream and the connection; `rotateNow` runs the rotation and resumes the session. */
++export function startWatch(rotateNow: (sessionID: string) => void) {
++  let last = 0
++  let streak = 0
++  let fails = 0
++  const trigger = (why: string, sessionID = "") => {
++    const now = Date.now()
++    if (!load().auto || locked) return
++    if (now - last > 180_000) streak = 0
++    // A fresh IP can be burned too (WARP needed 4 tries in a test): repeat quickly, but not forever.
++    if (now - last < 3_000 || streak >= 10) return
++    last = now
++    streak++
++    autoNote = `auto-rotated x${streak} (${why}) at ${new Date().toLocaleTimeString()}`
++    rotateNow(sessionID)
++  }
++
++  // A dead free proxy or a dropped tunnel looks like two failed checks in a row, about 30 s.
++  setInterval(async () => {
++    if (!load().auto || load().mode === "NONE" || locked) return
++    fails = (await checkIp()).ok ? 0 : fails + 1
++    if (fails >= 2) {
++      fails = 0
++      trigger("connection lost")
++    }
++  }, 15_000)
++
++  const listen = async () => {
++    const sidecar = SidecarCredentials.get()
++    const url = sidecar && `${sidecar.url}/api/event`
++    const auth = url && SidecarCredentials.authorization(sidecar, url)
++    if (!url) return sleep(1000)
++    const res = await fetch(url, { headers: auth ? { Authorization: auth } : {} })
++    if (!res.body) return
++    const decoder = new TextDecoder()
++    let buffer = ""
++    for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
++      buffer += decoder.decode(chunk, { stream: true })
++      const blocks = buffer.split("\n\n")
++      buffer = blocks.pop() ?? ""
++      for (const block of blocks) {
++        const session = limitSession(block)
++        if (session !== undefined) trigger("limit reached", session)
++      }
++    }
++  }
++  void (async () => {
++    for (;;) {
++      await listen().catch(() => undefined)
++      await sleep(1000)
++    }
++  })()
++  // The renderer reports limits too (it sees the same event); both paths share the dedupe above.
++  return trigger
++}
+diff --git a/packages/desktop/src/main/ipc-handlers/infinite.ts b/packages/desktop/src/main/ipc-handlers/infinite.ts
+new file mode 100644
+index 0000000..cb75220
+--- /dev/null
++++ b/packages/desktop/src/main/ipc-handlers/infinite.ts
+@@ -0,0 +1,125 @@
++import { Effect } from "effect"
++import { InfiniteRpcs } from "../../shared/ipc-rpc/infinite"
++import {
++  applyMode,
++  archiveAuth,
++  checkIp,
++  fetchList,
++  getMode,
++  getOptions,
++  huntIp,
++  lock,
++  restoreSession,
++  resumeSession,
++  rotateOnly,
++  setMode,
++  setOptions,
++  startWatch,
++  upstreamKnown,
++  type Result,
++} from "../infinite/infinite"
++import { BackgroundService, registrationFile } from "../service/background-service"
++import { DesktopCli } from "../service/desktop-cli"
++
++export const infiniteHandlers = InfiniteRpcs.toLayer(
++  Effect.gen(function* () {
++    const background = yield* BackgroundService.Service
++    const desktopCli = yield* DesktopCli.Service
++    const runFork = Effect.runForkWith(yield* Effect.context())
++
++    const stopService = Effect.tryPromise(async () => {
++      const client = await import("@opencode/client/service")
++      await client.Service.stop({ file: registrationFile() })
++    })
++    const startService = Effect.asVoid(background.reconnect)
++
++    // The service reads its proxy environment only when it starts. Where the proxy URL is already known (WARP, Tor,
++    // None) it starts while the network work runs, instead of after it.
++    const withService = (network: () => Promise<Result>) =>
++      Effect.gen(function* () {
++        const work = Effect.tryPromise(network)
++        if (!upstreamKnown()) {
++          const result = yield* work
++          yield* startService
++          return result
++        }
++        const [result] = yield* Effect.all([work, startService], { concurrency: 2 })
++        return result
++      })
++
++    // One action at a time: the lock is taken before anything is stopped.
++    const guarded = (body: Effect.Effect<Result, unknown>): Effect.Effect<Result> => {
++      const release = lock()
++      if (!release) return Effect.succeed({ ok: false, message: "Another action is still running." })
++      return body.pipe(
++        Effect.catch((error) =>
++          Effect.succeed<Result>({ ok: false, message: error instanceof Error ? error.message : String(error) }),
++        ),
++        Effect.ensuring(Effect.sync(release)),
++      )
++    }
++
++    const setModeFlow = (mode: Parameters<typeof applyMode>[0]) =>
++      guarded(
++        Effect.gen(function* () {
++          yield* stopService
++          yield* Effect.tryPromise(() => setMode(mode))
++          return yield* withService(() => applyMode(mode))
++        }),
++      )
++
++    // "Reset limit": the session is archived while the service is stopped, then the IP is renewed.
++    const resetFlow = () =>
++      guarded(
++        Effect.gen(function* () {
++          yield* stopService
++          const archived = yield* Effect.tryPromise(archiveAuth)
++          const net = yield* withService(rotateOnly)
++          const note = archived ? "Session saved and removed. " : "No session found. "
++          return { ...net, message: note + net.message }
++        }),
++      )
++
++    const restoreFlow = () =>
++      guarded(
++        Effect.gen(function* () {
++          yield* stopService
++          const result = yield* Effect.tryPromise(restoreSession)
++          yield* startService
++          return result
++        }),
++      )
++
++    // Auto-rotate keeps the session. WARP and Tor keep the same local proxy, so they rotate without a restart.
++    // The IPs are tried on throwaway probe sessions; the chat is only touched once one works.
++    const autoRotate = (sessionID: string) =>
++      guarded(
++        Effect.gen(function* () {
++          const cli = yield* desktopCli.resolve
++          const net = yield* Effect.tryPromise(() => huntIp(cli.command))
++          // A proxy that changed needs the service restarted behind it.
++          if (net.ok && !upstreamKnown()) {
++            yield* stopService
++            yield* startService
++          }
++          // The conversation goes on by itself once the new IP works.
++          if (net.ok && sessionID) yield* Effect.ignore(Effect.tryPromise(() => resumeSession(sessionID)))
++          return net
++        }),
++      )
++
++    const trigger = startWatch((sessionID) => void runFork(autoRotate(sessionID)))
++
++    return InfiniteRpcs.of({
++      InfiniteGetMode: () => Effect.sync(getMode),
++      InfiniteSetMode: ({ mode }) => setModeFlow(mode),
++      InfiniteResetLimit: resetFlow,
++      InfiniteRestoreSession: restoreFlow,
++      InfiniteAutoRotate: ({ sessionID }) => Effect.sync(() => trigger("limit reached", sessionID)),
++      InfiniteFetchList: ({ url }) => Effect.promise(() => fetchList(url)),
++      InfiniteCheckIp: () => Effect.promise(checkIp),
++      InfiniteGetOptions: () => Effect.sync(getOptions),
++      InfiniteSetOptions: (options) => Effect.promise(() => setOptions(options).then(getOptions)),
++    })
++  }),
++)
+diff --git a/packages/desktop/src/main/ipc.ts b/packages/desktop/src/main/ipc.ts
+index 9342c2c..e0c6760 100644
+--- a/packages/desktop/src/main/ipc.ts
++++ b/packages/desktop/src/main/ipc.ts
+@@ -9,6 +9,7 @@ import { Plugins } from "./plugin"
+ import { DesktopFiles, openExternalURL } from "./files"
+ import { appHandlers } from "./ipc-handlers/app"
+ import { eventHandlers } from "./ipc-handlers/events"
++import { infiniteHandlers } from "./ipc-handlers/infinite"
+ import { pluginHandlers } from "./ipc-handlers/plugins"
+ import { fileHandlers } from "./ipc-handlers/files"
+ import { menuHandlers } from "./ipc-handlers/menu"
+@@ -34,6 +35,7 @@ const handlers = Layer.mergeAll(
+   menuHandlers,
+   eventHandlers,
+   pluginHandlers,
++  infiniteHandlers,
+ )
+ 
+ export const layer = RpcServer.layer(DesktopRpcs, { disableFatalDefects: true }).pipe(
+diff --git a/packages/desktop/src/main/service/background-service.ts b/packages/desktop/src/main/service/background-service.ts
+index 7bf76da..f3c8c4a 100644
+--- a/packages/desktop/src/main/service/background-service.ts
++++ b/packages/desktop/src/main/service/background-service.ts
+@@ -1,6 +1,8 @@
+ import { app } from "electron"
+ import type { Endpoint } from "@opencode/client/service"
++import nodePath from "node:path"
+ import { Context, Effect, FileSystem, Layer, Option, Path, Schema } from "effect"
++import { prepareMode, proxyEnv } from "../infinite/infinite"
+ import { SidecarChanged } from "../../shared/ipc-rpc/events"
+ import { CHANNEL } from "../constants"
+ import { emitIpcEvent } from "../ipc-events"
+@@ -57,6 +59,8 @@ const probe = Effect.fn("BackgroundService.probe")(function* () {
+ const ensure = Effect.fn("BackgroundService.ensure")(function* (mode: BackgroundServiceMachine.ConnectMode) {
+   const runFork = Effect.runForkWith(yield* Effect.context<FileSystem.FileSystem | Path.Path>())
+   const setup = yield* prepare(mode)
++  // Tor and its HTTP bridge must be up before the service starts behind them.
++  yield* Effect.promise(() => prepareMode().catch(() => undefined))
+ 
+   const run = (version = setup.version) =>
+     setup.client.Service.ensure({
+@@ -64,6 +68,7 @@ const ensure = Effect.fn("BackgroundService.ensure")(function* (mode: Background
+       version,
+       // A fixed port makes a second contender fail to bind and back off; port 0 never collides, so two
+       // services could boot against the same database.
++      env: proxyEnv(),
+       command: [
+         ...setup.cli.command,
+         "serve",
+@@ -99,7 +104,6 @@ const ensure = Effect.fn("BackgroundService.ensure")(function* (mode: Background
+ 
+ const prepare = Effect.fn("BackgroundService.prepare")(function* (mode: BackgroundServiceMachine.ConnectMode) {
+   yield* Effect.logInfo("starting v2 background service")
+-  const path = yield* Path.Path
+   const desktopCli = yield* DesktopCli.Service
+   const isolated = !app.isPackaged && process.env.OPENCODE_DESKTOP_ISOLATED_SERVER === "1"
+   const cli = yield* desktopCli.resolve
+@@ -108,18 +112,21 @@ const prepare = Effect.fn("BackgroundService.prepare")(function* (mode: Backgrou
+   if (isolated) process.env.XDG_STATE_HOME = app.getPath("userData")
+   const client = yield* Effect.promise(() => import("@opencode/client/service"))
+ 
+-  const file =
+-    process.env.OPENCODE_DESKTOP_SERVER_CHANNEL === "local"
+-      ? path.join(
+-          process.env.XDG_STATE_HOME ?? path.join(app.getPath("home"), ".local", "state"),
+-          "opencode",
+-          "service-local.json",
+-        )
+-      : undefined
++  const file = registrationFile()
+ 
+   return { cli, client, file, isolated, version }
+ })
+ 
++export function registrationFile() {
++  return process.env.OPENCODE_DESKTOP_SERVER_CHANNEL === "local"
++    ? nodePath.join(
++        process.env.XDG_STATE_HOME ?? nodePath.join(app.getPath("home"), ".local", "state"),
++        "opencode",
++        "service-local.json",
++      )
++    : undefined
++}
++
+ const adopt = Effect.fn("BackgroundService.adopt")(function* (
+   setup: Effect.Success<ReturnType<typeof prepare>>,
+   service: Endpoint,
+diff --git a/packages/desktop/src/renderer/api-types.ts b/packages/desktop/src/renderer/api-types.ts
+index 2317c07..c7cc2fe 100644
+--- a/packages/desktop/src/renderer/api-types.ts
++++ b/packages/desktop/src/renderer/api-types.ts
+@@ -80,4 +80,13 @@ export type ElectronAPI = {
+   setSpellcheckEnabled(enabled: boolean): Promise<void>
+   recordFatalRendererError(error: FatalRendererError): Promise<void>
+   setNativeTranslations(bundle: DesktopNativeBundle): Promise<void>
++  infiniteGetMode(): Promise<"WARP" | "TOR" | "PROXY" | "NONE">
++  infiniteSetMode(mode: "WARP" | "TOR" | "PROXY" | "NONE"): Promise<{ ok: boolean; message: string; ip?: string }>
++  infiniteResetLimit(): Promise<{ ok: boolean; message: string; ip?: string }>
++  infiniteGetOptions(): Promise<{ auto: boolean; country: string; custom: string }>
++  infiniteSetOptions(options: { auto: boolean; country: string; custom: string }): Promise<{ auto: boolean; country: string; custom: string }>
++  infiniteCheckIp(): Promise<{ ok: boolean; message: string; ip?: string }>
++  infiniteRestoreSession(): Promise<{ ok: boolean; message: string; ip?: string }>
++  infiniteAutoRotate(sessionID: string): Promise<void>
++  infiniteFetchList(url: string): Promise<{ ok: boolean; text: string }>
+ }
+diff --git a/packages/desktop/src/renderer/api.ts b/packages/desktop/src/renderer/api.ts
+index 156b361..15f2388 100644
+--- a/packages/desktop/src/renderer/api.ts
++++ b/packages/desktop/src/renderer/api.ts
+@@ -88,4 +88,13 @@ export const api: ElectronAPI = {
+   setSpellcheckEnabled: (enabled) => invoke("AppSetSpellcheckEnabled", { enabled }),
+   recordFatalRendererError: (error) => invoke("AppRecordFatalRendererError", { error }),
+   setNativeTranslations: (bundle) => invoke("AppSetNativeTranslations", { value: bundle }),
++  infiniteGetMode: () => invoke("InfiniteGetMode"),
++  infiniteSetMode: (mode) => invoke("InfiniteSetMode", { mode }).then(mutable),
++  infiniteResetLimit: () => invoke("InfiniteResetLimit").then(mutable),
++  infiniteGetOptions: () => invoke("InfiniteGetOptions").then(mutable),
++  infiniteSetOptions: (options) => invoke("InfiniteSetOptions", options).then(mutable),
++  infiniteCheckIp: () => invoke("InfiniteCheckIp").then(mutable),
++  infiniteRestoreSession: () => invoke("InfiniteRestoreSession").then(mutable),
++  infiniteAutoRotate: (sessionID: string) => invoke("InfiniteAutoRotate", { sessionID }),
++  infiniteFetchList: (url: string) => invoke("InfiniteFetchList", { url }),
+ }
+diff --git a/packages/desktop/src/renderer/platform/index.ts b/packages/desktop/src/renderer/platform/index.ts
+index 7b6ede0..62984c7 100644
+--- a/packages/desktop/src/renderer/platform/index.ts
++++ b/packages/desktop/src/renderer/platform/index.ts
+@@ -45,6 +45,17 @@ export function createDesktopPlatform(api: ElectronAPI, windowState: DesktopWind
+     setPinchZoomEnabled,
+     getSpellcheckEnabled: () => api.getSpellcheckEnabled(),
+     setSpellcheckEnabled: (enabled) => api.setSpellcheckEnabled(enabled),
++    infinite: {
++      getMode: () => api.infiniteGetMode(),
++      setMode: (mode) => api.infiniteSetMode(mode),
++      resetLimit: () => api.infiniteResetLimit(),
++      getOptions: () => api.infiniteGetOptions(),
++      setOptions: (options) => api.infiniteSetOptions(options),
++      checkIp: () => api.infiniteCheckIp(),
++      restoreSession: () => api.infiniteRestoreSession(),
++      autoRotate: (sessionID: string) => api.infiniteAutoRotate(sessionID),
++      fetchList: (url: string) => api.infiniteFetchList(url),
++    },
+     onDragCancel: (callback) => {
+       window.addEventListener(DragCancelEvent, callback)
+ 
+diff --git a/packages/desktop/src/shared/ipc-rpc.ts b/packages/desktop/src/shared/ipc-rpc.ts
+index 9338ad5..971c14c 100644
+--- a/packages/desktop/src/shared/ipc-rpc.ts
++++ b/packages/desktop/src/shared/ipc-rpc.ts
+@@ -3,6 +3,7 @@ import { AppRpcs } from "./ipc-rpc/app"
+ import { EventRpcs } from "./ipc-rpc/events"
+ import { PluginRpcs } from "./ipc-rpc/plugins"
+ import { FileRpcs } from "./ipc-rpc/files"
++import { InfiniteRpcs } from "./ipc-rpc/infinite"
+ import { MenuRpcs } from "./ipc-rpc/menu"
+ import { StorageRpcs } from "./ipc-rpc/storage"
+ import { WindowRpcs } from "./ipc-rpc/window"
+@@ -21,6 +22,16 @@ export { StorageRpcs } from "./ipc-rpc/storage"
+ 
+ export { WindowRpcs } from "./ipc-rpc/window"
+ 
+-export const DesktopRpcs = AppRpcs.merge(StorageRpcs, FileRpcs, WindowRpcs, MenuRpcs, EventRpcs, PluginRpcs)
++export { InfiniteRpcs } from "./ipc-rpc/infinite"
++
++export const DesktopRpcs = AppRpcs.merge(
++  StorageRpcs,
++  FileRpcs,
++  WindowRpcs,
++  MenuRpcs,
++  EventRpcs,
++  PluginRpcs,
++  InfiniteRpcs,
++)
+ 
+ export type DesktopRpcClient = RpcClient.FromGroup<typeof DesktopRpcs, RpcClientError.RpcClientError>
+diff --git a/packages/desktop/src/shared/ipc-rpc/infinite.ts b/packages/desktop/src/shared/ipc-rpc/infinite.ts
+new file mode 100644
+index 0000000..721367e
+--- /dev/null
++++ b/packages/desktop/src/shared/ipc-rpc/infinite.ts
+@@ -0,0 +1,45 @@
++import { Schema } from "effect"
++import { Rpc, RpcGroup } from "effect/rpc"
++
++const Mode = Schema.Literals(["WARP", "TOR", "PROXY", "NONE"])
++
++const Result = Schema.Struct({
++  ok: Schema.Boolean,
++  message: Schema.String,
++  ip: Schema.optionalKey(Schema.String),
++})
++
++export const InfiniteGetMode = Rpc.make("InfiniteGetMode", { success: Mode })
++
++export const InfiniteSetMode = Rpc.make("InfiniteSetMode", { payload: { mode: Mode }, success: Result })
++
++export const InfiniteResetLimit = Rpc.make("InfiniteResetLimit", { success: Result })
++
++export const InfiniteCheckIp = Rpc.make("InfiniteCheckIp", { success: Result })
++
++export const InfiniteRestoreSession = Rpc.make("InfiniteRestoreSession", { success: Result })
++
++export const InfiniteAutoRotate = Rpc.make("InfiniteAutoRotate", { payload: { sessionID: Schema.String } })
++
++export const InfiniteFetchList = Rpc.make("InfiniteFetchList", {
++  payload: { url: Schema.String },
++  success: Schema.Struct({ ok: Schema.Boolean, text: Schema.String }),
++})
++
++const Options = Schema.Struct({ auto: Schema.Boolean, country: Schema.String, custom: Schema.String })
++
++export const InfiniteGetOptions = Rpc.make("InfiniteGetOptions", { success: Options })
++
++export const InfiniteSetOptions = Rpc.make("InfiniteSetOptions", { payload: Options, success: Options })
++
++export const InfiniteRpcs = RpcGroup.make(
++  InfiniteGetOptions,
++  InfiniteSetOptions,
++  InfiniteGetMode,
++  InfiniteSetMode,
++  InfiniteResetLimit,
++  InfiniteCheckIp,
++  InfiniteRestoreSession,
++  InfiniteAutoRotate,
++  InfiniteFetchList,
++)
+diff --git a/packages/ui/src/overlays/dialog/dialog.css b/packages/ui/src/overlays/dialog/dialog.css
+index 4a3ed38..da71198 100644
+--- a/packages/ui/src/overlays/dialog/dialog.css
++++ b/packages/ui/src/overlays/dialog/dialog.css
+@@ -173,6 +173,12 @@
+     height: 480px;
+   }
+ 
++  &[data-size="wide"] [data-slot="dialog-container"] {
++    width: min(calc(100vw - 32px), 720px);
++    height: min(calc(100vh - 80px), 640px);
++    border-radius: 16px;
++  }
++
+   &[data-size="x-large"] [data-slot="dialog-container"] {
+     width: min(calc(100vw - 32px), 980px);
+     height: min(calc(100vh - 92px), 600px);
+diff --git a/packages/ui/src/overlays/dialog/dialog.tsx b/packages/ui/src/overlays/dialog/dialog.tsx
+index 38193d0..74f2880 100644
+--- a/packages/ui/src/overlays/dialog/dialog.tsx
++++ b/packages/ui/src/overlays/dialog/dialog.tsx
+@@ -20,7 +20,7 @@ const TEXT_FIELD = [
+ ].join(", ")
+ 
+ export interface DialogProps extends ParentProps {
+-  size?: "normal" | "large" | "x-large"
++  size?: "normal" | "large" | "wide" | "x-large"
+   variant?: "default" | "settings"
+   class?: ComponentProps<"div">["class"]
+   containerClass?: ComponentProps<"div">["class"]
+diff --git a/packages/ui/src/theme/context.tsx b/packages/ui/src/theme/context.tsx
+index 234a24c..2156393 100644
+--- a/packages/ui/src/theme/context.tsx
++++ b/packages/ui/src/theme/context.tsx
+@@ -93,6 +93,10 @@ const names = new Map(
+     orng: "Orng",
+     "osaka-jade": "Osaka Jade",
+     palenight: "Palenight",
++    "pastel-rose": "Pastel Rose",
++    "pastel-mint": "Pastel Mint",
++    "pastel-lavender": "Pastel Lavender",
++    "pastel-sky": "Pastel Sky",
+     rosepine: "Rose Pine",
+     shadesofpurple: "Shades of Purple",
+     solarized: "Solarized",
+diff --git a/packages/ui/src/theme/themes/pastel-lavender.json b/packages/ui/src/theme/themes/pastel-lavender.json
+new file mode 100644
+index 0000000..ff8ef21
+--- /dev/null
++++ b/packages/ui/src/theme/themes/pastel-lavender.json
+@@ -0,0 +1,33 @@
++{
++  "$schema": "https://opencode.ai/desktop-theme.json",
++  "name": "Pastel Lavender",
++  "id": "pastel-lavender",
++  "light": {
++    "palette": {
++      "neutral": "#f6f3fc",
++      "ink": "#4b4560",
++      "primary": "#9d8bd8",
++      "accent": "#e29bbd",
++      "success": "#5fb57a",
++      "warning": "#d9a441",
++      "error": "#d9667a",
++      "info": "#5aa5cf",
++      "diffAdd": "#5fb57a",
++      "diffDelete": "#d9667a"
++    }
++  },
++  "dark": {
++    "palette": {
++      "neutral": "#25222f",
++      "ink": "#e8e3f6",
++      "primary": "#c3b5ef",
++      "accent": "#f0b6d0",
++      "success": "#a8dfb0",
++      "warning": "#f4dca0",
++      "error": "#f2a6b3",
++      "info": "#a9d6ee",
++      "diffAdd": "#a8dfb0",
++      "diffDelete": "#f2a6b3"
++    }
++  }
++}
+diff --git a/packages/ui/src/theme/themes/pastel-mint.json b/packages/ui/src/theme/themes/pastel-mint.json
+new file mode 100644
+index 0000000..8e891e8
+--- /dev/null
++++ b/packages/ui/src/theme/themes/pastel-mint.json
+@@ -0,0 +1,33 @@
++{
++  "$schema": "https://opencode.ai/desktop-theme.json",
++  "name": "Pastel Mint",
++  "id": "pastel-mint",
++  "light": {
++    "palette": {
++      "neutral": "#f2faf6",
++      "ink": "#3f5249",
++      "primary": "#6fbf9b",
++      "accent": "#7fb5d6",
++      "success": "#5fb57a",
++      "warning": "#d9a441",
++      "error": "#d9667a",
++      "info": "#5aa5cf",
++      "diffAdd": "#5fb57a",
++      "diffDelete": "#d9667a"
++    }
++  },
++  "dark": {
++    "palette": {
++      "neutral": "#202a26",
++      "ink": "#e0f1e8",
++      "primary": "#a8e0c5",
++      "accent": "#a9cfe8",
++      "success": "#a8dfb0",
++      "warning": "#f4dca0",
++      "error": "#f2a6b3",
++      "info": "#a9d6ee",
++      "diffAdd": "#a8dfb0",
++      "diffDelete": "#f2a6b3"
++    }
++  }
++}
+diff --git a/packages/ui/src/theme/themes/pastel-rose.json b/packages/ui/src/theme/themes/pastel-rose.json
+new file mode 100644
+index 0000000..b09a17a
+--- /dev/null
++++ b/packages/ui/src/theme/themes/pastel-rose.json
+@@ -0,0 +1,33 @@
++{
++  "$schema": "https://opencode.ai/desktop-theme.json",
++  "name": "Pastel Rose",
++  "id": "pastel-rose",
++  "light": {
++    "palette": {
++      "neutral": "#fdf4f6",
++      "ink": "#5b4350",
++      "primary": "#d98ba3",
++      "accent": "#b08fd6",
++      "success": "#5fb57a",
++      "warning": "#d9a441",
++      "error": "#d9667a",
++      "info": "#5aa5cf",
++      "diffAdd": "#5fb57a",
++      "diffDelete": "#d9667a"
++    }
++  },
++  "dark": {
++    "palette": {
++      "neutral": "#2a2128",
++      "ink": "#f3e3ea",
++      "primary": "#f2b5c8",
++      "accent": "#c9b1ec",
++      "success": "#a8dfb0",
++      "warning": "#f4dca0",
++      "error": "#f2a6b3",
++      "info": "#a9d6ee",
++      "diffAdd": "#a8dfb0",
++      "diffDelete": "#f2a6b3"
++    }
++  }
++}
+diff --git a/packages/ui/src/theme/themes/pastel-sky.json b/packages/ui/src/theme/themes/pastel-sky.json
+new file mode 100644
+index 0000000..96e16ca
+--- /dev/null
++++ b/packages/ui/src/theme/themes/pastel-sky.json
+@@ -0,0 +1,33 @@
++{
++  "$schema": "https://opencode.ai/desktop-theme.json",
++  "name": "Pastel Sky",
++  "id": "pastel-sky",
++  "light": {
++    "palette": {
++      "neutral": "#f2f8fd",
++      "ink": "#3c4d5e",
++      "primary": "#6ea8da",
++      "accent": "#e8a98f",
++      "success": "#5fb57a",
++      "warning": "#d9a441",
++      "error": "#d9667a",
++      "info": "#5aa5cf",
++      "diffAdd": "#5fb57a",
++      "diffDelete": "#d9667a"
++    }
++  },
++  "dark": {
++    "palette": {
++      "neutral": "#1f2730",
++      "ink": "#dde9f4",
++      "primary": "#a2cdee",
++      "accent": "#f3c4af",
++      "success": "#a8dfb0",
++      "warning": "#f4dca0",
++      "error": "#f2a6b3",
++      "info": "#a9d6ee",
++      "diffAdd": "#a8dfb0",
++      "diffDelete": "#f2a6b3"
++    }
++  }
++}

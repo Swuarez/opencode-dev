@@ -14,7 +14,7 @@ resumes the same chat.
 
 The sections marked **Windows only** below are not on Linux.
 
-- **Windows:** one file, no installer, no services. Admin (UAC) for the optional WARP install and for VPN Gate (OpenVPN: one prompt per launcher session; the helper that runs OpenVPN stays until the launcher closes or sits idle for 10 minutes). WireGuard never asks for administrator.
+- **Windows:** one file, no installer, no services. No UAC prompts: the optional WARP install and VPN Gate (OpenVPN) work only when you start the launcher as administrator (the helper that runs OpenVPN stays until the launcher closes or sits idle for 10 minutes). WireGuard never needs administrator.
 - **Linux:** one script. No root needed for the launcher itself. WARP and Tor need their packages installed (section 1b).
 
 ### Windows: .bat or .exe?
@@ -104,7 +104,7 @@ setup, and the commands it creates run that copy.
 3. Choose **Set up connection** on the home screen (it reads **Change connection** once configured). It asks for a connection method (section 4: WARP, TOR, PROXY, NONE, and on Windows also WIREGUARD and VPNGATE) and a run mode, then creates the `opencodeinf` and `opencode-auto` commands and the shortcuts (section 10). `opencode` is not changed: it stays the real OpenCode.
 4. Choose **Launch OpenCode**, pick a folder and a connection, and start.
 
-If WARP, Tor or OpenCode is missing, the launcher offers to install it. Nothing is installed without asking, and UAC is shown to you.
+If WARP, Tor or OpenCode is missing, the launcher offers to install it. Nothing is installed without asking, and the launcher never asks for administrator rights: installs that need them run only from an administrator window.
 
 ![Home screen](images/02-home.png)
 
@@ -163,7 +163,7 @@ The egress default is set during setup and in Settings, Connection (`OC_EGRESS_D
 | **PROXY** | Free HTTP proxies from a list. Settings > Proxy list offers ProxyScrape (default), proxifly, GeoNode (HTTP only, fastest first), monosans, TheSpeedX, or your own list (`PROXY_LIST_URL`: a URL or a local file). `PROXY_FIXED` (Settings > Proxy list > Your own proxy, `host:port`) replaces the list when it is set. Each pick tests untried proxies in random order (`PROXY_TRY_MAX` per pick, default 40 on Windows and 25 on Linux); dead ones are skipped, and the list is reused once all of it was tried. In PROXY mode, after `PROXY_ROT_MAX` burned proxies the launcher asks whether to switch the hunt to Tor |
 | **NONE** | Direct connection, no proxy |
 | **WIREGUARD** | **Windows only.** Your WireGuard `.conf` files from `WG_DIR` (default `...\opencode-infinite\wireguard`), run through [wireproxy](https://github.com/windtf/wireproxy), a local proxy that only OpenCode uses. Each switch takes the next file. Needs no WireGuard install and no administrator prompt |
-| **VPNGATE** | **Windows only.** Public servers from [vpngate.net](https://www.vpngate.net) through the normal OpenVPN client (`openvpn.exe`). Installed with winget when it is missing. OpenVPN creates a system tunnel, but the launcher adds routes only for the IPs of `opencode.ai`, `models.opencode.ai` and `opentunnel.xyz` as they resolve on your PC at start (`route-nopull`). Everything else stays direct. Filter by `VPNGATE_COUNTRY`, `VPNGATE_MAX` servers tried per start. A server that fails is skipped for the session. The administrator prompt comes once per launcher session, not on each start or switch |
+| **VPNGATE** | **Windows only.** Public servers from [vpngate.net](https://www.vpngate.net) through the normal OpenVPN client (`openvpn.exe`). Installed with winget when it is missing. OpenVPN creates a system tunnel, but the launcher adds routes only for the IPs of `opencode.ai`, `models.opencode.ai` and `opentunnel.xyz` as they resolve on your PC at start (`route-nopull`). Everything else stays direct. Filter by `VPNGATE_COUNTRY`, `VPNGATE_MAX` servers tried per start. A server that fails is skipped for the session. It needs a window that is already administrator; the launcher never asks for it |
 
 The proxy applies only to the OpenCode process. Your browser and other apps
 stay direct. WIREGUARD makes no system tunnel. VPNGATE adds routes to the system
@@ -273,7 +273,7 @@ Setting names are the same on Windows (`config.json`) and Linux (`config.env`). 
 | `RESUME_MSG` | `continue` | Message sent when a chat is resumed | both |
 | `RESUME_AUTO` | `1` | The resume approves tool permissions (`opencode run --auto`) | both |
 | `RESUME_TIMEOUT` | `90` | Seconds before a stuck resume is stopped and the launcher rotates | both |
-| `PROBE` / `PROBE_MODEL` | `0` / `opencode/deepseek-v4.1-flash-free` | Probe each new IP with one cheap message, and the model it uses. Off by default: each probe uses the free quota and leaves a session. The probe creates its own session (titled `ocinf-probe`) and deletes it afterwards, so no fixed session id is needed | both |
+| `PROBE` / `PROBE_MODEL` | `0` / (vacío = modelo del chat) | Probe each new IP with one cheap message, and the model it uses. Off by default: each probe uses the free quota and leaves a session. The probe creates its own session (titled `ocinf-probe`) and deletes it afterwards, so no fixed session id is needed | both |
 | `PROBE_BROKEN_MAX` | `3` | Non-limit probe failures before the hunt stops | both |
 | `UPDATE_CHECK` | `1` | Check for a newer launcher at start (section 11) | both |
 | `UPDATE_ASK` | `ask` | `ask` offers updates at start, `never` turns checks off | both |
@@ -414,7 +414,7 @@ No network, or an unreadable version, changes nothing.
 1. Raise the version in the launcher header (`REM  OpenCode launcher  (vX.Y)` or `(vX.Y.Z)`) and, for Linux, `VERSION=` in the script.
 2. Write the checksums and commit them with the files: `sha256sum "OpenCode Infinite.bat" opencode-infinite.sh > SHA256SUMS`. The `.exe` is built from `C++/` and committed at `C++/bin/Release/OpenCodeInfinite.exe`; add its line for `OpenCode Infinite.exe` (`sha256sum` of that file).
 3. Push a tag with the same version: `git tag vX.Y && git push origin main vX.Y` (or `vX.Y.Z`; the launcher accepts both, and the header must match the tag exactly)
-4. Create the release for that tag in GitLab (**Deploy > Releases > New release**) and attach `OpenCode-Infinite.bat`, `OpenCode-Infinite.exe`, `opencode-infinite.sh` and `SHA256SUMS` (the launcher downloads the first two by these names).
+4. Create the release for that tag in GitLab (**Deploy > Releases > New release**) and attach `OpenCode-Infinite.bat`, `OpenCode-Infinite.exe`, `opencode-infinite.sh` and `SHA256SUMS` (the launcher downloads the first two by these names). The desktop installer `OpenCode-Infinite-Desktop.exe` (about 295 MB) is too large for a release attachment: upload it to the project's generic package registry and add it to the release as a link. Its SHA-256 goes in the release notes, not in `SHA256SUMS`, which the launcher reads.
 The launcher only reads the latest release's tag and checks the file against `SHA256SUMS` at that tag, so a commit on `main` without a release reaches nobody. `.gitattributes` keeps the `.bat` files with CRLF in the repository, so the downloaded bytes are the ones that were hashed.
 
 ---
@@ -532,8 +532,33 @@ A native Windows app with the same job as the `.bat`: a new exit IP, then OpenCo
 
 ## Versions
 
-**Latest version:** launcher 2.60.3 (`.bat`), app 3.4.6 (`.exe`), Linux script 0.4.6.
-**Latest published release:** 2.60.3 (2026-11-06). **Previous:** 2.60.2 (2026-11-06).
+**Latest version:** launcher 2.60.4 (`.bat`), app 3.4.7 (`.exe`), Linux script 0.4.7.
+**Latest published release:** 2.60.4 (2026-11-09). **Previous:** 2.60.3 (2026-11-06).
+
+### 2.60.4
+
+- **No administrator prompts:** the launcher never asks for administrator rights (UAC). Starting the WARP service, installing OpenVPN and the winget and MSI installs run only when the window is already administrator; otherwise it says what to do and changes nothing.
+- **The probe follows the chat model:** `PROBE_MODEL` is empty by default and the IP probe then uses the model of the chat. The probe session is still deleted afterwards.
+- **English messages:** the last Spanish messages ("OpenCode not found", "Rate limit detected") are in English.
+- **Fixes:** a `TUNNEL_WAIT` value no longer gets lost after a probe, and several messages go through the shared message routine, so quiet mode treats them like the rest. The VPN Gate text no longer breaks the connection menu (`. was unexpected at this time`), the "Rate limit detected" question answers Y/N, and a VPN Gate session no longer leaves `NODE_OPTIONS` set for the next connection.
+- **OpenCode desktop app, with the launcher's tools built in:** the release also links `OpenCode-Infinite-Desktop.exe`, an installer of the OpenCode desktop app with a bottom bar (WARP, Tor, Proxy or None, Reset limit, Auto-rotate), Settings (your own proxy list from text, a file or a URL, and the themes, pastel ones first) and an `opencode-infinite` start screen. Auto-rotate tries each new IP on a throwaway session and sends `continue` to your chat only once one works. Tor is bundled; WARP needs Cloudflare WARP installed. The files to build it are in [`opencode-app/`](opencode-app/BUILD.md). SHA-256 of the installer: `4d1e414b46d656755b3a3121d13ccdb05778a69722a9afc1e646fdc43121e2f0`.
+
+### C++ app 3.4.7
+
+- **No administrator prompts**, as in the `.bat`: the WARP service and OpenVPN are only touched from an administrator window.
+- **The probe follows the chat model** (`PROBE_MODEL` empty by default).
+- **Proxy list:** the setting "Burned proxies before a warning" replaces the Tor offer: after that many burned proxies in a row it warns and resets the counter.
+- **VPN Gate text:** the menu and messages say the app needs an already-administrator window.
+- **Safer config:** a `config.json` that is not valid is moved aside to `config.json.bad` with a warning, a failed write is logged, and numbers outside a setting's range are ignored.
+- **VPN helper:** the helper's answer is read without blocking and with a deadline, so a helper that stops answering cannot freeze the app.
+
+### Linux script 0.4.7
+
+- **No password prompts:** it only uses `sudo -n` (rights that need no password); it never asks for one.
+- **Probe:** it runs on a standalone server so the proxy environment applies, follows the chat model when `PROBE_MODEL` is empty, and a timed-out probe counts as a limited IP.
+- **Tor:** the previous `tor.log` is cleared before waiting for Tor to start.
+- **Probe flag:** `--standalone` is added only when the installed OpenCode has it.
+- **Updates:** the setting text says GitLab, which is where the releases are.
 
 ### 2.60.3
 
@@ -550,7 +575,7 @@ A native Windows app with the same job as the `.bat`: a new exit IP, then OpenCo
 
 ### 2.60.2
 
-- **Admin asked once, after a message:** when the WARP service is stopped, the launcher says why and then asks Windows for administrator rights once. VPN Gate prints its note before the administrator prompt.
+- **Not administrator:** when the WARP service is stopped or VPN Gate needs OpenVPN, the launcher says why and does nothing. Start the service yourself or run the launcher as administrator.
 - **Preset commands:** `opencode-warp` and `opencode-tor` print the reason when they cannot start, instead of exiting silently.
 - **Auto:** the automatic start uses WARP, Tor or a proxy, whichever is installed and fastest; choices that are not set up (none, WireGuard, VPN Gate) become WARP.
 - **Test every new IP is off by default:** each probe uses the free quota and leaves a session. Turn it on in Settings > Probe.
