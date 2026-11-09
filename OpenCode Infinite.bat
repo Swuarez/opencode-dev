@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 title opencode-infinity
 REM ============================================================
-REM  OpenCode launcher  (v2.60.4)
+REM  OpenCode launcher  (v2.60.3)
 REM  Multi-egress (WARP / TOR / free HTTP) + dependency bootstrap
 REM  + auto-resume.
 REM  v2.22 - v2.29: every fixed bug carries an inline "REM v2.2x:"
@@ -233,8 +233,7 @@ REM Model used by the IP probe: one cheap message per candidate IP. It must be t
 REM model the chat uses (OC_MODEL overrides it when set): a probe on another model
 REM passes while the chat's free model is out of quota, and every "continue" then
 REM goes to a dead IP.
-REM An empty PROBE_MODEL means the chat model too.
-set "PROBE_MODEL="
+set "PROBE_MODEL=opencode/deepseek-v4.1-flash-free"
 REM PROBE=0 skips the probe entirely (IPs are accepted without testing). Default 0 since after v2.60.1.
 REM Off by default (after v2.60.1): each probe uses the free quota and leaves an ocinf-probe session,
 REM so it made the next chat hit the limit. Turn it on in Settings > Probe if you want burned IPs skipped first.
@@ -357,7 +356,7 @@ set "TRACE_URL=https://www.cloudflare.com/cdn-cgi/trace"
 REM Official download address for the WARP installer (64-bit MSI).
 set "WARP_MSI_URL=https://downloads.cloudflareclient.com/v1/download/windows/ga"
 REM Self-update source. In this file a literal % is written %% , so the
-REM the URL in :self_update ends in the real "...%20Infinite.bat" form the repo uses.
+REM URL below ends in the real "...%20Infinite.bat" form the repo uses.
 REM Hosts that must never go through the proxy.
 REM v2.40: NO_PROXY and no_proxy are the same variable on Windows, so the launcher list has its own name (it used to overwrite the user's own value before OC_NP0 saved it).
 set "OC_NOPROXY_LIST=localhost,127.0.0.1,0.0.0.0,::1,[::1]"
@@ -485,7 +484,7 @@ set "T_265=  [9] Sessions      - continue a chat from this folder"
 set "T_68=--- deep reset -----------------------------------------------"
 set "T_69=  This closes opencode, moves your chats to the Desktop,"
 set "T_70=  clears the saved tokens and opens a brand new session."
-set "T_71=  Your chats move to the Desktop. Restore chats and token reset also change your files."
+set "T_71=  It is the only action in this script that touches your files."
 set "T_72=  Only the opencode this launcher started is closed; windows opened"
 set "T_73=  by hand keep running (close them first if files are busy)."
 set "T_74=--- token reset ----------------------------------------------"
@@ -568,7 +567,7 @@ set "T_150=  --- resume stdout ---"
 set "T_151=  downloading the WARP installer, about 60 MB..."
 set "T_152=%%C_WARN%%  [*] download failed.%%C_RST%%"
 set "T_153=      grab it by hand and run it: %%WARP_MSI_URL%%"
-set "T_154=  installing..."
+set "T_154=  installing, accept the UAC prompt..."
 set "T_155=  [auto-install] the standalone build did not install, trying npm."
 set "T_156=  [i] 32-bit Windows: no standalone build - installing via npm."
 set "T_157=%%C_OK%%  [ok] opencode ready on 32-bit via npm.%%C_RST%%"
@@ -588,7 +587,7 @@ set "T_170=  [i] this can take a few minutes on its first run."
 set "T_171=    winget failed - trying the MSI installer from nodejs.org..."
 set "T_172=    downloading %%NODE_MSI_URL%% ..."
 set "T_173=    direct download failed - retrying through the Windows proxy settings..."
-set "T_174=    installing..."
+set "T_174=    installing, accept the UAC prompt..."
 set "T_175=  opencode update available: %%OCUPD_CUR%% -^> %%OCUPD_LAT%%"
 set "T_176=  It closes every running opencode process first."
 set "T_177=  [update] npm i -g @opencode/cli@latest"
@@ -637,7 +636,7 @@ set "T_219=  [*] checksum mismatch - the download is not the official file."
 set "T_220=  [*] download failed."
 set "T_221=      grab it by hand and run it: %%ID_URL%%"
 set "T_222=      or from the website: https://opencode.ai/download"
-set "T_223=  installing..."
+set "T_223=  installing, accept the UAC prompt if one appears..."
 set "T_224=  [*] could not read the official release info from opencode.ai."
 set "T_225=      get the installer by hand: https://opencode.ai/download"
 set "T_226=  [*] the desktop app has no 32-bit Windows build."
@@ -691,7 +690,7 @@ set "T_274=  Chats restored. The previous ones are in:"
 set "T_275=  [5] WIREGUARD - only for opencode, one .conf file after another"
 set "T_276=  [6] VPNGATE   - VPN Gate through OpenVPN, only OpenCode's hosts"
 set "T_277=  [egress] WIREGUARD - proxy from the .conf files in "%%WG_DIR_SHOW%%". Only opencode uses it. No administrator prompt."
-set "T_278=  [egress] VPNGATE - VPN Gate through OpenVPN. Only OpenCode's hosts use the tunnel ^(their IPs are routed^). Administrator prompt only when the VPN helper starts (first use, or after 10 idle minutes)."
+set "T_278=  [egress] VPNGATE - VPN Gate through OpenVPN. Only OpenCode's hosts use the tunnel ^(their IPs are routed^). Administrator prompt on start, switch and stop."
 set "T_279=%%C_WARN%%  [vpn] OpenVPN is missing and winget could not install it. Install OpenVPN from openvpn.net, then try again.%%C_RST%%"
 set "T_288=%%C_WARN%%  [vpn] the VPN Gate list could not be downloaded and there is no saved copy.%%C_RST%%"
 set "T_289=%%C_WARN%%  [vpn] no VPN Gate server matches the country "%%VPNGATE_COUNTRY%%". Clear the country to use any.%%C_RST%%"
@@ -704,7 +703,7 @@ set "T_283=  [vpn] changing the %%EGRESS%% tunnel..."
 set "T_284=%%C_OK%%  [vpn] tunnel "%%VPN_NAME%%" is up. Exit IP %%VPN_IP%% ^(country %%VPN_LOC%%^).%%C_RST%%"
 set "T_285=%%C_WARN%%  [vpn] wireproxy is missing and could not be downloaded and verified. Log: %%STATE_DIR%%\vpn.log%%C_RST%%"
 set "T_286=%%C_WARN%%  [vpn] there are no .conf files in "%%VPN_DIR%%". Copy your WireGuard configs there.%%C_RST%%"
-set "T_287=%%C_WARN%%  [vpn] VPN Gate was not started: this window is not administrator, and this script never asks for it. Nothing was changed.%%C_RST%%"
+set "T_287=%%C_WARN%%  [vpn] Windows did not allow the administrator step ^(UAC^). Nothing was changed.%%C_RST%%"
 set "T_290=%%C_WARN%%  [vpn] no tunnel gave a new IP ^(%%VPN_TRIED%% tried^). Log: %%STATE_DIR%%\vpn.log%%C_RST%%"
 set "T_291=%%C_WARN%%  [vpn] nothing left to try: every .conf failed in this session.%%C_RST%%"
 set "T_294=  [vpn] changing tunnel, attempt %%VPN_TRIES%% of %%ROTATE_TRIES_MAX%%..."
@@ -801,8 +800,8 @@ set "T_386=not installed"
 REM v2.60.1: the CLI is installed only after the user says yes.
 set "T_387=   OpenCode CLI is not installed. Install it now? [Y/N]: "
 set "T_388=  OpenCode CLI was not installed. Run the launcher again and answer Y, or install it by hand."
-set "T_389=  WARP is stopped or disabled. Turning it on needs administrator rights, which this script never asks for. Start the WARP service yourself, or run this script as administrator."
-set "T_390=  VPN Gate uses OpenVPN, which needs administrator rights. This script never asks for them: run it as administrator to use VPN Gate."
+set "T_389=  WARP is stopped or disabled. Turning it on needs administrator rights: accept the Windows prompt to continue."
+set "T_390=  VPN Gate uses OpenVPN: Windows may ask for administrator rights once per session (and to install OpenVPN if it is missing). Accept to continue."
 REM Batch messages are translated from lang\<code>.json; the UI writes lang\messages.txt (data only).
 set "OC_TUI=mki18n"
 set "OC_STATE=%STATE_DIR%"
@@ -918,7 +917,7 @@ REM path) would reach launcher.log in clear and the support report masks no free
 set "LOG_ARGS=redacted"
 set "LOG_OSV="
 for /f "tokens=*" %%v in ('ver') do if not defined LOG_OSV set "LOG_OSV=%%v"
-call :log "start v2.60.4 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
+call :log "start v2.60.3 args=[%LOG_ARGS%] cwd=%CD% arch=%PROCESSOR_ARCHITECTURE% %LOG_OSV%" boot
 REM v2.30: one official copy. Setup copies this file to STATE_DIR\app and the opencode
 REM command runs that copy. A duplicate (a second download, "(1)") hands over to it, or
 REM replaces it when it is the newer one.
@@ -1923,7 +1922,7 @@ if exist "%RS_SRC%\storage" robocopy "%RS_SRC%\storage" "%DATA_DIR%\storage" /e 
 if errorlevel 8 call echo %T_273%
 if defined RS_FAIL call echo %T_273%
 REM v3.1 (N03): the live database stayed in place because the archive has none.
-REM T_270 is not printed here: the archive has no database and the live one is kept.
+if defined RS_NODB call echo %T_270%
 call echo %T_274%
 echo     "%RS_KEEP%"
 set "RESUME="
@@ -2166,7 +2165,7 @@ REM Common launch path, proxied and direct runs alike (v2.23).
 if /i "%APP_MODE%"=="DESKTOP" goto :rl_cmd_ok
 if defined OC_CMD goto :rl_cmd_ok
 echo.
-echo   OpenCode not found: install it or set the path in OC_APP ^(config^).
+echo   OpenCode no encontrado, instalalo o indica la ruta en OC_APP ^(config^).
 call :pause_key
 goto :menu_loop
 :rl_cmd_ok
@@ -2177,7 +2176,7 @@ REM check only read what this run writes.
 set "SIZE_BEFORE=0"
 for %%S in ("%LOGFILE%") do if not "%%~zS"=="" set "SIZE_BEFORE=%%~zS"
 REM The log is shared by every OpenCode run, so old limit lines stay in it. Only lines stamped after this start count.
-set "OC_T0F=%STATE_DIR%\run_t0.txt" & "%PSX%" -NoProfile -Command "[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss') | Set-Content -LiteralPath $env:OC_T0F -Encoding ASCII" >nul 2>&1
+"%PSX%" -NoProfile -Command "[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss') | Set-Content -LiteralPath '%STATE_DIR%\run_t0.txt' -Encoding ASCII" >nul 2>&1
 set "OC_T0="
 if exist "%STATE_DIR%\run_t0.txt" set /p "OC_T0="<"%STATE_DIR%\run_t0.txt"
 REM WHY records the reason the run ended (exit, quota, stop, watcher).
@@ -2301,7 +2300,7 @@ call :log "category=ask action=none reason=asked less than 10 min ago" rotate
 goto :closed
 :rl_ask_now
 call :flush_keys
-choice /t 60 /c SN /d N /m "Rate limit detected. Rotate the IP now?"
+choice /t 60 /c SN /d N /m "Rate limit detectado. Rotar IP ahora?"
 if errorlevel 2 goto :rl_ask_no
 if not errorlevel 1 goto :rl_ask_no
 call :log "category=ask action=rotate reason=user said yes" rotate
@@ -2608,11 +2607,10 @@ set "HUNT_SEEN="
 REM v3.4: the first new IP is compared with the IP the hunt leaves. After a watcher hit that IP is
 REM often still empty or "unknown" (only a manual start sets it), so read the live one first.
 echo %IP%| findstr /r /c:"^[0-9a-fA-F:.][0-9a-fA-F:.]*$" >nul
-set "TW_PREV=%TUNNEL_WAIT%"
 if errorlevel 1 (
     set "TUNNEL_WAIT=10"
     call :warp_poll BASEIP BASEFLAG
-    set "TUNNEL_WAIT=%TW_PREV%"
+    set "TUNNEL_WAIT="
     if defined BASEIP set "IP=%BASEIP%"
 )
 call set "HUNT_GOAL=%T_340%"
@@ -3059,7 +3057,7 @@ if /i "%EGRESS%"=="WARP" (
 goto :resume_envdone
 :resume_envdone
 if errorlevel 1 (
-    call :msg %T_131%
+    call echo %T_131%
     if not defined OPT_AUTO call :resume_tail
     set "WHY=quota"
     goto :quota_rotate
@@ -3091,11 +3089,11 @@ set "REC=%errorlevel%"
 call :log "resume finished code %REC%" resume
 REM v2.22: restore the user's own proxy variables instead of deleting them.
 call :restore_env
-if "%REC%"=="9009" echo   OpenCode not found: the path is empty or does not exist.
+if "%REC%"=="9009" echo   OpenCode no encontrado: la ruta esta vacia o no existe.
 if "%REC%"=="9009" goto :menu_loop
 REM 124 is the watchdog code: the resume was killed for taking too long.
 if "%REC%"=="124" (
-    call :msg %T_132%
+    call echo %T_132%
     if not defined OPT_AUTO call :resume_tail
     set "WHY=quota"
     goto :quota_rotate
@@ -3133,7 +3131,7 @@ if defined GEOHIT if not defined OPT_AUTO call :resume_tail
 if defined GEOHIT set "WHY=geo"
 if defined GEOHIT if defined GLOC set "HUNT_AVOID=%GLOC%"
 if defined GEOHIT goto :quota_rotate
-if not defined OPT_AUTO call :msg %T_134%
+if not defined OPT_AUTO call echo %T_134%
 if not defined OPT_AUTO call :resume_tail
 set "WHY=quota"
 goto :quota_rotate
@@ -3238,7 +3236,7 @@ REM (WARP 5 s, PROXY 8 s, TOR 120 s). A method counts as installed when its prog
 REM The times and the Tor folder are shared by every window, so they live in the base folder, not in STATE_DIR.
 :auto_pick
 set "OC_EGRESS_DEFAULT="
-for /f "usebackq delims=" %%M in (`"%PSX%" -NoProfile -Command "$s=$env:LOCALAPPDATA+'\opencode-infinite';$t=@{WARP=5000;PROXY=8000;TOR=120000}; foreach($m in @($t.Keys)){ $f=Join-Path $s ('method_'+$m+'.ms'); if(Test-Path -LiteralPath $f){ $v=0; if([int]::TryParse((Get-Content -LiteralPath $f -Raw).Trim(),[ref]$v)){ $t[$m]=$v } } }; $w=$false; foreach($b in @($env:ProgramFiles,${env:ProgramFiles(x86)},$env:ProgramW6432,$env:LOCALAPPDATA)){ if($b -and (Test-Path -LiteralPath (Join-Path $b 'Cloudflare\Cloudflare WARP\warp-cli.exe'))){ $w=$true } }; $tor=$false; $td=Join-Path $s 'tor'; if(Test-Path -LiteralPath $td){ if(Get-ChildItem -LiteralPath $td -Recurse -Filter tor.exe -ErrorAction SilentlyContinue | Select-Object -First 1){ $tor=$true } }; $ok=@{PROXY=$true;WARP=$w;TOR=$tor}; $t.Keys | Where-Object { $ok[$_] } | Sort-Object { $t[$_] } | Select-Object -First 1"`) do set "OC_EGRESS_DEFAULT=%%M"
+for /f "usebackq delims=" %%M in (`powershell -NoProfile -Command "$s='%LOCALAPPDATA%\opencode-infinite';$t=@{WARP=5000;PROXY=8000;TOR=120000}; foreach($m in @($t.Keys)){ $f=Join-Path $s ('method_'+$m+'.ms'); if(Test-Path -LiteralPath $f){ $v=0; if([int]::TryParse((Get-Content -LiteralPath $f -Raw).Trim(),[ref]$v)){ $t[$m]=$v } } }; $w=$false; foreach($b in @($env:ProgramFiles,${env:ProgramFiles(x86)},$env:ProgramW6432,$env:LOCALAPPDATA)){ if($b -and (Test-Path -LiteralPath (Join-Path $b 'Cloudflare\Cloudflare WARP\warp-cli.exe'))){ $w=$true } }; $tor=$false; $td=Join-Path $s 'tor'; if(Test-Path -LiteralPath $td){ if(Get-ChildItem -LiteralPath $td -Recurse -Filter tor.exe -ErrorAction SilentlyContinue | Select-Object -First 1){ $tor=$true } }; $ok=@{PROXY=$true;WARP=$w;TOR=$tor}; $t.Keys | Where-Object { $ok[$_] } | Sort-Object { $t[$_] } | Select-Object -First 1"`) do set "OC_EGRESS_DEFAULT=%%M"
 if not defined OC_EGRESS_DEFAULT set "OC_EGRESS_DEFAULT=WARP"
 call :log "auto picks %OC_EGRESS_DEFAULT% (fastest installed)" boot
 exit /b 0
@@ -3446,7 +3444,7 @@ set "OC_STATE=%STATE_DIR%"
 type nul > "%STATE_DIR%\pool\stop.flag"
 REM v3.1 (N59): the fill child holds the pool for 10-16 min; kill the pid recorded by
 REM Run-Vpn so :pool_stop does not have to give up after 120 s.
-set "OC_FILLPID=%STATE_DIR%\pool\fill.pid" & "%PSX%" -NoProfile -Command "try{ $f=$env:OC_FILLPID; if(Test-Path -LiteralPath $f){ $t=[int](Get-Content -LiteralPath $f -TotalCount 1); if($t){ & taskkill.exe /PID $t /T /F | Out-Null } } }catch{}" >nul 2>&1
+"%PSX%" -NoProfile -Command "try{ $f='%STATE_DIR%\pool\fill.pid'; if(Test-Path -LiteralPath $f){ $t=[int](Get-Content -LiteralPath $f -TotalCount 1); if($t){ & taskkill.exe /PID $t /T /F | Out-Null } } }catch{}" >nul 2>&1
 set /a POOL_WAIT=0
 :pool_wait
 if exist "%STATE_DIR%\pool\done.flag" goto :pool_stopped
@@ -3667,7 +3665,7 @@ if not defined AR_FOLDER goto :ar_bad
 if not defined AR_TIME goto :ar_bad
 set "OC_ART=%AR_TIME%"
 set "OC_ARMAX=%AR_MAX_HOURS%"
-"%PSX%" -NoProfile -Command "try{ $h=[int64]0; if(-not [int64]::TryParse($env:OC_ARMAX,[ref]$h)){ $h=24 }; $a=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()-[int64]$env:OC_ART; if(($a -ge 0) -and ($a -le 3600*$h)){ exit 0 }; exit 1 }catch{ exit 2 }" >nul 2>&1
+"%PSX%" -NoProfile -Command "try{ $a=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()-[int64]$env:OC_ART; if(($a -ge 0) -and ($a -le 3600*[int64]$env:OC_ARMAX)){ exit 0 }; exit 1 }catch{ exit 2 }" >nul 2>&1
 if errorlevel 2 goto :ar_bad
 if errorlevel 1 goto :ar_old
 if /i not "%AR_FOLDER%"=="%CD%" goto :ar_other
@@ -3793,7 +3791,7 @@ set "EC=%errorlevel%"
 if defined OC_NODE_OPTS set "NODE_OPTIONS=%OC_NODE_OPTS%"
 set "OC_NODE_OPTS="
 if defined C_ACC <nul set /p "=%C_ACC%"
-if "%EC%"=="9009" echo   OpenCode not found: the path is empty or does not exist.
+if "%EC%"=="9009" echo   OpenCode no encontrado: la ruta esta vacia o no existe.
 goto :eof
 
 REM - resume message under a hard time limit
@@ -3819,10 +3817,10 @@ REM - print what the resume actually said
 REM Only called on failure: the last lines of each stream, indented.
 :resume_tail
 if not exist "%STATE_DIR%\resume.err" if not exist "%STATE_DIR%\resume.out" goto :eof
-call :msg %T_149%
+call echo %T_149%
 set "OC_TF=%STATE_DIR%\resume.err"
 "%PSX%" -NoProfile -Command "if(Test-Path -LiteralPath $env:OC_TF){ Get-Content -LiteralPath $env:OC_TF -Tail 8 | ForEach-Object { '     ' + $_ } }"
-call :msg %T_150%
+call echo %T_150%
 set "OC_TF=%STATE_DIR%\resume.out"
 "%PSX%" -NoProfile -Command "if(Test-Path -LiteralPath $env:OC_TF){ Get-Content -LiteralPath $env:OC_TF -Tail 8 | ForEach-Object { '     ' + $_ } }"
 goto :eof
@@ -3927,8 +3925,7 @@ REM The probe creates its own session (a fixed -s id is refused by some builds).
 REM :probe_cleanup then deletes only that session.
 set "PRB_M=%PROBE_MODEL%"
 if defined OC_MODEL set "PRB_M=%OC_MODEL%"
-set "PARGS=--title ocinf-probe --auto"
-if defined PRB_M set "PARGS=-m %PRB_M% %PARGS%"
+set "PARGS=-m %PRB_M% --title ocinf-probe --auto"
 if defined CAP_STANDALONE set "PARGS=%PARGS% --standalone"
 if exist "%POUTF%" del /f /q "%POUTF%" >nul 2>&1
 if exist "%PERRF%" del /f /q "%PERRF%" >nul 2>&1
@@ -4211,7 +4208,7 @@ move /y "%MSI%" "%MSIRND%" >nul 2>&1
 if not errorlevel 1 set "OC_MSI=%MSIRND%"
 REM v3.1 (N07): -PassThru and the exit code. A cancelled UAC prompt, a corrupt MSI or a
 REM 1603 used to end here looking exactly like a successful install.
-"%PSX%" -NoProfile -Command "if(-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){ exit 9010 }; $p=$null; try{ $p=Start-Process msiexec.exe -ArgumentList ('/i ' + [char]34 + $env:OC_MSI + [char]34 + ' /qn /norestart') -Wait -PassThru }catch{}; if(-not $p){ exit 9009 }; exit $p.ExitCode" >nul 2>&1
+"%PSX%" -NoProfile -Command "$p=$null; try{ $p=Start-Process msiexec.exe -ArgumentList ('/i ' + [char]34 + $env:OC_MSI + [char]34 + ' /qn /norestart') -Verb RunAs -Wait -PassThru }catch{}; if(-not $p){ exit 9009 }; exit $p.ExitCode" >nul 2>&1
 set "MSIRC=%errorlevel%"
 del /f /q "%MSI%" >nul 2>&1
 if defined MSIRND del /f /q "%MSIRND%" >nul 2>&1
@@ -4368,14 +4365,8 @@ call :have_exe npm
 if "%HAVE%"=="1" goto :eof
 call :msg %T_168%
 call :have_exe winget.exe
-call :is_admin
-if "%HAVE%"=="1" if "%IS_ADMIN%"=="1" goto :node_winget
+if "%HAVE%"=="1" goto :node_winget
 goto :node_msi
-REM v2.60.4: the winget and MSI installers run elevated by themselves, so they run only in an administrator window.
-:is_admin
-set "IS_ADMIN=0"
-for /f "usebackq delims=" %%a in (`"%PSX%" -NoProfile -Command "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)" `) do if /i "%%a"=="True" set "IS_ADMIN=1"
-exit /b 0
 :node_winget
 call :msg %T_169%
 call :msg %T_170%
@@ -4412,7 +4403,7 @@ if exist "%NODE_MSI%" for %%M in ("%NODE_MSI%") do if not "%%~zM"=="" if %%~zM G
 if not "%NOK%"=="1" goto :node_done
 call :msg %T_174%
 set "OC_MSI=%NODE_MSI%"
-"%PSX%" -NoProfile -Command "if(([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){ try{Start-Process msiexec.exe -ArgumentList ('/i ' + [char]34 + $env:OC_MSI + [char]34 + ' /qn /norestart') -Wait}catch{} }" >nul 2>&1
+"%PSX%" -NoProfile -Command "try{Start-Process msiexec.exe -ArgumentList ('/i ' + [char]34 + $env:OC_MSI + [char]34 + ' /qn /norestart') -Verb RunAs -Wait}catch{}" >nul 2>&1
 del /f /q "%NODE_MSI%" >nul 2>&1
 REM Either route: refresh the session PATH with the standard homes.
 :node_done
@@ -4754,7 +4745,7 @@ set "WU_OK="
 call :trace warp_up
 REM v3.7: the service must run and start with Windows. Changing that needs admin: see :warp_svc_fix.
 call :warp_svc_fix
-if errorlevel 1 if not defined OPT_AUTO call :msg %T_313%
+if errorlevel 1 if not defined OPT_AUTO call echo %T_313%
 call :warp_register
 REM v2.59: the daemon rejects config verbs while the tunnel is up. Drop it and let it settle first.
 REM The wait is not checked: if the status text differs, the sequence still runs.
@@ -4812,8 +4803,8 @@ if not errorlevel 1 set "WSF_NEED=1"
 if not defined WSF_NEED exit /b 0
 if defined OPT_AUTO exit /b 1
 call echo %T_389%
-call :log "WARP service is stopped or disabled: setting it Automatic and starting it only if this window is already administrator (no prompt)" warp
-"%PSX%" -NoProfile -Command "try{ Set-Service -Name CloudflareWARP -StartupType Automatic; Start-Service -Name CloudflareWARP }catch{ exit 1 }" >nul 2>&1
+call :log "WARP service is stopped or disabled: asking once for administrator rights to set it Automatic and start it" warp
+"%PSX%" -NoProfile -Command "try{ $c='Set-Service -Name CloudflareWARP -StartupType Automatic; Start-Service -Name CloudflareWARP'; $e=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($c)); Start-Process -FilePath powershell.exe -Verb RunAs -Wait -WindowStyle Hidden -ArgumentList @('-NoProfile','-EncodedCommand',$e) }catch{ exit 1 }" >nul 2>&1
 sc query CloudflareWARP | findstr /i "RUNNING" >nul 2>&1
 if errorlevel 1 (call :log "WARP service still not running after the administrator step" warp & exit /b 1)
 call :log "WARP service set to Automatic and running" warp
@@ -4966,7 +4957,7 @@ REM (service on 9050, Tor Browser on 9150) was sitting on its SOCKS port.
 call :tor_socks_up
 if not errorlevel 1 goto :tg_existing
 if not "%TOR_AUTO_INSTALL%"=="1" goto :tg_fail
-call :msg %T_183%
+call echo %T_183%
 call :tor_install_if_missing
 if not defined TOR_EXE goto :tg_missing
 :tg_existing
@@ -4982,14 +4973,14 @@ set "TG_PORTSWAP=1"
 call :tor_other_port
 if not errorlevel 1 goto :tg_existing
 :tg_fail2
-call :msg %T_184%
+call echo %T_184%
 call :tor_log_tail
 exit /b 1
 :tg_missing
-call :msg %T_185%
-call :msg %T_186%
-call :msg %T_187%
-call :msg %T_188%
+call echo %T_185%
+call echo %T_186%
+call echo %T_187%
+call echo %T_188%
 exit /b 1
 REM v2.24: single place that records who owns the running Tor, whichever
 REM branch reached a ready state.
@@ -4998,7 +4989,7 @@ call :tor_own_running
 if not errorlevel 1 set "OURTOR=1"
 :tg_ok
 set "ACTIVE_PROXY=http://127.0.0.1:%TOR_HTTP_PORT%"
-call :msg %T_189%
+call echo %T_189%
 exit /b 0
 
 REM - locate tor.exe under TOR_DIR: fixed bundle layouts first, then one
@@ -5966,13 +5957,9 @@ call :tor_stop
 if not "%RMRC%"=="0" goto :rm_fail
 goto :rm_done
 :rm_proxy
-REM v2.60.4: the proxy in use (proxy_current.txt) is burned before a new one is picked; burned entries are kept.
-set "PCUR="
-if exist "%STATE_DIR%\proxy_current.txt" set /p PCUR=<"%STATE_DIR%\proxy_current.txt"
-if defined PCUR >>"%STATE_DIR%\proxy_burned.txt" echo %PCUR%
+if exist "%STATE_DIR%\proxy_burned.txt" del /f /q "%STATE_DIR%\proxy_burned.txt" >nul 2>&1
 call :pick_free_proxy
 if errorlevel 1 goto :rm_fail
->"%STATE_DIR%\proxy_current.txt" echo %ACTIVE_PROXY%
 call echo %T_233%
 :rm_done
 if exist "%STATE_DIR%\renew_needed.txt" del /f /q "%STATE_DIR%\renew_needed.txt" >nul 2>&1
@@ -6033,7 +6020,7 @@ goto :eof
 REM - locate the OpenCode desktop exe (OC_APP first, then the usual installs)
 :find_desktop_app
 set "OC_DESKTOP="
-REM v2.44: a manual OC_APP (exe or its folder, quotes allowed) must be an existing file, or a folder holding OpenCode.exe: no app.asar test.
+REM v2.44: a manual OC_APP (exe or its folder, quotes allowed) only needs OpenCode.exe to exist: no app.asar test.
 if not defined OC_APP goto :fda_auto
 set "OC_APPX=%OC_APP:"=%"
 if exist "%OC_APPX%\OpenCode.exe" set "OC_APPX=%OC_APPX%\OpenCode.exe"
@@ -6126,7 +6113,7 @@ goto :eof
 
 REM robocopy does not care about volumes and deletes the source
 REM only after the copy is complete.
-REM Move the storage folder with robocopy. Exit codes 2 and above mean failure.
+REM Move the storage folder with robocopy. Exit codes 8 and above mean failure.
 :archive_storage
 if not exist "%TARGET%" mkdir "%TARGET%" >nul 2>&1
 robocopy "%DATA_DIR%\storage" "%TARGET%\storage" /e /move /r:1 /w:1 /nfl /ndl /njh /njs /np >nul
@@ -6282,7 +6269,6 @@ exit /b 0
 REM - hand ACTIVE_PROXY (TOR / free HTTP) to the child process only
 :export_proxy_active
 if not defined ACTIVE_PROXY exit /b 1
->"%STATE_DIR%\proxy_current.txt" echo %ACTIVE_PROXY%
 set "HTTP_PROXY=%ACTIVE_PROXY%"
 set "HTTPS_PROXY=%ACTIVE_PROXY%"
 set "no_proxy=%OC_NOPROXY_LIST%"
@@ -6374,7 +6360,7 @@ set "HTTP_PROXY=%OC_HP0%"
 set "HTTPS_PROXY=%OC_SP0%"
 set "no_proxy=%OC_NP0%"
 REM v3.1 (N27): the VPNGATE-only NODE_OPTIONS is put back here too.
-if defined OC_NODE_OPTIONS_PREV set "NODE_OPTIONS=%OC_NODE_OPTIONS_PREV%"
+set "NODE_OPTIONS=%OC_NODE_OPTIONS_PREV%"
 goto :eof
 
 REM - can the proxy actually carry an https request?
@@ -6448,9 +6434,7 @@ set "PLIST=%STATE_DIR%\proxy_list.txt"
 if exist "%PLIST%" del /f /q "%PLIST%" >nul 2>&1
 call echo %T_250%
 set "PRAW=%STATE_DIR%\proxy_list_raw.txt"
-REM v3.1 (N60): download to a temp file; the old raw list is replaced only after the checks below.
-set "PRAW_TMP=%PRAW%.tmp"
-if exist "%PRAW_TMP%" del /f /q "%PRAW_TMP%" >nul 2>&1
+if exist "%PRAW%" del /f /q "%PRAW%" >nul 2>&1
 set "PSRC="
 if not defined PROXY_LIST_URL goto :pfp_nolist
 set "PSRC=%PROXY_LIST_URL:"=%"
@@ -6460,9 +6444,7 @@ if /i "%PSRC:~0,8%"=="https://" goto :pfp_url
 if /i "%PSRC:~0,6%"=="ftp://" goto :pfp_url
 if /i "%PSRC:~0,7%"=="file://" goto :pfp_url
 REM anything else is a local file
-copy /y "%PSRC%" "%PRAW_TMP%" >nul 2>&1
-if not exist "%PRAW_TMP%" goto :pfp_nolist
-move /y "%PRAW_TMP%" "%PRAW%" >nul 2>&1
+copy /y "%PSRC%" "%PRAW%" >nul 2>&1
 goto :pfp_norm
 :pfp_url
 set "KEEP_HP=%HTTP_PROXY%"
@@ -6471,23 +6453,20 @@ set "HTTP_PROXY="
 set "HTTPS_PROXY="
 if "%HAVE_CURL%"=="1" goto :pfp_curl
 set "OC_URL=%PSRC%"
-set "OC_OUT=%PRAW_TMP%"
-"%PSX%" -NoProfile -Command "try{[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri $env:OC_URL -OutFile $env:OC_OUT -TimeoutSec 20}catch{ Remove-Item -LiteralPath $env:OC_OUT -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+set "OC_OUT=%PRAW%"
+"%PSX%" -NoProfile -Command "try{[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri $env:OC_URL -OutFile $env:OC_OUT -TimeoutSec 20}catch{}" >nul 2>&1
 goto :pfp_dl_done
 :pfp_curl
-curl.exe -L -f -s --max-time 20 --noproxy "*" -o "%PRAW_TMP%" "%PSRC%" >nul 2>&1
-if errorlevel 1 if exist "%PRAW_TMP%" del /f /q "%PRAW_TMP%" >nul 2>&1
+curl.exe -L -f -s --max-time 20 --noproxy "*" -o "%PRAW%" "%PSRC%" >nul 2>&1
 :pfp_dl_done
 set "HTTP_PROXY=%KEEP_HP%"
 set "HTTPS_PROXY=%KEEP_SP%"
 REM v2.21: an error page is not a list: PROXY_LIST_MIN_BYTES gates downloads
 REM only; a short local list of one proxy is fine.
-if not exist "%PRAW_TMP%" exit /b 1
-set "PLSZ=0"
-for %%F in ("%PRAW_TMP%") do set "PLSZ=%%~zF"
-if %PLSZ% LSS %PROXY_LIST_MIN_BYTES% exit /b 1
-move /y "%PRAW_TMP%" "%PRAW%" >nul 2>&1
 if not exist "%PRAW%" exit /b 1
+set "PLSZ=0"
+for %%F in ("%PRAW%") do set "PLSZ=%%~zF"
+if %PLSZ% LSS %PROXY_LIST_MIN_BYTES% exit /b 1
 :pfp_norm
 if not exist "%PRAW%" goto :pfp_nolist
 REM Read any list format and write one http://host:port per line (v2.28).
@@ -6504,7 +6483,7 @@ call echo %T_252%
 exit /b 1
 :pfp_fixed
 set "PFX=%PROXY_FIXED%"
-if /i not "%PFX:~0,7%"=="http://" if /i not "%PFX:~0,8%"=="https://" set "PFX=http://%PFX%"
+if /i not "%PFX:~0,7%"=="http://" set "PFX=http://%PFX%"
 set "PLIST=%STATE_DIR%\proxy_fixed.txt"
 > "%PLIST%" echo %PFX%
 :pfp_listok
@@ -7171,7 +7150,7 @@ function Handle-Client($client) {
             $dst = Connect-Socks $hostName $port
             if (-not $dst) { Write-BridgeLog ('request refused: ' + $line); $client.Close(); return }
             $cs = $dst.GetStream()
-            # N45: only the request line is rewritten; Referer and Origin keep their URLs.
+            REM N45: only the request line is rewritten; Referer and Origin keep their URLs.
             $eol = $headTxt.IndexOf("
 ")
             if ($eol -lt 0) { $eol = $headTxt.Length }
@@ -7317,7 +7296,7 @@ $Schema = @(
   S 'OC_OTHER_WINDOW' 'Launch' 'If already open' 'enum' 'OPEN' 'Another OpenCode-Infinite window is running. OPEN starts this one too, with its own copy of the settings. CLOSE closes the other one and continues. ASK asks each time.' 'now' 0 0 @('OPEN', 'CLOSE', 'ASK')
   S 'OC_MODEL' 'Session' 'Resume model' 'ostring' '' 'Model of the automatic resume, as provider/model, for example opencode/deepseek-v4.1-flash-free. Type - to clear: OpenCode keeps its own model.' 'now'
   S 'MENU_DEFAULT' 'Launch' 'OpenCode menu shortcut' 'enum' 'ask' 'ask shows the OpenCode menu. 1 starts with a new IP, 2 continues with the same IP and chat (saved tokens untouched), 3 only changes the IP. The menu is skipped.' 'now' 0 0 @('ask', '1', '2', '3')
-  S 'MULTI_INSTANCE' 'Launch' 'Several windows' 'bool' 0 'On: a second launcher window runs on its own copy of the settings. Off: the If already open setting decides.' 'next launch'
+  S 'MULTI_INSTANCE' 'Launch' 'Several windows' 'bool' 0 'On: a second launcher window runs on its own copy of the settings. Off: it brings the first window to the front.' 'next launch'
   S 'REUSE_EMPTY' 'Launch' 'Reuse the empty chat' 'bool' 1 'A fresh start continues the newest chat when it is still empty, instead of piling up empty chats.' 'now'
   S 'PROXY_PORT' 'WARP' 'WARP proxy port' 'port' 40000 'Local port of the WARP proxy.' 'next WARP connect'
   S 'WARP_WAIT' 'WARP' 'WARP wait (s)' 'int' 6 'Seconds to wait after (re)connecting WARP.' 'now' 1 60
@@ -7364,7 +7343,7 @@ $Schema = @(
   S 'QUOTA_RESUME' 'Session' 'Resume after quota' 'bool' 1 'After a quota stop the chat resumes on a later start only with a new exit IP and a fresh probe.' 'now'
   S 'RESUME_TIMEOUT' 'Session' 'Resume timeout (s)' 'int' 90 'Seconds before a silent resume counts as a dead IP.' 'now' 10 900
   S 'PROBE' 'Probe' 'Test every new IP' 'bool' 0 'Send one cheap message through each candidate IP. Off by default: each probe uses the free quota and leaves a session.' 'now'
-  S 'PROBE_MODEL' 'Probe' 'Probe model' 'string' '' 'Model used by the IP probe (the chat model unless a model is set).' 'now'
+  S 'PROBE_MODEL' 'Probe' 'Probe model' 'string' 'opencode/deepseek-v4.1-flash-free' 'Model used by the IP probe (the chat model unless a model is set).' 'now'
   S 'PROBE_BROKEN_MAX' 'Probe' 'Probe failures tolerated' 'int' 3 'Non-limit probe failures before the hunt stops.' 'now' 1 50
   S 'OC_APP' 'Paths' 'Desktop app path' 'path' '' 'Full path of OpenCode.exe. Empty = search automatically.' 'now'
   S 'OC_API_BASE' 'Updates' 'Release metadata URL' 'url' 'https://opencode.ai/update/api/latest' 'Where versions and checksums are read from.' 'now'
@@ -7643,7 +7622,7 @@ function Hue-Rgb([double]$h) {
 $Langs = @('en', 'es', 'fr', 'de', 'pt', 'it', 'tr', 'ru')
 $LangBase = if ($env:OC_LANG_BASE) { $env:OC_LANG_BASE } else { 'https://gitlab.com/jekooo/opencode-infinite/-/raw/main/langs' }
 # a cached language file is refreshed when it was downloaded by another launcher version (its .ver file)
-$LangVer = '2.60.4'
+$LangVer = '2.60.3'
 # T looks a text up in the selected language; no entry means the English text is shown. Leading
 # icons and spaces are kept. Tf fills {0} {1} after translating. OC_TUI_I18N_DUMP=<file> lists the misses.
 $script:TrCache = @{}
@@ -8434,7 +8413,7 @@ function Commands-Menu {
     $res = Commands-Remove
     Log ('commands removed from the main menu, PATH ' + $res)
     if ($res -eq 'kept') { $script:Notice = @('ok', 'Commands removed. The folder stays on your PATH because other launcher files are in it.') }
-    else { $script:Notice = @('ok', 'Commands removed: opencodeinf, opencode-auto, opencode-warp, opencode-tor and opencode-proxy.') }
+    else { $script:Notice = @('ok', 'Commands removed: opencodeinf and opencode-auto.') }
   }
 }
 function Commands-Remove {
@@ -8462,9 +8441,9 @@ function Group-Menu([string]$group) {
     # D03: install or remove the three direct commands, showing the state they have right now.
     if ($group -eq 'Launch') {
       $have = @($direct | Where-Object { Test-Path -LiteralPath $_[1] } | ForEach-Object { $_[0] })
-      $stateTxt = $(if ($have.Count) { 'installed: ' + ($have -join ', ') } else { (T 'not installed') })
-      $dirAt = $items.Count; $items += @{ L = 'Install direct commands'; V = $stateTxt; H = 'Write opencode-warp, opencode-tor and opencode-proxy: each one starts opencode with that connection and no menu.' }
-      $rmAt = $items.Count; $items += @{ L = 'Remove direct commands'; V = $stateTxt; S = 'err'; D = (-not $have.Count); H = 'Delete only those three commands. opencode and opencodeinf are kept.' }
+      $state = $(if ($have.Count) { 'installed: ' + ($have -join ', ') } else { (T 'not installed') })
+      $dirAt = $items.Count; $items += @{ L = 'Install direct commands'; V = $state; H = 'Write opencode-warp, opencode-tor and opencode-proxy: each one starts opencode with that connection and no menu.' }
+      $rmAt = $items.Count; $items += @{ L = 'Remove direct commands'; V = $state; S = 'err'; D = (-not $have.Count); H = 'Delete only those three commands. opencode and opencodeinf are kept.' }
     } else { $dirAt = -2; $rmAt = -2 }
     # Commands on their own (not tied to setup): opencodeinf and opencode-auto.
     if ($group -eq 'Launch') {
@@ -9063,7 +9042,7 @@ function New-Report {
   $total = 6
   & $A 'OpenCode Infinite - support report'
   & $A ('Generated   ' + (Get-Date).ToString('o'))
-  & $A 'Launcher    v2.60.4'
+  & $A 'Launcher    v2.60.3'
   & $A ('File        ' + $Self)
   try { $fi = Get-Item -LiteralPath $Self; & $A ('Size/date   ' + $fi.Length + ' bytes, ' + $fi.LastWriteTime.ToString('s')); & $A ('SHA-256     ' + (Get-FileHash -LiteralPath $Self -Algorithm SHA256).Hash) } catch { }
   & $A 'Personal data (user name, PC name, e-mails, tokens, passwords, and by default public IPs) is removed from this file. Read it before sharing.'
@@ -9238,11 +9217,11 @@ function Menu-Egress {
     @{ L = 'PROXY'; V = 'free list'; H = 'Free HTTP proxies from your list (any format) or the default one. Each is tested before use.' },
     @{ L = 'NONE'; V = 'direct'; H = 'No proxy: opencode uses your real connection and nothing is rotated.' },
     @{ L = 'WIREGUARD'; V = 'wireproxy'; H = 'Your WireGuard .conf files through wireproxy, a local proxy that only opencode uses. Each switch takes the next file. No administrator prompt.' },
-    @{ L = 'VPNGATE'; V = 'OpenVPN'; H = 'VPN Gate servers through OpenVPN. Only OpenCode''s hosts go through the tunnel. Administrator prompt only when the VPN helper starts (first use, or after 10 idle minutes).' })
+    @{ L = 'VPNGATE'; V = 'OpenVPN'; H = 'VPN Gate servers through OpenVPN. Only OpenCode''s hosts go through the tunnel. Administrator prompt on start, switch and stop.' })
   $head = @()
   if ($env:OC_H_FOLDER) { $head = @(('   ' + (P (Style 'dim') (Pad (T 'Folder') 9)) + (P (Style 'accent') $env:OC_H_FOLDER)), '') }
   $r = Show-Menu 'Choose the connection for OpenCode' $items $null $head 0
-  # 1-6 = the row, 9 = Esc (back to the folder screen; never a quit)
+  # 1-5 = the row, 9 = Esc (back to the folder screen; never a quit)
   if ($r -eq -1) { exit 9 }
   exit ($r + 1)
 }
@@ -9258,7 +9237,7 @@ function Menu-Main {
     @{ L = ($script:I.back + ' Back'); C = 10; H = 'Return to the home screen.' },
     @{ L = ($script:I.err + ' Exit'); C = 6; H = 'Close the launcher.' })
   $head = Header-Lines
-  $r = Show-Menu 'OpenCode' $items ('v2.60.4   ' + $Repo) $head 0
+  $r = Show-Menu 'OpenCode' $items ('v2.60.3   ' + $Repo) $head 0
   if ($r -eq -1) { exit 10 }
   exit $items[$r].C
 }
@@ -9448,7 +9427,7 @@ function Home-Loop {
     else { $items += @{ L = ($script:I.link + ' ' + (T 'Status')); V = 'Not configured'; S = 'warn'; H = 'Guided setup: choose WARP, Tor, a proxy list or direct, then get an "opencode" command and a shortcut that start with it. It is tested at the end.' } }
     $acts += 'connect'
     if ($conf) {
-      $items += @{ L = ($script:I.renew + ' Renew session'); H = 'Use it when the free limit is hit or the login expired: closes opencode, keeps the saved tokens and cache, and gets a new IP, WARP registration, Tor circuit or proxy.' }; $acts += 'renew'
+      $items += @{ L = ($script:I.renew + ' Renew session'); H = 'Use it when the free limit is hit or the login expired: closes opencode, saves and clears the saved tokens, and gets a new IP, WARP registration, Tor circuit or proxy.' }; $acts += 'renew'
     }
     $items += @{ L = ($script:I.gear + ' ' + (T 'Settings')); H = 'View and change every launcher option, uninstall the connection, and send a support report. Saved instantly, no files to edit.' }; $acts += 'settings'
     # v3.6: the commands (opencodeinf, opencode-auto) can be installed from here, no setup needed.
@@ -9465,7 +9444,7 @@ function Home-Loop {
       $head += ''
     }
     if ($script:Notice) { $head += (P (Style $script:Notice[0]) ($script:I.warn + ' ' + (T $script:Notice[1]))); $head += ''; $script:Notice = $null }
-    $r = Show-Menu 'Main menu' $items ('v2.60.4   ' + $Self) $head $pos $true
+    $r = Show-Menu 'Main menu' $items ('v2.60.3   ' + $Self) $head $pos $true
     if ($r -eq -1) { continue }
     $pos = $r
     Log ('home -> ' + $acts[$r])
@@ -9957,7 +9936,7 @@ Fin 'ALLFAIL' -tool 'WireGuard' -tried $tried -dir $dir
 #>>>OC_VGATE_PS
 # VPN Gate egress (v2.38): OpenVPN (openvpn.exe, community build) with the VPN Gate server configs.
 # Only OpenCode's hosts go through the tunnel: the config gets route-nopull and one route per IP that the hosts
-# resolve to right now. Everything else stays direct. No administrator prompt: the VPN Gate helper (#>>>OC_VGHELP) runs only when this window is administrator and
+# resolve to right now. Everything else stays direct. The administrator prompt comes once per session: the VPN Gate helper (#>>>OC_VGHELP) runs
 # OpenVPN for every start and stop of this session.
 # Installs OpenVPN with winget when it is missing (one prompt).
 # In (env): OC_STATE, OC_VPN_ACT (switch|status|stop), VPN_TIMEOUT, OC_SID, VPNGATE_COUNTRY, VPNGATE_MAX, OC_VPN_M_TRY / _SAME / _NOANS.
@@ -10000,8 +9979,7 @@ function Get-Ovpn {
   if (-not $w) { VLog 'winget is missing, OpenVPN cannot be installed'; return $null }
   VLog 'OpenVPN is missing, installing OpenVPNTechnologies.OpenVPN with winget'
   try {
-    if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { VLog 'OpenVPN is missing and needs administrator rights: not asking; install it yourself or run this script as administrator'; return $null }
-    $p = Start-Process -FilePath $w.Source -ArgumentList @('install', '--id', 'OpenVPNTechnologies.OpenVPN', '-e', '--silent', '--accept-package-agreements', '--accept-source-agreements') -Wait -PassThru -WindowStyle Hidden
+    $p = Start-Process -FilePath $w.Source -ArgumentList @('install', '--id', 'OpenVPNTechnologies.OpenVPN', '-e', '--silent', '--accept-package-agreements', '--accept-source-agreements') -Verb RunAs -Wait -PassThru -WindowStyle Hidden
     VLog ('winget install exit ' + $p.ExitCode)
   } catch { VLog ('winget install failed: ' + $_.Exception.Message) }
   $c = Join-Path $env:ProgramFiles 'OpenVPN\bin\openvpn.exe'
@@ -10104,7 +10082,7 @@ function Vg-Call([string]$req, [int]$ms) {
     return $null
   } catch { return $null } finally { $c.Dispose() }
 }
-# starts the helper if it is not there. Never prompts for administrator rights. $false = not running or not up.
+# starts the helper if it is not there: the only administrator prompt of the session. $false = refused or not up.
 function Vg-Ensure {
   if ($null -ne (Vg-Call 'STATUS' 400)) { return $true }
   $l = Get-Content -LiteralPath $env:OCI_SELF
@@ -10117,12 +10095,11 @@ function Vg-Ensure {
   $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($pre + "`r`n" + (($l[($i+1)..($e-1)]) -join "`r`n")))
   $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
   $al = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand ' + $enc
-  # v2.60.4: no UAC prompt from this script. The helper starts only if this window is already administrator.
-  if (-not $env:OC_VG_NOELEV -and -not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { VLog 'VPN Gate needs administrator rights: not asking; run this script as administrator to use it'; return $false }
   $hp = $null
   try {
-    $hp = Start-Process -FilePath $ps -ArgumentList $al -WindowStyle Hidden -PassThru
-  } catch { VLog 'the helper did not start'; return $false }
+    if ($env:OC_VG_NOELEV) { $hp = Start-Process -FilePath $ps -ArgumentList $al -WindowStyle Hidden -PassThru }
+    else { $hp = Start-Process -FilePath $ps -ArgumentList $al -Verb RunAs -WindowStyle Hidden -PassThru }
+  } catch { VLog 'the administrator prompt was refused'; return $false }
   # v3.1 (N17): the process object was thrown away, so a helper that died at once looked
   # like a prompt that never answered. A dead or absent helper is reported as such.
   if (-not $hp) { VLog 'the helper process did not start'; return $false }

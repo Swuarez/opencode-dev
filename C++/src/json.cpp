@@ -54,19 +54,14 @@ struct Parser {
         }
     }
 
-    int depth = 0;  // nesting of arrays and objects, capped so a deeply nested reply cannot overflow the stack
     bool fail(const std::string& m) { if (err.empty()) err = m; return false; }
 
     bool parseValue(Json& out) {
         ws();
         if (i >= s.size()) return fail("unexpected end");
         char c = s[i];
-        if (c == '{' || c == '[') {
-            if (++depth > 200) return fail("too deep");
-            bool ok = c == '{' ? parseObject(out) : parseArray(out);
-            --depth;
-            return ok;
-        }
+        if (c == '{') return parseObject(out);
+        if (c == '[') return parseArray(out);
         if (c == '"') { std::string str; if (!parseString(str)) return false; out = Json(str); return true; }
         if (c == 't') { if (s.compare(i, 4, "true") == 0) { i += 4; out = Json(true); return true; } return fail("bad literal"); }
         if (c == 'f') { if (s.compare(i, 5, "false") == 0) { i += 5; out = Json(false); return true; } return fail("bad literal"); }
@@ -108,7 +103,6 @@ struct Parser {
                         i += 4;
                         if (cp >= 0xD800 && cp <= 0xDBFF && i + 6 <= s.size() && s[i] == '\\' && s[i + 1] == 'u') {
                             unsigned lo = (unsigned)strtoul(s.substr(i + 2, 4).c_str(), nullptr, 16);
-                            if (lo < 0xDC00 || lo > 0xDFFF) return fail("bad unicode");
                             i += 6;
                             cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
                         }

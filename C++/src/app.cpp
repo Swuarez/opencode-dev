@@ -19,7 +19,7 @@
 
 namespace oi {
 
-const char* kLauncherVersion = "3.4.7";
+const char* kLauncherVersion = "3.4.6";
 
 App::App() {}
 App::~App() { shutdown(); }

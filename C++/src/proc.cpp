@@ -17,7 +17,7 @@ namespace oi {
 
 namespace {
 
-std::wstring buildEnvBlock(const EnvList& envSet) {
+std::string buildEnvBlock(const EnvList& envSet) {
     std::map<std::string, std::string> env;
     LPWCH cur = GetEnvironmentStringsW();
     if (cur) {
@@ -33,9 +33,9 @@ std::wstring buildEnvBlock(const EnvList& envSet) {
         if (kv.second.empty()) env.erase(kv.first);
         else env[kv.first] = kv.second;
     }
-    std::wstring block;
-    for (const auto& kv : env) { block += utf8ToWide(kv.first); block += L'='; block += utf8ToWide(kv.second); block += L'\0'; }
-    block += L'\0';
+    std::string block;
+    for (const auto& kv : env) { block += kv.first; block += '='; block += kv.second; block += '\0'; }
+    block += '\0';
     return block;
 }
 
@@ -79,9 +79,10 @@ HANDLE openProc(uint32_t pid) {
 void drainPipe(HANDLE h, std::string* out, std::atomic<bool>* stop) {
     char buf[8192];
     DWORD rd = 0;
-    while ((!stop || !stop->load()) && ReadFile(h, buf, sizeof(buf), &rd, nullptr) && rd > 0) {
+    while (ReadFile(h, buf, sizeof(buf), &rd, nullptr) && rd > 0) {
         if (out && out->size() < 4 * 1024 * 1024) out->append(buf, rd);
     }
+    (void)stop;
 }
 
 } // namespace
@@ -89,7 +90,7 @@ void drainPipe(HANDLE h, std::string* out, std::atomic<bool>* stop) {
 RunResult runCapture(const std::string& exe, const std::string& args, const EnvList& envSet,
                      int timeoutMs, const std::string& cwd, bool hidden) {
     RunResult r;
-    std::wstring envBlock = buildEnvBlock(envSet);
+    std::string envBlock = buildEnvBlock(envSet);
 
     SECURITY_ATTRIBUTES sa{};
     sa.nLength = sizeof(sa);
@@ -101,7 +102,7 @@ RunResult runCapture(const std::string& exe, const std::string& args, const EnvL
     SetHandleInformation(outRd, HANDLE_FLAG_INHERIT, 0);
     SetHandleInformation(errRd, HANDLE_FLAG_INHERIT, 0);
 
-    STARTUPINFOW si{};
+    STARTUPINFOA si{};
     si.cb = sizeof(si);
     si.dwFlags = STARTF_USESTDHANDLES;
     si.hStdOutput = outWr;
@@ -110,11 +111,10 @@ RunResult runCapture(const std::string& exe, const std::string& args, const EnvL
     if (hidden) { si.dwFlags |= STARTF_USESHOWWINDOW; si.wShowWindow = SW_HIDE; }
 
     PROCESS_INFORMATION pi{};
-    std::wstring cmd = utf8ToWide(quote(exe) + (args.empty() ? "" : " " + args));
-    std::wstring wcwd = utf8ToWide(cwd);
+    std::string cmd = quote(exe) + (args.empty() ? "" : " " + args);
     DWORD flags = CREATE_NO_WINDOW;
-    BOOL ok = CreateProcessW(nullptr, &cmd[0], nullptr, nullptr, TRUE, flags | CREATE_UNICODE_ENVIRONMENT,
-                             &envBlock[0], wcwd.empty() ? nullptr : wcwd.c_str(), &si, &pi);
+    BOOL ok = CreateProcessA(nullptr, &cmd[0], nullptr, nullptr, TRUE, flags,
+                             &envBlock[0], cwd.empty() ? nullptr : cwd.c_str(), &si, &pi);
     CloseHandle(outWr);
     CloseHandle(errWr);
     if (!ok) {
@@ -141,13 +141,6 @@ RunResult runCapture(const std::string& exe, const std::string& args, const EnvL
 
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
-    // A grandchild can keep a pipe open after the child exits: give the readers 3 s, then cancel their reads.
-    HANDLE rd[2] = { tOut.native_handle(), tErr.native_handle() };
-    if (WaitForMultipleObjects(2, rd, TRUE, 3000) == WAIT_TIMEOUT) {
-        stop = true;
-        // repeat: a cancel sent between two reads is lost, so keep sending it until both readers exit
-        while (WaitForMultipleObjects(2, rd, TRUE, 100) == WAIT_TIMEOUT) { CancelSynchronousIo(rd[0]); CancelSynchronousIo(rd[1]); }
-    }
     tOut.join();
     tErr.join();
     if (outRd) CloseHandle(outRd);
@@ -164,16 +157,15 @@ RunResult runShell(const std::string& cmdline, int timeoutMs, const std::string&
 Spawned spawnDetached(const std::string& exe, const std::string& args, const EnvList& envSet,
                       const std::string& cwd, bool hidden, bool keepHandle) {
     Spawned s;
-    std::wstring envBlock = buildEnvBlock(envSet);
-    STARTUPINFOW si{};
+    std::string envBlock = buildEnvBlock(envSet);
+    STARTUPINFOA si{};
     si.cb = sizeof(si);
     if (hidden) { si.dwFlags = STARTF_USESHOWWINDOW; si.wShowWindow = SW_HIDE; }
     PROCESS_INFORMATION pi{};
-    std::wstring cmd = utf8ToWide(quote(exe) + (args.empty() ? "" : " " + args));
-    std::wstring wcwd = utf8ToWide(cwd);
+    std::string cmd = quote(exe) + (args.empty() ? "" : " " + args);
     DWORD flags = CREATE_NO_WINDOW;
-    if (CreateProcessW(nullptr, &cmd[0], nullptr, nullptr, FALSE, flags | CREATE_UNICODE_ENVIRONMENT, &envBlock[0],
-                       wcwd.empty() ? nullptr : wcwd.c_str(), &si, &pi)) {
+    if (CreateProcessA(nullptr, &cmd[0], nullptr, nullptr, FALSE, flags, &envBlock[0],
+                       cwd.empty() ? nullptr : cwd.c_str(), &si, &pi)) {
         s.ok = true;
         s.pid = (uint32_t)pi.dwProcessId;
         if (keepHandle) s.process = pi.hProcess;
@@ -187,18 +179,16 @@ Spawned spawnDetached(const std::string& exe, const std::string& args, const Env
 
 Spawned spawnElevated(const std::string& exe, const std::string& args, bool wait, uint32_t* exitCode, int waitMs) {
     Spawned s;
-    // Never asks for administrator rights (no UAC prompt). Runs only when this process is already elevated.
-    if (!isElevated()) { logWarn("spawnElevated skipped: this run is not administrator and will not ask for it"); return s; }
     std::wstring wexe = utf8ToWide(exe), wargs = utf8ToWide(args);
     SHELLEXECUTEINFOW sei{};
     sei.cbSize = sizeof(sei);
     sei.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC;
-    sei.lpVerb = nullptr;   // no "runas": the child inherits this process's elevation
+    sei.lpVerb = L"runas";
     sei.lpFile = wexe.c_str();
     sei.lpParameters = wargs.empty() ? nullptr : wargs.c_str();
     sei.nShow = SW_HIDE;
     if (!ShellExecuteExW(&sei) || !sei.hProcess) {
-        logWarn(fmt("spawnElevated failed %lu: %s", GetLastError(), exe.c_str()));
+        logWarn(fmt("spawnElevated failed %lu (UAC refused?): %s", GetLastError(), exe.c_str()));
         return s;
     }
     s.ok = true;

@@ -70,7 +70,7 @@ void LogWatcher::start(const WatchConfig& wc, HitFn onHit, HitFn onAsk, WarnFn o
 
 void LogWatcher::stop() {
     if (!running_) return;
-    { std::lock_guard<std::mutex> lk(mtx_); running_ = false; }
+    running_ = false;
     cv_.notify_all();
     if (thread_.joinable()) thread_.join();
 }

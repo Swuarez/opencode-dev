@@ -50,7 +50,6 @@ SOCKET socksConnect(const std::string& host, uint16_t port, uint16_t socksPort) 
 
     std::vector<char> req;
     req.push_back(0x05); req.push_back(0x01); req.push_back(0x00); req.push_back(0x03);
-    if (host.size() > 255) { closesocket(s); return INVALID_SOCKET; }
     req.push_back((char)host.size());
     req.insert(req.end(), host.begin(), host.end());
     req.push_back((char)(port >> 8));
@@ -121,7 +120,7 @@ bool SocksBridge::start(uint16_t listenPort, uint16_t socksPort) {
     SOCKET ls = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (ls == INVALID_SOCKET) return false;
     BOOL yes = TRUE;
-    setsockopt(ls, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (char*)&yes, sizeof(yes));
+    setsockopt(ls, SOL_SOCKET, SO_REUSEADDR, (char*)&yes, sizeof(yes));
     sockaddr_in sa{};
     sa.sin_family = AF_INET;
     sa.sin_port = htons(listenPort);
@@ -170,7 +169,7 @@ void SocksBridge::handleClient(uintptr_t clientArg) {
     int timeoutMs = 15000;
     setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeoutMs, sizeof(timeoutMs));
 
-    std::string extra; std::string hdr = readHeaders(client, extra);
+    std::string hdr = readHeaders(client, hdr);
     size_t eol = hdr.find("\r\n");
     if (eol == std::string::npos) { closesocket(client); return; }
     std::string reqLine = hdr.substr(0, eol);

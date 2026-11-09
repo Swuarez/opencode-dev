@@ -151,14 +151,13 @@ bool EgressEngine::warpCheck(std::string* ip) const {
 bool EgressEngine::warpSvcFix(ProgressFn log) {
     RunResult q = runCapture("sc.exe", "query CloudflareWARP", {}, 10000);
     if (q.out.find("STOPPED") == std::string::npos) return true;   // running, starting or not installed: warp-cli decides
-    say(log, 0, tx("WARP service is stopped or disabled. Turning it on needs administrator rights, which this program never asks for. Start the WARP service yourself, or run this program as administrator."));
-    if (!isElevated()) return false;
+    say(log, 0, tx("WARP service is stopped or disabled. Turning it on needs administrator rights: accept the Windows prompt to continue."));
     std::string ps = joinPath(envVar("SystemRoot"), "System32\\WindowsPowerShell\\v1.0\\powershell.exe");
     std::wstring w = utf8ToWide("Set-Service -Name CloudflareWARP -StartupType Automatic; Start-Service -Name CloudflareWARP");
     std::string bytes((const char*)w.data(), w.size() * sizeof(wchar_t));
     uint32_t code = 0;
     Spawned sp = spawnElevated(ps, "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand " + base64Encode(bytes), true, &code);
-    if (!sp.ok) { say(log, 2, tx("the WARP service could not be started (this program is not administrator).")); return false; }
+    if (!sp.ok) { say(log, 2, tx("the administrator prompt was refused.")); return false; }
     logInfo(fmt("[warp] service start exit %u", code));
     return code == 0;
 }
@@ -672,8 +671,7 @@ std::string EgressEngine::ovpnExe(ProgressFn log) {
     }
     std::string w = findOnPath("winget.exe");
     if (w.empty()) { logWarn("[vpn] winget is missing, OpenVPN cannot be installed"); return ""; }
-    if (!isElevated()) { say(log, 3, tx("[vpn] OpenVPN is missing. Installing it needs administrator rights, which this program never asks for: install it yourself or run this program as administrator.")); return ""; }
-    say(log, 0, tx("[vpn] OpenVPN is missing, installing it with winget..."));
+    say(log, 0, tx("[vpn] OpenVPN is missing, installing it with winget (administrator prompt)..."));
     uint32_t code = 0;
     spawnElevated(w, "install --id OpenVPNTechnologies.OpenVPN -e --silent --accept-package-agreements --accept-source-agreements", true, &code);
     logInfo(fmt("[vpn] winget install exit %u", code));
@@ -720,24 +718,11 @@ static std::string vgRequest(const std::string& req, int ms) {
     }
     std::string line = req + "\n", out;
     DWORD n = 0;
-    // non-blocking reads: a helper that stops answering must not hold gVgMtx past the deadline
-    DWORD mode = PIPE_READMODE_BYTE | PIPE_NOWAIT;
-    if (!SetNamedPipeHandleState(h, &mode, nullptr, nullptr)) { CloseHandle(h); return ""; }
-    bool nl = false;
     if (WriteFile(h, line.data(), (DWORD)line.size(), &n, nullptr)) {
         char c = 0;
         DWORD got = 0;
-        while (GetTickCount64() < end) {
-            if (!ReadFile(h, &c, 1, &got, nullptr)) {
-                if (GetLastError() == ERROR_NO_DATA) { Sleep(10); continue; }
-                break;
-            }
-            if (got != 1) { Sleep(10); continue; }
-            if (c == '\n') { nl = true; break; }
-            out += c;
-        }
+        while (ReadFile(h, &c, 1, &got, nullptr) && got == 1 && c != '\n') out += c;
     }
-    if (!nl) out.clear();   // a partial line is not an answer
     CloseHandle(h);
     if (!out.empty() && out.back() == '\r') out.pop_back();
     return out;
@@ -761,7 +746,7 @@ static std::string currentUserSid() {
 
 bool vgHelperAlive() { return !vgRequest("STATUS", 400).empty(); }
 
-// starts the helper when it is not running. Never prompts for administrator rights: only when this process is already elevated (OpenVPN is installed first if missing)
+// starts the helper when it is not running: the administrator prompt of the session (OpenVPN is installed first if missing)
 bool EgressEngine::vgEnsure(ProgressFn log) {
     if (vgHelperAlive()) { gVgStarted = true; return true; }
     std::string exe = ovpnExe(log);
@@ -775,9 +760,9 @@ bool EgressEngine::vgEnsure(ProgressFn log) {
     std::wstring w = utf8ToWide(script);
     std::string bytes((const char*)w.data(), w.size() * sizeof(wchar_t));
     std::string ps = joinPath(envVar("SystemRoot"), "System32\\WindowsPowerShell\\v1.0\\powershell.exe");
-    if (!isElevated()) { say(log, 3, tx("[vpn] VPN Gate needs administrator rights, which this program never asks for: run this program as administrator to use it.")); return false; }
+    say(log, 0, tx("[vpn] VPN Gate needs administrator once for this session. Windows asks now..."));
     Spawned sp = spawnElevated(ps, "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand " + base64Encode(bytes), false);
-    if (!sp.ok) { say(log, 3, tx("[vpn] the VPN Gate helper could not be started.")); return false; }
+    if (!sp.ok) { say(log, 3, tx("[vpn] the administrator prompt was refused.")); return false; }
     closeProcHandle(sp.process);
     ULONGLONG end = GetTickCount64() + 90000;
     while (GetTickCount64() < end) {
@@ -967,7 +952,7 @@ bool EgressEngine::rotateRoute(ProgressFn log) {
             st_->proxyUrl = fmt("http://127.0.0.1:%d", cfg_->i("TOR_HTTP_PORT"));
             return true;
         case Egress::Proxy:
-            if (trim(cfg_->s("PROXY_FIXED")).empty() && poolUse(log)) return true;
+            if (poolUse(log)) return true;
             return proxyPick(log);
         case Egress::Wireproxy:
             if (poolUse(log)) return true;
@@ -1032,11 +1017,8 @@ int EgressEngine::probe(ProgressFn log, const std::string& cli, const std::strin
         env.push_back({"HTTP_PROXY", ""});
         env.push_back({"HTTPS_PROXY", ""});
     }
-    say(log, 0, model.empty() ? std::string("probing the new IP with the chat model...")
-                              : fmt("probing the new IP with %s...", model.c_str()));
-    // --standalone: the shared server ignores the proxy env, so without it the probe would test the wrong route
-    std::string margs = model.empty() ? std::string() : "--model " + quoteArg(model) + " ";
-    RunResult r = runCapture(cli, fmt("run --standalone --format json %s--auto \"reply with the word ok\"", margs.c_str()),
+    say(log, 0, fmt("probing the new IP with %s...", model.c_str()));
+    RunResult r = runCapture(cli, fmt("run --format json --model %s --auto \"reply with the word ok\"", quoteArg(model).c_str()),
                              env, 120000, userProfile());
 
     // v3.4.5: delete the session this probe created, the same way opencode-infinite.sh does.
@@ -1059,21 +1041,7 @@ int EgressEngine::probe(ProgressFn log, const std::string& cli, const std::strin
     std::string delta = readFileFrom(logFile, offset);
     bool limit = probeClassifyLimit(r.out) || probeClassifyLimit(r.err) || probeClassifyLimit(delta);
     if (limit) return 1;
-    std::string all = lower(r.out + r.err + delta);
-    if (all.find("modelnotfound") != std::string::npos || all.find("model not found") != std::string::npos || all.find("model unavailable") != std::string::npos) {
-        say(log, 2, fmt("  the probe model %s does not exist.", model.c_str()));
-        return 3;
-    }
     if (r.exitCode == 0) return 0;
-    // the start of the error, without colour codes, so the log says why the probe failed
-    const std::string& why = r.err.empty() ? r.out : r.err;
-    std::string clean;
-    for (size_t k = 0; k < why.size() && clean.size() < 160; ++k) {
-        char c = why[k];
-        if (c == '\x1b') { while (k < why.size() && !((why[k] >= 'a' && why[k] <= 'z') || (why[k] >= 'A' && why[k] <= 'Z'))) ++k; continue; }
-        clean += (c == '\r' || c == '\n') ? ' ' : c;
-    }
-    say(log, 2, fmt("  probe exit %d: %s", r.exitCode, clean.c_str()));
     return 2;
 }
 
@@ -1124,7 +1092,6 @@ bool EgressEngine::hunt(ProgressFn log, const std::string& cli) {
             continue;
         }
         int p = probe(log, cli, cfg_->s("PROBE_MODEL"));
-        if (p == 3) { say(log, 3, "set Probe model in Settings to a model that exists."); return false; }
         if (p == 0) {
             st_->lastIp = t.ip;
             st_->lastLoc = t.loc;
@@ -1183,10 +1150,10 @@ std::vector<PoolItem> poolLoad(const Config* cfg) {
     return v;
 }
 
-bool poolStore(const Config* cfg, const std::vector<PoolItem>& v) {
+void poolStore(const Config* cfg, const std::vector<PoolItem>& v) {
     std::string out;
     for (const auto& p : v) out += p.mode + "\t" + p.id + "\t" + p.ip + "\t" + p.loc + "\r\n";
-    return writeFileText(poolFile(cfg), out);
+    writeFileText(poolFile(cfg), out);
 }
 
 bool poolHas(const std::vector<PoolItem>& v, const PoolItem& it) {
@@ -1221,7 +1188,7 @@ bool poolAdd(const Config* cfg, const PoolItem& it, int max) {
         if (v[i].mode == it.mode) { v.erase(v.begin() + (long)i); --n; }
         else ++i;
     }
-    if (!poolStore(cfg, v)) return false;
+    poolStore(cfg, v);
     return true;
 }
 } // namespace
