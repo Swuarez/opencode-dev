@@ -532,8 +532,12 @@ A native Windows app with the same job as the `.bat`: a new exit IP, then OpenCo
 
 ## Versions
 
-**Latest version:** launcher 2.60.4 (`.bat`), app 3.4.7 (`.exe`), Linux script 0.4.7.
-**Latest published release:** 2.60.4 (2026-11-09). **Previous:** 2.60.3 (2026-11-06).
+**Latest version:** launcher 2.60.5 (`.bat`), app 3.4.7 (`.exe`), Linux script 0.4.7.
+**Latest published release:** 2.60.5 (2026-11-09). **Previous:** 2.60.4 (2026-11-09).
+
+### 2.60.5
+
+- **Fix for the first 2.60.4 build:** after choosing a connection that build stopped with `. was unexpected at this time`, and it kept the same version number as the fixed one, so it never updated. 2.60.5 has the corrected text and a higher number, so the launcher offers it as an update. The files are the same as the corrected 2.60.4.
 
 ### 2.60.4
 
