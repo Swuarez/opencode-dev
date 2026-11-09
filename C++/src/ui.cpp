@@ -751,7 +751,7 @@ static void drawModePicker(App& app) {
         {"TOR",   "Tor",   "Tor with an HTTP bridge on 127.0.0.1. A Tor already running is reused and never closed."},
         {"PROXY", "PROXY", "Free HTTP proxies from the list. Dead ones are skipped."},
         {"WIREGUARD", "WireGuard", "Your WireGuard .conf files through wireproxy, a local proxy that only opencode uses. No administrator prompt."},
-        {"VPNGATE",   "VPN Gate",  "VPN Gate servers through OpenVPN. Only OpenCode's hosts go through the tunnel. Administrator prompt on start, switch and stop."},
+        {"VPNGATE",   "VPN Gate",  "VPN Gate servers through OpenVPN. Only OpenCode's hosts go through the tunnel. Administrator prompt only when the helper starts (first use, or after 10 min idle)."},
         {"NONE",  "NONE",  "Direct connection, no proxy."},
     };
     for (const M& m : modes) {

@@ -273,7 +273,7 @@ Setting names are the same on Windows (`config.json`) and Linux (`config.env`). 
 | `RESUME_MSG` | `continue` | Message sent when a chat is resumed | both |
 | `RESUME_AUTO` | `1` | The resume approves tool permissions (`opencode run --auto`) | both |
 | `RESUME_TIMEOUT` | `90` | Seconds before a stuck resume is stopped and the launcher rotates | both |
-| `PROBE` / `PROBE_MODEL` | `0` / `opencode/deepseek-v4.1-flash-free` | Probe each new IP with one cheap message, and the model it uses. Off by default: each probe uses the free quota and leaves a session. The probe creates its own session (titled `ocinf-probe`) and deletes it afterwards, so no fixed session id is needed | both |
+| `PROBE` / `PROBE_MODEL` | `0` / (vacío = modelo del chat) | Probe each new IP with one cheap message, and the model it uses. Off by default: each probe uses the free quota and leaves a session. The probe creates its own session (titled `ocinf-probe`) and deletes it afterwards, so no fixed session id is needed | both |
 | `PROBE_BROKEN_MAX` | `3` | Non-limit probe failures before the hunt stops | both |
 | `UPDATE_CHECK` | `1` | Check for a newer launcher at start (section 11) | both |
 | `UPDATE_ASK` | `ask` | `ask` offers updates at start, `never` turns checks off | both |
@@ -414,7 +414,7 @@ No network, or an unreadable version, changes nothing.
 1. Raise the version in the launcher header (`REM  OpenCode launcher  (vX.Y)` or `(vX.Y.Z)`) and, for Linux, `VERSION=` in the script.
 2. Write the checksums and commit them with the files: `sha256sum "OpenCode Infinite.bat" opencode-infinite.sh > SHA256SUMS`. The `.exe` is built from `C++/` and committed at `C++/bin/Release/OpenCodeInfinite.exe`; add its line for `OpenCode Infinite.exe` (`sha256sum` of that file).
 3. Push a tag with the same version: `git tag vX.Y && git push origin main vX.Y` (or `vX.Y.Z`; the launcher accepts both, and the header must match the tag exactly)
-4. Create the release for that tag in GitLab (**Deploy > Releases > New release**) and attach `OpenCode-Infinite.bat`, `OpenCode-Infinite.exe`, `opencode-infinite.sh` and `SHA256SUMS` (the launcher downloads the first two by these names).
+4. Create the release for that tag in GitLab (**Deploy > Releases > New release**) and attach `OpenCode-Infinite.bat`, `OpenCode-Infinite.exe`, `opencode-infinite.sh` and `SHA256SUMS` (the launcher downloads the first two by these names). The desktop installer `OpenCode-Infinite-Desktop.exe` (about 295 MB) is too large for a release attachment: upload it to the project's generic package registry and add it to the release as a link. Its SHA-256 goes in the release notes, not in `SHA256SUMS`, which the launcher reads.
 The launcher only reads the latest release's tag and checks the file against `SHA256SUMS` at that tag, so a commit on `main` without a release reaches nobody. `.gitattributes` keeps the `.bat` files with CRLF in the repository, so the downloaded bytes are the ones that were hashed.
 
 ---
@@ -532,8 +532,31 @@ A native Windows app with the same job as the `.bat`: a new exit IP, then OpenCo
 
 ## Versions
 
-**Latest version:** launcher 2.60.3 (`.bat`), app 3.4.6 (`.exe`), Linux script 0.4.6.
-**Latest published release:** 2.60.3 (2026-11-06). **Previous:** 2.60.2 (2026-11-06).
+**Latest version:** launcher 2.60.4 (`.bat`), app 3.4.7 (`.exe`), Linux script 0.4.7.
+**Latest published release:** 2.60.4 (2026-11-09). **Previous:** 2.60.3 (2026-11-06).
+
+### 2.60.4
+
+- **No administrator prompts:** the launcher never asks for administrator rights (UAC). Starting the WARP service, installing OpenVPN and the winget and MSI installs run only when the window is already administrator; otherwise it says what to do and changes nothing.
+- **The probe follows the chat model:** `PROBE_MODEL` is empty by default and the IP probe then uses the model of the chat. The probe session is still deleted afterwards.
+- **English messages:** the last Spanish messages ("OpenCode not found", "Rate limit detected") are in English.
+- **Fixes:** a `TUNNEL_WAIT` value no longer gets lost after a probe, and several messages go through the shared message routine, so quiet mode treats them like the rest.
+- **OpenCode desktop app, with the launcher's tools built in:** the release also links `OpenCode-Infinite-Desktop.exe`, an installer of the OpenCode desktop app with a bottom bar (WARP, Tor, Proxy or None, Reset limit, Auto-rotate), Settings (your own proxy list from text, a file or a URL, and the themes, pastel ones first) and an `opencode-infinite` start screen. Auto-rotate tries each new IP on a throwaway session and sends `continue` to your chat only once one works. Tor is bundled; WARP needs Cloudflare WARP installed. The files to build it are in [`opencode-app/`](opencode-app/BUILD.md). SHA-256 of the installer: `4d1e414b46d656755b3a3121d13ccdb05778a69722a9afc1e646fdc43121e2f0`.
+
+### C++ app 3.4.7
+
+- **No administrator prompts**, as in the `.bat`: the WARP service and OpenVPN are only touched from an administrator window.
+- **The probe follows the chat model** (`PROBE_MODEL` empty by default).
+- **Proxy list:** the setting "Burned proxies before a warning" replaces the Tor offer: after that many burned proxies in a row it warns and resets the counter.
+- **Safer config:** a `config.json` that is not valid is moved aside to `config.json.bad` with a warning, a failed write is logged, and numbers outside a setting's range are ignored.
+- **VPN helper:** the helper's answer is read without blocking and with a deadline, so a helper that stops answering cannot freeze the app.
+
+### Linux script 0.4.7
+
+- **No password prompts:** it only uses `sudo -n` (rights that need no password); it never asks for one.
+- **Probe:** it runs on a standalone server so the proxy environment applies, follows the chat model when `PROBE_MODEL` is empty, and a timed-out probe counts as a limited IP.
+- **Tor:** the previous `tor.log` is cleared before waiting for Tor to start.
+- **Updates:** the setting text says GitLab, which is where the releases are.
 
 ### 2.60.3
 

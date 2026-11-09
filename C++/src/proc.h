@@ -31,7 +31,7 @@ struct Spawned { bool ok = false; uint32_t pid = 0; void* process = nullptr; };
 Spawned spawnDetached(const std::string& exe, const std::string& args, const EnvList& envSet,
                       const std::string& cwd = "", bool hidden = true, bool keepHandle = false);
 // Exit code of a kept process; exited = false while it still runs.
-// Starts a program with the UAC prompt (runas). wait = block until it ends and return its exit code in *exitCode
+// Starts a program elevated only when this process already is (never prompts; no runas). wait = block until it ends and return its exit code in *exitCode
 // (the handle is closed); otherwise the process handle comes back in Spawned::process.
 Spawned spawnElevated(const std::string& exe, const std::string& args, bool wait, uint32_t* exitCode = nullptr,
                       int waitMs = 600000);

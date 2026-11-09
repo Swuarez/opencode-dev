@@ -1,0 +1,33 @@
+{
+  "$schema": "https://opencode.ai/desktop-theme.json",
+  "name": "Pastel Mint",
+  "id": "pastel-mint",
+  "light": {
+    "palette": {
+      "neutral": "#f2faf6",
+      "ink": "#3f5249",
+      "primary": "#6fbf9b",
+      "accent": "#7fb5d6",
+      "success": "#5fb57a",
+      "warning": "#d9a441",
+      "error": "#d9667a",
+      "info": "#5aa5cf",
+      "diffAdd": "#5fb57a",
+      "diffDelete": "#d9667a"
+    }
+  },
+  "dark": {
+    "palette": {
+      "neutral": "#202a26",
+      "ink": "#e0f1e8",
+      "primary": "#a8e0c5",
+      "accent": "#a9cfe8",
+      "success": "#a8dfb0",
+      "warning": "#f4dca0",
+      "error": "#f2a6b3",
+      "info": "#a9d6ee",
+      "diffAdd": "#a8dfb0",
+      "diffDelete": "#f2a6b3"
+    }
+  }
+}

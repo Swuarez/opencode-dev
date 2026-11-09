@@ -324,7 +324,7 @@ std::string userProfile() {
 
 std::string tempDir() {
     wchar_t buf[MAX_PATH + 1];
-    DWORD n = GetTempPathW(MAX_PATH, buf);
+    DWORD n = GetTempPathW(MAX_PATH + 1, buf);
     return n ? wideToUtf8(std::wstring(buf, n)) : envVar("TEMP");
 }
 

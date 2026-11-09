@@ -1,0 +1,33 @@
+{
+  "$schema": "https://opencode.ai/desktop-theme.json",
+  "name": "Pastel Rose",
+  "id": "pastel-rose",
+  "light": {
+    "palette": {
+      "neutral": "#fdf4f6",
+      "ink": "#5b4350",
+      "primary": "#d98ba3",
+      "accent": "#b08fd6",
+      "success": "#5fb57a",
+      "warning": "#d9a441",
+      "error": "#d9667a",
+      "info": "#5aa5cf",
+      "diffAdd": "#5fb57a",
+      "diffDelete": "#d9667a"
+    }
+  },
+  "dark": {
+    "palette": {
+      "neutral": "#2a2128",
+      "ink": "#f3e3ea",
+      "primary": "#f2b5c8",
+      "accent": "#c9b1ec",
+      "success": "#a8dfb0",
+      "warning": "#f4dca0",
+      "error": "#f2a6b3",
+      "info": "#a9d6ee",
+      "diffAdd": "#a8dfb0",
+      "diffDelete": "#f2a6b3"
+    }
+  }
+}

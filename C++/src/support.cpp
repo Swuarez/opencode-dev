@@ -38,7 +38,7 @@ std::string writeSupportReport(const Config& cfg) {
     std::string r;
     r += "OpenCode Infinite - support report\n";
     r += "generated: " + nowStamp() + "\n";
-    r += "launcher:  3.0 (C++ / ImGui)\n";
+    r += "launcher:  3.4.7 (C++ / ImGui)\n";
     r += "windows:   " + envVar("OS") + "\n";
     r += "arch:      " + envVar("PROCESSOR_ARCHITECTURE") + "\n";
     r += "elevated:  " + std::string(isElevated() ? "yes" : "no") + "\n";

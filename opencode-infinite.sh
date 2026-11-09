@@ -2,7 +2,7 @@
 # OpenCode Infinite for Linux: the Windows launcher's flow in bash.
 # Egress WARP / TOR / PROXY / NONE, target IP hunt, probe, resume when a limit stops the chat.
 # Needs: bash 4.3+, curl, node + opencode. Optional: warp-cli, tor, privoxy, jq (menus in other languages).
-VERSION="linux-0.4.6"
+VERSION="linux-0.4.7"
 REPO="https://gitlab.com/jekooo/opencode-infinite"
 REPO_RAW="https://gitlab.com/jekooo/opencode-infinite/-/raw/main"
 
@@ -52,7 +52,7 @@ SETDEF=(
 'PROXY_ROT_MAX|Proxy list|num|10|Burned proxies before Tor offer|Burned proxies in one hunt before PROXY mode offers Tor.|1:200'
 'PROXY_API_CHECK|Proxy list|bool|0|Check the API host|A proxy must also reach the OpenCode API host.|'
 'PROXY_API_CHECK_URL|Proxy list|text|https://api.opencode.ai/|API check URL|Host used by the API check. Type - to clear.|'
-'AUTO_ROTATE|Rotation|bool|1|Automatic rotation|On: a limit or a closed OpenCode gets a new IP and the chat resumes. Off: the menu decides.|'
+'AUTO_ROTATE|Rotation|bool|1|Automatic rotation|On: a limit gets a new IP and the chat resumes. Off: the menu decides.|'
 'ROTATE_TRIES_MAX|Rotation|num|4|Rotation attempts|Attempts per round when the route is not up.|1:20'
 'ROTATE_COOLDOWN|Rotation|num|10|Cooldown between attempts (s)|Seconds to wait between rotation tries. Cloudflare throttles rapid registrations.|0:300'
 'IP_FIND_MAX|Rotation|num|0|Burned IPs allowed|IPs the probe may reject before giving up. 0 = no limit.|0:10000'
@@ -69,9 +69,9 @@ SETDEF=(
 'RESUME_MODE|Watcher|enum|continue|Resume mode|continue = the resume message. custom = the custom text below.|continue,custom'
 'RESUME_TEXT|Watcher|text||Custom resume text|Text sent when the resume mode is custom.|'
 'PROBE|Probe|bool|0|Test every new IP|Send one cheap message through each candidate IP. Off by default: each probe uses the free quota.|'
-'PROBE_MODEL|Probe|text|opencode/deepseek-v4.1-flash-free|Probe model|Model used by the IP probe.|'
+'PROBE_MODEL|Probe|text||Probe model|Model used by the IP probe. Empty = the chat model.|'
 'PROBE_BROKEN_MAX|Probe|num|3|Probe failures tolerated|Non-limit probe failures before the hunt stops and says the probe is broken.|1:50'
-'UPDATE_CHECK|Updates|bool|1|Launcher self-update|Check GitHub for a newer launcher at every start.|'
+'UPDATE_CHECK|Updates|bool|1|Launcher self-update|Check GitLab for a newer launcher at every start.|'
 'UPDATE_ASK|Updates|enum|ask|Update prompts|ask = offer newer versions at start. never = no checks and no prompts.|ask,never'
 'OC_API_BASE|Updates|text|https://opencode.ai/update/api/latest|Release metadata URL|Where the newest opencode version is read from. npm is the fallback.|'
 'OCUI_THEME|Appearance|enum|ocean|Color theme|Accent colors of the menus.|ocean,forest,sunset,mono,rainbow'
@@ -92,7 +92,7 @@ for row in "${SETDEF[@]}"; do
 done
 
 # ---------------------------------------------------------------- config and log
-cfg_get(){ local v; v=$(sed -n "s/^$1=//p" "$CONF" 2>/dev/null | tail -n1); printf '%s' "${v:-$2}"; }
+cfg_get(){ if grep -q "^$1=" "$CONF" 2>/dev/null; then sed -n "s/^$1=//p" "$CONF" | tail -n1; else printf '%s' "$2"; fi; }
 # The .bat and the .exe read config.json from the same folder: a change made here goes there too.
 cfg_set(){
   touch "$CONF"; { grep -v "^$1=" "$CONF"; printf '%s=%s\n' "$1" "$2"; } > "$CONF.tmp" && mv "$CONF.tmp" "$CONF"
@@ -436,7 +436,7 @@ edit_setting(){ # bool toggles, enum cycles, num and text are asked
     *) ask "$(tx "${SL[i]}")" "$v" || return 0
        [ "$ANSWER" = - ] && ANSWER=""
        [ "$k" = TARGET_COUNTRY ] && ANSWER=${ANSWER^^}
-       if valid_val "$i" "$ANSWER"; then cfg_set "$k" "$ANSWER"; else say err "not allowed: ${SO[i]:-two letters or empty}"; pause; fi;;
+       if valid_val "$i" "$ANSWER"; then cfg_set "$k" "$ANSWER"; else say err "not allowed: ${SO[i]:-$( [ "${ST[i]}" = key ] && echo one letter || echo two letters or empty )}"; pause; fi;;
   esac
 }
 group_menu(){ # the settings of one group; Enter edits the chosen one
@@ -516,13 +516,13 @@ warp_check(){ # prints the exit IP when the WARP proxy answers with warp=on
   printf '%s' "$out" | grep -qE '^warp=(on|plus)' || return 1
   printf '%s' "$out" | sed -n 's/^ip=//p'
 }
-# warp_svc_ensure: starts the WARP service when it is down. Auto uses sudo -n (never asks); otherwise one sudo prompt
+# warp_svc_ensure: starts the WARP service when it is down. Never asks for a password: sudo -n only (works without a password or with cached rights).
 warp_svc_ensure(){
   command -v systemctl >/dev/null || return 0
   systemctl is-active --quiet warp-svc && return 0
   if [ "$(id -u)" -eq 0 ]; then systemctl enable --now warp-svc >>"$LOG" 2>&1
   elif [ "${OPT_AUTO:-0}" = 1 ]; then sudo -n systemctl enable --now warp-svc >>"$LOG" 2>&1
-  else with_tty sudo systemctl enable --now warp-svc >>"$INSTALL_LOG" 2>&1; fi
+  else sudo -n systemctl enable --now warp-svc >>"$INSTALL_LOG" 2>&1; fi
   sleep 2; systemctl is-active --quiet warp-svc
 }
 warp_up(){
@@ -548,6 +548,7 @@ tor_start(){
   command -v tor >/dev/null || { log 'tor missing'; return 1; }
   command -v privoxy >/dev/null || { log 'privoxy missing'; return 1; }
   if ! tor_running; then
+    : > "$STATE_DIR/tor.log"  # a log left by an earlier run would end the wait below at once
     tor --SocksPort "$TOR_SOCKS_PORT" --DataDirectory "$STATE_DIR/tor" --Log "notice file $STATE_DIR/tor.log" >/dev/null 2>&1 &
     echo $! > "$STATE_DIR/tor.pid"
     local i; for i in $(seq 1 "$TOR_BOOTSTRAP_WAIT"); do grep -q 'Bootstrapped 100%' "$STATE_DIR/tor.log" 2>/dev/null && break; sleep 1; done
@@ -660,7 +661,9 @@ probe_ip(){ # 0 = usable, 1 = burned (a limit answer), 2 = the probe itself is b
   [ "$PROBE" = 1 ] || return 0
   local out rc sid
   oc_runner; export_proxy
-  out=$(cd "$HOME" && timeout -k 5 120 "${RUNNER[@]}" run --format json --model "$PROBE_MODEL" "reply with the word ok" 2>&1); rc=$?
+  # --standalone: the shared server ignores the proxy env, so without it the probe would test the wrong route
+  local pm=(); [ -n "$PROBE_MODEL" ] && pm=(--model "$PROBE_MODEL")
+  out=$(cd "$HOME" && timeout -k 5 120 "${RUNNER[@]}" run --standalone --format json "${pm[@]}" "reply with the word ok" 2>&1); rc=$?
   sid=$(printf '%s' "$out" | grep -o 'ses_[A-Za-z0-9]*' | head -n1)
   [ -n "$sid" ] && "${RUNNER[@]}" session delete "$sid" >/dev/null 2>&1
   if printf '%s' "$out" | grep -Eiq "$OC_PAT|usage limit|rate limit|out of usage|insufficient credits|payment required|free usage"; then return 1; fi
@@ -997,7 +1000,7 @@ run_session_inner(){ # run_session_inner <folder> [opencode args...]
     if ! egress_new; then say err "no new route after $ROTATE_TRIES_MAX tries."; return 1; fi
     say ok "new route: $(current_ip)"
     resume_run "$folder"; rc=$?
-    if [ "$rc" = 2 ]; then say warn "the new IP is limited too. Rotating again."; continue; fi
+    if [ "$rc" = 2 ] || [ "$rc" = 124 ]; then say warn "the new IP is limited too. Rotating again."; continue; fi
     cont="--continue"
   done
 }
@@ -1040,7 +1043,7 @@ write_shims(){ # the commands. opencode itself is never written: it stays the re
 write_bin_cmds(){
   local app="$APP_DIR/opencode-infinite.sh" p
   printf '#!/usr/bin/env bash\nexec bash "%s" "$@"\n' "$app" > "$BIN_DIR/opencodeinf"
-  printf '#!/usr/bin/env bash\nexec %s "$@"\n' "${RUNNER[*]}" > "$BIN_DIR/opencodeoc"
+  printf '#!/usr/bin/env bash\nexec %s "$@"\n' "$(printf '%q ' "${RUNNER[@]}")" > "$BIN_DIR/opencodeoc"
   for p in warp tor proxy; do
     printf '#!/usr/bin/env bash\nexec bash "%s" --preset %s --here --same-ip --quiet -- "$@"\n' "$app" "$p" > "$BIN_DIR/opencode-$p"
   done
@@ -1061,10 +1064,9 @@ find_real_opencode(){ # sets OC_REAL and OC_LINK to the Linux opencode, never a 
 }
 INSTALL_LOG="$STATE_DIR/install.log"
 SUDO=()
-sudo_ok(){ # root needs nothing; anyone else gets one sudo password prompt, then the cache covers the rest. Auto: cached sudo only, never a prompt
+sudo_ok(){ # root needs nothing; anyone else only with sudo that asks nothing (sudo -n). This script never asks for a password.
   if [ "$(id -u)" -eq 0 ]; then SUDO=(); return 0; fi
-  if [ "$OPT_AUTO" = 1 ]; then sudo -n true 2>/dev/null && { SUDO=(sudo -n); return 0; }; return 1; fi
-  command -v sudo >/dev/null && with_tty sudo -v && { SUDO=(sudo); return 0; }
+  command -v sudo >/dev/null && sudo -n true 2>/dev/null && { SUDO=(sudo -n); return 0; }
   return 1
 }
 # pkg_mgr: apt, dnf, pacman or zypper, empty when none of them is here
@@ -1335,7 +1337,7 @@ update_opencode(){ # offers a newer opencode through npm
   [ -n "$cur" ] && [ -n "$latest" ] && [ "$cur" != "$latest" ] || return 0
   [ "$(printf '%s\n%s\n' "$cur" "$latest" | sort -V | tail -n1)" = "$latest" ] || return 0
   confirm "Update opencode from $cur to $latest through npm?" || return 0
-  with_tty timeout 600 npm i -g "opencode-ai@$latest" || say err 'npm update failed.'
+  with_tty timeout 600 npm i -g --prefix "$HOME/.local" "opencode-ai@$latest" || say err 'npm update failed.'
   say ok "opencode update step done (was $cur)."; log "opencode update $cur -> $latest"; pause
 }
 check_updates(){ # auto = at start (silent when offline or equal); manual = from the support menu
@@ -1387,7 +1389,7 @@ auto_home(){ auto_run || pause; OPT_AUTO=0; }  # back to the menu: questions are
 # preset_run <warp|tor|proxy> [opencode args]: the direct commands. This folder, no menu. --new-ip rotates first; the default keeps the route
 preset_run(){
   local m=${1^^}; shift
-  case $m in WARP|TOR|PROXY) ;; *) say err "unknown route: $1 (use warp, tor or proxy)"; return 2;; esac
+  case $m in WARP|TOR|PROXY) ;; *) say err "unknown route: $m (use warp, tor or proxy)"; return 2;; esac
   [ "$SETUP_DONE" = 1 ] || { say err 'Connect with opencode first (Commands menu).'; return 1; }
   EGRESS=$m; OC_MODE_DEFAULT=CLI; OPT_AUTO=0; ROUTE_READY=0
   if [ "$NEWIP" = 1 ]; then egress_new || { say err "no new route on $m."; return 1; }
@@ -1415,12 +1417,12 @@ EOF
 }
 method_help(){
   case $1 in
-    WARP) echo 'Cloudflare WARP. Installing it needs sudo.';;
-    TOR) echo 'Tor with a privoxy bridge. Installing it needs sudo.';;
+    WARP) echo 'Cloudflare WARP. Installing it needs administrator rights (sudo), which this script never asks for.';;
+    TOR) echo 'Tor with a privoxy bridge. Installing it needs administrator rights (sudo), which this script never asks for.';;
     PROXY) echo 'A free HTTP proxy list. Nothing to install.';;
   esac
 }
-# install_method <WARP|TOR>: Enter on a missing route. sudo asks once
+# install_method <WARP|TOR>: Enter on a missing route. Installs only with sudo -n (no password prompt).
 install_method(){
   local had_privoxy
   case $1 in
@@ -1541,13 +1543,14 @@ home(){
   done
 }
 cleanup(){
-  printf '\e[?25h\e[0m'
+  if [ -t 1 ]; then printf '\e[?25h\e[0m'; fi  # no escape codes into a pipe or a log
   stty sane 2>/dev/null
   lock_free  # this launcher no longer runs OpenCode, so another window may start
   # v2.60: Ctrl+C also stops the watcher started by run_session (WPID), not only the normal exit
   [ -n "${WPID:-}" ] && kill "$WPID" 2>/dev/null
-  [ -f "$STATE_DIR/tor.pid" ] && tor_stop
-  [ -f "$STATE_DIR/privoxy.pid" ] && kill "$(cat "$STATE_DIR/privoxy.pid")" 2>/dev/null && rm -f "$STATE_DIR/privoxy.pid"
+  # stop only what this window started: its PID is the parent of the process in the pid file (a shared one stays up)
+  [ -f "$STATE_DIR/tor.pid" ] && [ "$(cut -d' ' -f4 "/proc/$(cat "$STATE_DIR/tor.pid")/stat" 2>/dev/null)" = "$$" ] && tor_stop
+  [ -f "$STATE_DIR/privoxy.pid" ] && [ "$(cut -d' ' -f4 "/proc/$(cat "$STATE_DIR/privoxy.pid")/stat" 2>/dev/null)" = "$$" ] && kill "$(cat "$STATE_DIR/privoxy.pid")" 2>/dev/null && rm -f "$STATE_DIR/privoxy.pid"
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
@@ -1585,7 +1588,7 @@ if [ -z "${OCI_NO_MAIN:-}" ]; then
   if [ "$OPT_INSTALL" = 1 ]; then commands_install quiet; exit $?; fi
   if [ "$OPT_AUTO" = 1 ]; then auto_run; exit $?; fi
   if [ -n "$PRESET" ]; then preset_run "$PRESET" "${RUN_ARGS[@]}"; exit $?; fi
-  if [ "$RUN" = 1 ]; then ensure_deps; OC_MODE_DEFAULT=CLI; run_session "$PWD" "${RUN_ARGS[@]}"; exit $?; fi  # the opencode command takes CLI arguments: always the CLI
+  if [ "$RUN" = 1 ]; then ensure_deps; OC_MODE_DEFAULT=CLI; if [ "$NEWIP" = 1 ]; then egress_new || { say err 'no new route.'; exit 1; }; ROUTE_READY=1; fi; run_session "$PWD" "${RUN_ARGS[@]}"; exit $?; fi  # the opencode command takes CLI arguments: always the CLI
   stty -echo -icanon 2>/dev/null
   printf '\e[?25l'
   home
