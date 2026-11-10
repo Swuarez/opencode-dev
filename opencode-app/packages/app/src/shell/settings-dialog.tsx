@@ -2,6 +2,7 @@ import { createSignal, For, Match, onMount, Show, Switch } from "solid-js"
 import { Dialog, DialogBody, DialogHeader, DialogTitleGroup } from "@opencode/ui/dialog"
 import { useTheme, type ColorScheme } from "@opencode/ui/theme/context"
 import { usePlatform } from "@/runtime/platform/platform"
+import { clearBackground, getBackground, setBackgroundFile, setBackgroundOpacity } from "@/shell/infinite-look"
 
 type Tab = "proxy" | "themes"
 
@@ -203,12 +204,75 @@ function ProxySection() {
   )
 }
 
+// Your own picture behind the window; the opacity is how much of the normal interface color stays over it.
+function BackgroundSection() {
+  const [look, setLook] = createSignal(getBackground())
+  const [note, setNote] = createSignal<string | undefined>()
+  let file: HTMLInputElement | undefined
+  const refresh = () => setLook(getBackground())
+
+  return (
+    <div class="flex flex-col gap-2">
+      <h3 class="text-13-medium text-v2-text-text-base">Background image</h3>
+      <div class="flex items-center gap-3 flex-wrap">
+        <button type="button" class={chip(false)} onClick={() => file?.click()}>
+          Choose image…
+        </button>
+        <button
+          type="button"
+          class={chip(false)}
+          disabled={!look().image}
+          onClick={() => {
+            clearBackground()
+            refresh()
+            setNote(undefined)
+          }}
+        >
+          Remove
+        </button>
+        <span class="text-12-regular text-v2-text-text-faint">PNG, JPG or WebP; it is shrunk and kept in this app only</span>
+      </div>
+      <input
+        ref={file}
+        type="file"
+        accept="image/*"
+        class="hidden"
+        onChange={async (event) => {
+          const picked = event.currentTarget.files?.[0]
+          event.currentTarget.value = ""
+          if (!picked) return
+          setNote((await setBackgroundFile(picked)) ?? undefined)
+          refresh()
+        }}
+      />
+      <Show when={look().image}>
+        <label class="flex items-center gap-3 text-12-regular text-v2-text-text-muted">
+          <span class="w-40 shrink-0">Interface opacity {look().opacity}%</span>
+          <input
+            type="range"
+            min="30"
+            max="100"
+            value={look().opacity}
+            class="flex-1"
+            onInput={(event) => {
+              setBackgroundOpacity(Number(event.currentTarget.value))
+              refresh()
+            }}
+          />
+        </label>
+      </Show>
+      <Show when={note()}>{(text) => <span class="text-12-regular text-v2-state-fg-danger">{text()}</span>}</Show>
+    </div>
+  )
+}
+
 function ThemeSection() {
   const theme = useTheme()
   onMount(() => void theme.loadThemes())
 
-  // The pastel themes lead the list; the rest keep their alphabetical order.
-  const ids = () => [...theme.ids()].sort((a, b) => Number(b.startsWith("pastel")) - Number(a.startsWith("pastel")))
+  // Rainbow first, then the pastel themes; the rest keep their alphabetical order.
+  const rank = (id: string) => (id === "rainbow" ? 2 : id.startsWith("pastel") ? 1 : 0)
+  const ids = () => [...theme.ids()].sort((a, b) => rank(b) - rank(a))
 
   return (
     <section class="flex flex-col gap-5">
@@ -224,6 +288,7 @@ function ThemeSection() {
           </For>
         </div>
       </div>
+      <BackgroundSection />
       <div class="flex flex-col gap-2">
         <h3 class="text-13-medium text-v2-text-text-base">Theme</h3>
         <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5">

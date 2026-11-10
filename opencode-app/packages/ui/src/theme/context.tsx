@@ -97,6 +97,7 @@ const names = new Map(
     "pastel-mint": "Pastel Mint",
     "pastel-lavender": "Pastel Lavender",
     "pastel-sky": "Pastel Sky",
+    rainbow: "Rainbow",
     rosepine: "Rose Pine",
     shadesofpurple: "Shades of Purple",
     solarized: "Solarized",

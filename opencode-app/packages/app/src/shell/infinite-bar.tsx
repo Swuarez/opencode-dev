@@ -2,6 +2,7 @@ import { createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { useDialog } from "@opencode/ui/context/dialog"
 import { usePlatform } from "@/runtime/platform/platform"
 import { autoRotate as auto, setAutoRotate as setAuto } from "@/shell/infinite-state"
+import { initLook } from "@/shell/infinite-look"
 import { SettingsDialog } from "@/shell/settings-dialog"
 
 type Mode = "WARP" | "TOR" | "PROXY" | "NONE"
@@ -27,6 +28,7 @@ export function InfiniteBar() {
   const [result, setResult] = createSignal<Result | undefined>()
 
   onMount(() => {
+    initLook()
     void infinite?.getMode().then(setMode)
     void infinite?.getOptions().then((options) => setAuto(options.auto))
     void infinite?.checkIp().then(setResult)

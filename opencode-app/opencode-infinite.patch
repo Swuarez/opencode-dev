@@ -539,14 +539,15 @@ index 589a4f6..db57bc2 100644
  
 diff --git a/packages/app/src/shell/infinite-bar.tsx b/packages/app/src/shell/infinite-bar.tsx
 new file mode 100644
-index 0000000..c3518b0
+index 0000000..123aafe
 --- /dev/null
 +++ b/packages/app/src/shell/infinite-bar.tsx
-@@ -0,0 +1,118 @@
+@@ -0,0 +1,120 @@
 +import { createSignal, For, onCleanup, onMount, Show } from "solid-js"
 +import { useDialog } from "@opencode/ui/context/dialog"
 +import { usePlatform } from "@/runtime/platform/platform"
 +import { autoRotate as auto, setAutoRotate as setAuto } from "@/shell/infinite-state"
++import { initLook } from "@/shell/infinite-look"
 +import { SettingsDialog } from "@/shell/settings-dialog"
 +
 +type Mode = "WARP" | "TOR" | "PROXY" | "NONE"
@@ -572,6 +573,7 @@ index 0000000..c3518b0
 +  const [result, setResult] = createSignal<Result | undefined>()
 +
 +  onMount(() => {
++    initLook()
 +    void infinite?.getMode().then(setMode)
 +    void infinite?.getOptions().then((options) => setAuto(options.auto))
 +    void infinite?.checkIp().then(setResult)
@@ -661,6 +663,124 @@ index 0000000..c3518b0
 +    </Show>
 +  )
 +}
+diff --git a/packages/app/src/shell/infinite-look.ts b/packages/app/src/shell/infinite-look.ts
+new file mode 100644
+index 0000000..8fd3cfe
+--- /dev/null
++++ b/packages/app/src/shell/infinite-look.ts
+@@ -0,0 +1,112 @@
++// Custom background image and the moving "rainbow" accent of OpenCode Infinite. Everything lives in the renderer:
++// the image is stored (downscaled) in localStorage, and the surfaces are made translucent by overriding their color
++// variables inline, so the image shows through and the theme keeps working.
++const KEY_IMAGE = "infinite-bg"
++const KEY_OPACITY = "infinite-bg-opacity"
++const MAX_SIDE = 1920
++// The layers that paint the window; the rest of the interface sits on top of them.
++const SURFACES = ["base", "deep", "layer-01", "layer-02", "layer-03", "layer-04"].map((name) => `--v2-background-bg-${name}`)
++// The accent tokens the rainbow theme moves, like the .bat's flowing colors.
++const ACCENTS = [
++  "--v2-background-bg-accent",
++  "--surface-interactive-base",
++  "--text-interactive-base",
++  "--border-interactive-base",
++  "--icon-interactive-base",
++]
++
++const read = (key: string) => {
++  try {
++    return localStorage.getItem(key)
++  } catch {
++    return null
++  }
++}
++
++export const getBackground = () => ({ image: read(KEY_IMAGE) ?? "", opacity: clampOpacity(Number(read(KEY_OPACITY) ?? 78)) })
++
++const clampOpacity = (value: number) => (Number.isFinite(value) ? Math.min(100, Math.max(30, Math.round(value))) : 78)
++
++let observer: MutationObserver | undefined
++
++/** Paints the stored image (or removes it) and re-reads the surface colors, which change with the theme. */
++export function applyBackground() {
++  const root = document.documentElement
++  const { image, opacity } = getBackground()
++  for (const name of SURFACES) root.style.removeProperty(name)
++  // body and #root paint the same deep color under everything; without a picture they keep it.
++  const frame = [document.body, document.getElementById("root")]
++  for (const element of frame) element?.style.setProperty("background-color", image ? "transparent" : "")
++  if (!image) {
++    root.style.removeProperty("background-image")
++    return
++  }
++  // Two translucent layers (window and panel) stack over the picture, so each one gets the alpha that adds up to the setting.
++  const alpha = Math.round((1 - Math.sqrt(1 - opacity / 100)) * 100)
++  root.style.backgroundImage = `url("${image}")`
++  root.style.backgroundSize = "cover"
++  root.style.backgroundPosition = "center"
++  root.style.backgroundRepeat = "no-repeat"
++  const computed = getComputedStyle(root)
++  for (const name of SURFACES) {
++    const value = computed.getPropertyValue(name).trim()
++    if (value) root.style.setProperty(name, `color-mix(in srgb, ${value} ${alpha}%, transparent)`)
++  }
++}
++
++/** Saves a picked image: shrunk to 1920 px and stored as JPEG so it fits in localStorage. Returns an error text on failure. */
++export async function setBackgroundFile(file: File): Promise<string | undefined> {
++  if (!file.type.startsWith("image/")) return "That file is not an image."
++  try {
++    const bitmap = await createImageBitmap(file)
++    const scale = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height))
++    const canvas = document.createElement("canvas")
++    canvas.width = Math.max(1, Math.round(bitmap.width * scale))
++    canvas.height = Math.max(1, Math.round(bitmap.height * scale))
++    canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
++    bitmap.close()
++    localStorage.setItem(KEY_IMAGE, canvas.toDataURL("image/jpeg", 0.85))
++  } catch {
++    return "Could not use that image (too big for the app's storage, or not a readable picture)."
++  }
++  applyBackground()
++}
++
++export function clearBackground() {
++  try {
++    localStorage.removeItem(KEY_IMAGE)
++  } catch {}
++  applyBackground()
++}
++
++export function setBackgroundOpacity(value: number) {
++  try {
++    localStorage.setItem(KEY_OPACITY, String(clampOpacity(value)))
++  } catch {}
++  applyBackground()
++}
++
++// Hue moves ~36 degrees a second, a frame every 90 ms as in the .bat; a still page when the user asks for less motion.
++function tickRainbow() {
++  const root = document.documentElement
++  if (root.dataset.theme !== "rainbow") {
++    for (const name of ACCENTS) root.style.removeProperty(name)
++    return
++  }
++  const hue = (Date.now() / 28) % 360
++  const dark = root.dataset.colorScheme === "dark"
++  const color = `hsl(${hue.toFixed(0)} 85% ${dark ? 66 : 46}%)`
++  root.style.setProperty("--v2-background-bg-accent", `hsl(${hue.toFixed(0)} 70% ${dark ? 36 : 52}%)`)
++  for (const name of ACCENTS.slice(1)) root.style.setProperty(name, color)
++}
++
++/** Starts both effects once; the theme machine changes data-theme / data-color-scheme and the style element on every switch. */
++export function initLook() {
++  if (observer) return
++  applyBackground()
++  observer = new MutationObserver(() => applyBackground())
++  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-color-scheme"] })
++  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return
++  setInterval(tickRainbow, 90)
++}
++
 diff --git a/packages/app/src/shell/infinite-state.ts b/packages/app/src/shell/infinite-state.ts
 new file mode 100644
 index 0000000..aefc9a7
@@ -674,14 +794,15 @@ index 0000000..aefc9a7
 +export const [autoRotate, setAutoRotate] = createSignal(false)
 diff --git a/packages/app/src/shell/settings-dialog.tsx b/packages/app/src/shell/settings-dialog.tsx
 new file mode 100644
-index 0000000..d8cd290
+index 0000000..37251ae
 --- /dev/null
 +++ b/packages/app/src/shell/settings-dialog.tsx
-@@ -0,0 +1,241 @@
+@@ -0,0 +1,306 @@
 +import { createSignal, For, Match, onMount, Show, Switch } from "solid-js"
 +import { Dialog, DialogBody, DialogHeader, DialogTitleGroup } from "@opencode/ui/dialog"
 +import { useTheme, type ColorScheme } from "@opencode/ui/theme/context"
 +import { usePlatform } from "@/runtime/platform/platform"
++import { clearBackground, getBackground, setBackgroundFile, setBackgroundOpacity } from "@/shell/infinite-look"
 +
 +type Tab = "proxy" | "themes"
 +
@@ -883,12 +1004,75 @@ index 0000000..d8cd290
 +  )
 +}
 +
++// Your own picture behind the window; the opacity is how much of the normal interface color stays over it.
++function BackgroundSection() {
++  const [look, setLook] = createSignal(getBackground())
++  const [note, setNote] = createSignal<string | undefined>()
++  let file: HTMLInputElement | undefined
++  const refresh = () => setLook(getBackground())
++
++  return (
++    <div class="flex flex-col gap-2">
++      <h3 class="text-13-medium text-v2-text-text-base">Background image</h3>
++      <div class="flex items-center gap-3 flex-wrap">
++        <button type="button" class={chip(false)} onClick={() => file?.click()}>
++          Choose image…
++        </button>
++        <button
++          type="button"
++          class={chip(false)}
++          disabled={!look().image}
++          onClick={() => {
++            clearBackground()
++            refresh()
++            setNote(undefined)
++          }}
++        >
++          Remove
++        </button>
++        <span class="text-12-regular text-v2-text-text-faint">PNG, JPG or WebP; it is shrunk and kept in this app only</span>
++      </div>
++      <input
++        ref={file}
++        type="file"
++        accept="image/*"
++        class="hidden"
++        onChange={async (event) => {
++          const picked = event.currentTarget.files?.[0]
++          event.currentTarget.value = ""
++          if (!picked) return
++          setNote((await setBackgroundFile(picked)) ?? undefined)
++          refresh()
++        }}
++      />
++      <Show when={look().image}>
++        <label class="flex items-center gap-3 text-12-regular text-v2-text-text-muted">
++          <span class="w-40 shrink-0">Interface opacity {look().opacity}%</span>
++          <input
++            type="range"
++            min="30"
++            max="100"
++            value={look().opacity}
++            class="flex-1"
++            onInput={(event) => {
++              setBackgroundOpacity(Number(event.currentTarget.value))
++              refresh()
++            }}
++          />
++        </label>
++      </Show>
++      <Show when={note()}>{(text) => <span class="text-12-regular text-v2-state-fg-danger">{text()}</span>}</Show>
++    </div>
++  )
++}
++
 +function ThemeSection() {
 +  const theme = useTheme()
 +  onMount(() => void theme.loadThemes())
 +
-+  // The pastel themes lead the list; the rest keep their alphabetical order.
-+  const ids = () => [...theme.ids()].sort((a, b) => Number(b.startsWith("pastel")) - Number(a.startsWith("pastel")))
++  // Rainbow first, then the pastel themes; the rest keep their alphabetical order.
++  const rank = (id: string) => (id === "rainbow" ? 2 : id.startsWith("pastel") ? 1 : 0)
++  const ids = () => [...theme.ids()].sort((a, b) => rank(b) - rank(a))
 +
 +  return (
 +    <section class="flex flex-col gap-5">
@@ -904,6 +1088,7 @@ index 0000000..d8cd290
 +          </For>
 +        </div>
 +      </div>
++      <BackgroundSection />
 +      <div class="flex flex-col gap-2">
 +        <h3 class="text-13-medium text-v2-text-text-base">Theme</h3>
 +        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
@@ -1987,10 +2172,10 @@ index 38193d0..74f2880 100644
    class?: ComponentProps<"div">["class"]
    containerClass?: ComponentProps<"div">["class"]
 diff --git a/packages/ui/src/theme/context.tsx b/packages/ui/src/theme/context.tsx
-index 234a24c..2156393 100644
+index 234a24c..b923f77 100644
 --- a/packages/ui/src/theme/context.tsx
 +++ b/packages/ui/src/theme/context.tsx
-@@ -93,6 +93,10 @@ const names = new Map(
+@@ -93,6 +93,11 @@ const names = new Map(
      orng: "Orng",
      "osaka-jade": "Osaka Jade",
      palenight: "Palenight",
@@ -1998,6 +2183,7 @@ index 234a24c..2156393 100644
 +    "pastel-mint": "Pastel Mint",
 +    "pastel-lavender": "Pastel Lavender",
 +    "pastel-sky": "Pastel Sky",
++    rainbow: "Rainbow",
      rosepine: "Rose Pine",
      shadesofpurple: "Shades of Purple",
      solarized: "Solarized",
@@ -2154,6 +2340,45 @@ index 0000000..96e16ca
 +      "info": "#a9d6ee",
 +      "diffAdd": "#a8dfb0",
 +      "diffDelete": "#f2a6b3"
++    }
++  }
++}
+diff --git a/packages/ui/src/theme/themes/rainbow.json b/packages/ui/src/theme/themes/rainbow.json
+new file mode 100644
+index 0000000..e951fd0
+--- /dev/null
++++ b/packages/ui/src/theme/themes/rainbow.json
+@@ -0,0 +1,33 @@
++{
++  "$schema": "https://opencode.ai/desktop-theme.json",
++  "name": "Rainbow",
++  "id": "rainbow",
++  "light": {
++    "palette": {
++      "neutral": "#f7f3ff",
++      "ink": "#2c2342",
++      "primary": "#8b5cf6",
++      "accent": "#ec4899",
++      "success": "#22c55e",
++      "warning": "#f59e0b",
++      "error": "#ef4444",
++      "info": "#06b6d4",
++      "diffAdd": "#22c55e",
++      "diffDelete": "#ef4444"
++    }
++  },
++  "dark": {
++    "palette": {
++      "neutral": "#14101f",
++      "ink": "#f3eeff",
++      "primary": "#a78bfa",
++      "accent": "#f472b6",
++      "success": "#4ade80",
++      "warning": "#fbbf24",
++      "error": "#f87171",
++      "info": "#22d3ee",
++      "diffAdd": "#4ade80",
++      "diffDelete": "#f87171"
 +    }
 +  }
 +}

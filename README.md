@@ -523,7 +523,7 @@ A native Windows app with the same job as the `.bat`: a new exit IP, then OpenCo
 
 **Get it.** It is attached to the [latest release](https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest) as a link, because it is too big (about 295 MB) for a release file. Direct link: `https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest/downloads/OpenCode-Infinite-Desktop.exe`. Check it against the SHA-256 below before you run it.
 
-SHA-256: `4d1e414b46d656755b3a3121d13ccdb05778a69722a9afc1e646fdc43121e2f0`
+SHA-256: `a1bf0c561d8692831a71ef19739ae242f5e6024f2a1be5cf5aa63f3be5c94678`
 
 **What you need.**
 
@@ -546,6 +546,8 @@ WireGuard and VPN Gate are only in the `.bat`, the `.exe` and the `.sh`.
 | **Settings** | Your own proxy list (from text, a file or a URL), and the themes, pastel ones first |
 
 The `opencode-infinite` start screen replaces the normal one.
+
+**Look (Settings > Themes).** Pick **Rainbow**, a theme whose accent colors flow like the `.bat`'s rainbow (a still palette if Windows is set to reduce motion). **Background image > Choose image…** puts your own picture behind the window; it is shrunk to 1920 px and kept in the app only, **Remove** takes it away, and **Interface opacity** sets how much of the picture shows through.
 
 **Build.** The sources and the patch are in [`opencode-app/`](opencode-app/BUILD.md). Put the portable Tor bundle in `packages/desktop/resources/tor/` (or remove the Tor lines from `electron-builder.config.ts`), then follow `BUILD.md`.
 
@@ -590,7 +592,7 @@ The `opencode-infinite` start screen replaces the normal one.
 - **The probe follows the chat model:** `PROBE_MODEL` is empty by default and the IP probe then uses the model of the chat. The probe session is still deleted afterwards.
 - **English messages:** the last Spanish messages ("OpenCode not found", "Rate limit detected") are in English.
 - **Fixes:** a `TUNNEL_WAIT` value no longer gets lost after a probe, and several messages go through the shared message routine, so quiet mode treats them like the rest. The VPN Gate text no longer breaks the connection menu (`. was unexpected at this time`), the "Rate limit detected" question answers Y/N, and a VPN Gate session no longer leaves `NODE_OPTIONS` set for the next connection.
-- **OpenCode desktop app, with the launcher's tools built in:** the release also links `OpenCode-Infinite-Desktop.exe` (v2.2.5). Everything about it is in [section 15](#15-opencode-desktop-infinite); its SHA-256 is `4d1e414b46d656755b3a3121d13ccdb05778a69722a9afc1e646fdc43121e2f0`.
+- **OpenCode desktop app, with the launcher's tools built in:** the release also links `OpenCode-Infinite-Desktop.exe` (v2.2.5). Everything about it is in [section 15](#15-opencode-desktop-infinite); its SHA-256 is `a1bf0c561d8692831a71ef19739ae242f5e6024f2a1be5cf5aa63f3be5c94678`.
 
 ### C++ app 3.4.7
 
