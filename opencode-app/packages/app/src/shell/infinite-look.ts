@@ -1,4 +1,4 @@
-// Custom background image and the moving "rainbow" accent of OpenCode Infinite. Everything lives in the renderer:
+// Custom background image, custom text color and the moving "rainbow" colors of OpenCode Infinite. Everything lives in the renderer:
 // the image is stored (downscaled) in localStorage, and the surfaces are made translucent by overriding their color
 // variables inline, so the image shows through and the theme keeps working.
 const KEY_IMAGE = "infinite-bg"
@@ -15,6 +15,23 @@ const ACCENTS = [
   "--icon-interactive-base",
 ]
 
+// Text tokens by weight: the full color, then the muted and the faint steps mixed from it.
+const TEXTS: [string, number][] = [
+  ["--v2-text-text-base", 100],
+  ["--text-base", 100],
+  ["--text-strong", 100],
+  ["--text-stronger", 100],
+  ["--v2-text-text-muted", 72],
+  ["--text-weak", 72],
+  ["--v2-text-text-faint", 52],
+  ["--text-weaker", 52],
+  // The icons sit beside the text and follow it.
+  ["--v2-icon-icon-base", 100],
+  ["--v2-icon-icon-muted", 72],
+  ["--v2-icon-icon-faint", 52],
+]
+const KEY_TEXT = "infinite-text-color"
+
 const read = (key: string) => {
   try {
     return localStorage.getItem(key)
@@ -28,6 +45,35 @@ export const getBackground = () => ({ image: read(KEY_IMAGE) ?? "", opacity: cla
 const clampOpacity = (value: number) => (Number.isFinite(value) ? Math.min(100, Math.max(30, Math.round(value))) : 78)
 
 let observer: MutationObserver | undefined
+let flowing = false
+// Share of each surface that stays over the background picture; 100 without a picture.
+let surfaceAlpha = 100
+// Lightness of the rainbow surfaces, in SURFACES order: dark mode, then light mode.
+const RAINBOW_SURFACES = { dark: [15, 11, 18, 22, 26, 30], light: [96, 93, 91, 88, 85, 82] }
+
+/** The text color the user picked ("#rrggbb"), or "" for the theme's own. */
+export const getTextColor = () => {
+  const value = read(KEY_TEXT) ?? ""
+  return /^#[0-9a-f]{6}$/i.test(value) ? value : ""
+}
+
+// One color for every text weight; undefined gives the theme's colors back.
+function paintText(color: string | undefined) {
+  const root = document.documentElement
+  for (const [name, share] of TEXTS) {
+    if (!color) root.style.removeProperty(name)
+    else root.style.setProperty(name, share === 100 ? color : `color-mix(in srgb, ${color} ${share}%, transparent)`)
+  }
+}
+
+/** Saves the picked text color ("" removes it). In the rainbow theme a picked color stops the text from flowing. */
+export function setTextColor(color: string) {
+  try {
+    if (/^#[0-9a-f]{6}$/i.test(color)) localStorage.setItem(KEY_TEXT, color)
+    else localStorage.removeItem(KEY_TEXT)
+  } catch {}
+  paintText(getTextColor() || undefined)
+}
 
 /** Paints the stored image (or removes it) and re-reads the surface colors, which change with the theme. */
 export function applyBackground() {
@@ -37,12 +83,14 @@ export function applyBackground() {
   // body and #root paint the same deep color under everything; without a picture they keep it.
   const frame = [document.body, document.getElementById("root")]
   for (const element of frame) element?.style.setProperty("background-color", image ? "transparent" : "")
+  surfaceAlpha = 100
   if (!image) {
     root.style.removeProperty("background-image")
     return
   }
   // Two translucent layers (window and panel) stack over the picture, so each one gets the alpha that adds up to the setting.
   const alpha = Math.round((1 - Math.sqrt(1 - opacity / 100)) * 100)
+  surfaceAlpha = alpha
   root.style.backgroundImage = `url("${image}")`
   root.style.backgroundSize = "cover"
   root.style.backgroundPosition = "center"
@@ -90,20 +138,34 @@ export function setBackgroundOpacity(value: number) {
 function tickRainbow() {
   const root = document.documentElement
   if (root.dataset.theme !== "rainbow") {
+    if (!flowing) return
+    flowing = false
     for (const name of ACCENTS) root.style.removeProperty(name)
+    paintText(getTextColor() || undefined)
+    applyBackground()
     return
   }
+  flowing = true
   const hue = (Date.now() / 28) % 360
+  const textHue = (hue + 180) % 360
   const dark = root.dataset.colorScheme === "dark"
   const color = `hsl(${hue.toFixed(0)} 85% ${dark ? 66 : 46}%)`
   root.style.setProperty("--v2-background-bg-accent", `hsl(${hue.toFixed(0)} 70% ${dark ? 36 : 52}%)`)
   for (const name of ACCENTS.slice(1)) root.style.setProperty(name, color)
+  // The background flows as well: every surface takes the hue, dark (or pale) enough to read on, over the picture if any.
+  RAINBOW_SURFACES[dark ? "dark" : "light"].forEach((light, index) => {
+    const surface = `hsl(${hue.toFixed(0)} ${dark ? 60 : 80}% ${light}%)`
+    root.style.setProperty(SURFACES[index]!, surfaceAlpha === 100 ? surface : `color-mix(in srgb, ${surface} ${surfaceAlpha}%, transparent)`)
+  })
+  // The text flows too, in the opposite hue of the background and lighter (darker in light mode), so it stays readable.
+  if (!getTextColor()) paintText(`hsl(${textHue.toFixed(0)} 90% ${dark ? 82 : 26}%)`)
 }
 
 /** Starts both effects once; the theme machine changes data-theme / data-color-scheme and the style element on every switch. */
 export function initLook() {
   if (observer) return
   applyBackground()
+  paintText(getTextColor() || undefined)
   observer = new MutationObserver(() => applyBackground())
   observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-color-scheme"] })
   if (matchMedia("(prefers-reduced-motion: reduce)").matches) return

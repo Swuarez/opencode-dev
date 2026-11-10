@@ -2,7 +2,7 @@ import { createSignal, For, Match, onMount, Show, Switch } from "solid-js"
 import { Dialog, DialogBody, DialogHeader, DialogTitleGroup } from "@opencode/ui/dialog"
 import { useTheme, type ColorScheme } from "@opencode/ui/theme/context"
 import { usePlatform } from "@/runtime/platform/platform"
-import { clearBackground, getBackground, setBackgroundFile, setBackgroundOpacity } from "@/shell/infinite-look"
+import { clearBackground, getBackground, getTextColor, setBackgroundFile, setBackgroundOpacity, setTextColor } from "@/shell/infinite-look"
 
 type Tab = "proxy" | "themes"
 
@@ -266,6 +266,36 @@ function BackgroundSection() {
   )
 }
 
+// One color for all the text, over any theme; without it the theme decides (and Rainbow makes the text flow).
+function TextColorSection() {
+  const [color, setColor] = createSignal(getTextColor())
+  const pick = (value: string) => {
+    setTextColor(value)
+    setColor(getTextColor())
+  }
+
+  return (
+    <div class="flex flex-col gap-2">
+      <h3 class="text-13-medium text-v2-text-text-base">Text color</h3>
+      <div class="flex items-center gap-3 flex-wrap">
+        <input
+          type="color"
+          aria-label="Text color"
+          class="h-9 w-14 rounded-lg bg-transparent cursor-pointer"
+          value={color() || "#ffffff"}
+          onInput={(event) => pick(event.currentTarget.value)}
+        />
+        <button type="button" class={chip(false)} disabled={!color()} onClick={() => pick("")}>
+          Use the theme's
+        </button>
+        <span class="text-12-regular text-v2-text-text-faint">
+          {color() ? `${color()} on every theme` : "The theme's own colors; Rainbow makes the text change color"}
+        </span>
+      </div>
+    </div>
+  )
+}
+
 function ThemeSection() {
   const theme = useTheme()
   onMount(() => void theme.loadThemes())
@@ -289,6 +319,7 @@ function ThemeSection() {
         </div>
       </div>
       <BackgroundSection />
+      <TextColorSection />
       <div class="flex flex-col gap-2">
         <h3 class="text-13-medium text-v2-text-text-base">Theme</h3>
         <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
