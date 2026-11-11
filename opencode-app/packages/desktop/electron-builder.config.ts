@@ -265,9 +265,11 @@ export function getConfig() {
         mac: { ...base.mac, icon: "resources/icons/icon.icon" },
         // The DMG volume icon would otherwise use the same actool-generated ICNS.
         dmg: { icon: "resources/icons/icon.icns" },
+        // OpenCode Infinite: the update button reads latest.yml from the newest release of this fork, not from
+        // opencode.ai, whose installer would replace the Infinite build with the plain app.
         publish: {
           provider: "generic",
-          url: "https://opencode.ai/update/api/latest/desktop/opencode/",
+          url: "https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest/downloads/",
           channel: "latest",
         },
         deb: { fpm: [metainfoFpm(appId), legacyDesktopEntryFpm] },

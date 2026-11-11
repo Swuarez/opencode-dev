@@ -1218,10 +1218,23 @@ index 0312e34..72bd14a 100644
        <ToastRegion />
        <UploadToastHost />
 diff --git a/packages/desktop/electron-builder.config.test.ts b/packages/desktop/electron-builder.config.test.ts
-index 3e29318..33eb267 100644
+index 3e29318..c41443d 100644
 --- a/packages/desktop/electron-builder.config.test.ts
 +++ b/packages/desktop/electron-builder.config.test.ts
-@@ -127,6 +127,7 @@ test("shared packaging defaults", async () => {
+@@ -53,7 +53,11 @@ test.each(channels)("channel identity for $channel", ({ channel, appId, feed })
+   // Every published channel updates from its own feed on the update service.
+   expect(config.publish).toEqual({
+     provider: "generic",
+-    url: `https://opencode.ai/update/api/${feed}/desktop/opencode/`,
++    // prod is the Infinite build: it updates from this fork's latest release.
++    url:
++      channel === "prod"
++        ? "https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest/downloads/"
++        : `https://opencode.ai/update/api/${feed}/desktop/opencode/`,
+     channel: "latest",
+   })
+   expect(config.extraMetadata?.desktopName).toBe(`${appId}.desktop`)
+@@ -127,6 +131,7 @@ test("shared packaging defaults", async () => {
    expect(config.files).toContain("!resources/opencode-cli*")
    expect(config.extraResources).toEqual([
      { from: "resources/", to: "", filter: ["opencode-cli", "opencode-cli.exe", "opencode-cli.version"] },
@@ -1230,7 +1243,7 @@ index 3e29318..33eb267 100644
  })
  
 diff --git a/packages/desktop/electron-builder.config.ts b/packages/desktop/electron-builder.config.ts
-index d147662..de4d456 100644
+index d147662..1c44215 100644
 --- a/packages/desktop/electron-builder.config.ts
 +++ b/packages/desktop/electron-builder.config.ts
 @@ -82,6 +82,7 @@ const getBase = (appId: string): Configuration => {
@@ -1250,6 +1263,32 @@ index d147662..de4d456 100644
      ],
      afterPack: async (context) => {
        const arch = Arch[context.arch]
+@@ -262,9 +265,11 @@ export function getConfig() {
+         mac: { ...base.mac, icon: "resources/icons/icon.icon" },
+         // The DMG volume icon would otherwise use the same actool-generated ICNS.
+         dmg: { icon: "resources/icons/icon.icns" },
++        // OpenCode Infinite: the update button reads latest.yml from the newest release of this fork, not from
++        // opencode.ai, whose installer would replace the Infinite build with the plain app.
+         publish: {
+           provider: "generic",
+-          url: "https://opencode.ai/update/api/latest/desktop/opencode/",
++          url: "https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest/downloads/",
+           channel: "latest",
+         },
+         deb: { fpm: [metainfoFpm(appId), legacyDesktopEntryFpm] },
+diff --git a/packages/desktop/package.json b/packages/desktop/package.json
+index 0ff5675..20440b8 100644
+--- a/packages/desktop/package.json
++++ b/packages/desktop/package.json
+@@ -1,7 +1,7 @@
+ {
+   "name": "@opencode/desktop",
+   "private": true,
+-  "version": "2.2.5",
++  "version": "2.2.6",
+   "type": "module",
+   "license": "MIT",
+   "homepage": "https://opencode.ai",
 diff --git a/packages/desktop/src/main/infinite/infinite.ts b/packages/desktop/src/main/infinite/infinite.ts
 new file mode 100644
 index 0000000..1b8d597
