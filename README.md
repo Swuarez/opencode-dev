@@ -12,10 +12,10 @@ the same tools built in ([section 15](#15-opencode-desktop-infinite)).
 
 | File | Platform | What it is | Version |
 |---|---|---|---|
-| `OpenCode Infinite.bat` | Windows 10 / 11 (x64, ARM64, x86 limited) | Full launcher: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages; single-instance lock that checks PID, start time, executable and .bat path | 2.60.6 |
+| `OpenCode Infinite.bat` | Windows 10 / 11 (x64, ARM64, x86 limited) | Full launcher: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages; single-instance lock that checks PID, start time, executable and .bat path | 2.60.7 |
 | `OpenCode Infinite.exe` | Windows 10 / 11 (x64) | Native C++ app: WARP, Tor, proxies, WireGuard, VPN Gate and direct connection; retries OpenCode after a crash; 7 languages. See [section 14](#14-c-app-opencode-infiniteexe) | 3.4.7 |
 | `opencode-infinite.sh` | Linux (bash; Ubuntu 24.04 with apt; also dnf, pacman and zypper) | Full, including the desktop app, except the Windows-only items. See [Linux: what is different](#linux-what-is-different) | linux-0.4.7 |
-| `OpenCode-Infinite-Desktop.exe` | Windows 10 / 11 (x64) | Installer of the OpenCode desktop app (v2.2.7) with a bottom bar: WARP, Tor, Proxy or None, Reset limit, Auto-rotate. Tor is bundled. See [section 15](#15-opencode-desktop-infinite) | 2.2.7 |
+| `OpenCode-Infinite-Desktop.exe` | Windows 10 / 11 (x64) | Installer of the OpenCode desktop app (v2.2.8) with a bottom bar: WARP, Tor, Proxy or None, Reset limit, Auto-rotate. Tor is bundled. See [section 15](#15-opencode-desktop-infinite) | 2.2.8 |
 
 The sections marked **Windows only** below are not on Linux.
 
@@ -517,13 +517,13 @@ A native Windows app with the same job as the `.bat`: a new exit IP, then OpenCo
 
 ## 15. OpenCode Desktop (Infinite)
 
-`OpenCode-Infinite-Desktop.exe` is the OpenCode desktop app (v2.2.7) with the launcher's tools built in, so you pick the exit IP from the app itself. No launcher is needed.
+`OpenCode-Infinite-Desktop.exe` is the OpenCode desktop app (v2.2.8) with the launcher's tools built in, so you pick the exit IP from the app itself. No launcher is needed.
 
 ![OpenCode Desktop with the Infinite bar](images/08-desktop.webp)
 
 **Get it.** It is attached to the [latest release](https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest) as a link, because it is too big (about 295 MB) for a release file. Direct link: `https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest/downloads/OpenCode-Infinite-Desktop.exe`. Check it against the SHA-256 below before you run it.
 
-SHA-256: `d9d80a7479aecbcb1e093c135b846b865b36168d4d81b89a43ffd62350c72ba8`
+SHA-256: `3d12db24bbf71771c66c1693c7636abf8613f6ebc86c2007c4d338eb64ffceee`
 
 **What you need.**
 
@@ -580,9 +580,16 @@ The `opencode-infinite` start screen replaces the normal one.
 
 ## Versions and status
 
-**Latest version:** launcher 2.60.6 (`.bat`), app 3.4.7 (`.exe`), Linux script 0.4.7.
-**OpenCode Desktop (Infinite build):** 2.2.7, installer `OpenCode-Infinite-Desktop.exe` ([section 15](#15-opencode-desktop-infinite)).
-**Latest published release:** 2.60.6 (2026-11-12). **Previous:** 2.60.5 (2026-11-09).
+**Latest version:** launcher 2.60.7 (`.bat`), app 3.4.7 (`.exe`), Linux script 0.4.7.
+**OpenCode Desktop (Infinite build):** 2.2.8, installer `OpenCode-Infinite-Desktop.exe` ([section 15](#15-opencode-desktop-infinite)).
+**Latest published release:** 2.60.7 (2026-11-12). **Previous:** 2.60.6 (2026-11-12).
+
+### 2.60.7
+
+- **Launcher, C++ app and Linux script:** unchanged; only the version number of the `.bat` moves, so this release can carry the new desktop app.
+- **OpenCode Desktop 2.2.8** (section 15):
+  - **Auto-rotate fix:** the IP changed but `continue` never reached the chat, after a wait of more than two minutes. The test on the temporary session was started with its input left open, so OpenCode waited there until it was stopped after 60 s, and two failed tests ended the search. The test now takes a few seconds and `continue` is sent once an IP works.
+  - **Honest status text:** the bar says each step when it happens (changing the IP, testing it, sending `continue`) and ends with what really happened and the time, instead of saying it rotated as soon as a limit showed up.
 
 ### 2.60.6
 
@@ -603,7 +610,7 @@ The `opencode-infinite` start screen replaces the normal one.
 - **The probe follows the chat model:** `PROBE_MODEL` is empty by default and the IP probe then uses the model of the chat. The probe session is still deleted afterwards.
 - **English messages:** the last Spanish messages ("OpenCode not found", "Rate limit detected") are in English.
 - **Fixes:** a `TUNNEL_WAIT` value no longer gets lost after a probe, and several messages go through the shared message routine, so quiet mode treats them like the rest. The VPN Gate text no longer breaks the connection menu (`. was unexpected at this time`), the "Rate limit detected" question answers Y/N, and a VPN Gate session no longer leaves `NODE_OPTIONS` set for the next connection.
-- **OpenCode desktop app, with the launcher's tools built in:** the release also links `OpenCode-Infinite-Desktop.exe` (v2.2.5). Everything about it is in [section 15](#15-opencode-desktop-infinite); its SHA-256 is `d9d80a7479aecbcb1e093c135b846b865b36168d4d81b89a43ffd62350c72ba8`.
+- **OpenCode desktop app, with the launcher's tools built in:** the release also links `OpenCode-Infinite-Desktop.exe` (v2.2.5). Everything about it is in [section 15](#15-opencode-desktop-infinite); its SHA-256 is `3d12db24bbf71771c66c1693c7636abf8613f6ebc86c2007c4d338eb64ffceee`.
 
 ### C++ app 3.4.7
 

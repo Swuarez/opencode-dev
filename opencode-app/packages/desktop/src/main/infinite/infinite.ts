@@ -500,13 +500,15 @@ const PROBE_LIMIT = /free usage limit|rate limit|too many requests/i
 const HUNT_MAX = 10
 
 /** One cheap message on a throwaway session (`run --standalone` has its own server) through the current proxy. */
-function probeIp(command: readonly string[]) {
+export function probeIp(command: readonly string[]) {
   return new Promise<"ok" | "limit" | "failed">((resolve) => {
     // --archived keeps the probe sessions out of the session list.
     const args = ["run", "--standalone", "--archived", "-m", PROBE_MODEL, "Reply with exactly the word: pong"]
     const proc = spawn(command[0]!, [...command.slice(1), ...args], {
       env: { ...process.env, ...proxyEnv() },
       windowsHide: true,
+      // stdin must be closed: `run` reads it when it is a pipe and would wait there until the timeout.
+      stdio: ["ignore", "pipe", "pipe"],
     })
     let out = ""
     let err = ""
@@ -526,10 +528,14 @@ function probeIp(command: readonly string[]) {
 /** Rotates until a probe on a throwaway session gets an answer, so the chat only ever meets a working IP. */
 export async function huntIp(command: readonly string[]): Promise<Result> {
   const result = await hunt(command)
-  // The bar shows how the hunt ended, instead of staying on "looking for a free IP".
-  const at = new Date().toLocaleTimeString()
-  autoNote = result.ok ? `auto-rotated at ${at}` : `auto-rotate failed at ${at}: ${result.message}`
+  // A failure ends here; after a success the caller still has to send "continue" and reports that itself.
+  if (!result.ok) autoStatus(`auto-rotate failed: ${result.message}`, true)
   return result
+}
+
+/** What the bar shows about Auto-rotate: only what has really happened, with the time once it is over. */
+export function autoStatus(text: string, done = false) {
+  autoNote = done ? `${text} (${new Date().toLocaleTimeString()})` : text
 }
 
 async function hunt(command: readonly string[]): Promise<Result> {
@@ -539,9 +545,10 @@ async function hunt(command: readonly string[]): Promise<Result> {
   const brokenMax = getMode() === "PROXY" ? HUNT_MAX : 2
   let broken = 0
   for (let attempt = 1; attempt <= HUNT_MAX; attempt++) {
-    autoNote = `looking for a free IP (${attempt}/${HUNT_MAX})`
+    autoStatus(`changing the IP (${attempt}/${HUNT_MAX})…`)
     const net = await rotateOnly()
     if (!net.ok) return net
+    autoStatus(`testing ${net.ip ?? "the new IP"} on a temporary session (${attempt}/${HUNT_MAX})…`)
     const state = await probeIp(command)
     if (state === "ok") return { ...net, message: `${net.message} - works after ${attempt} ${attempt === 1 ? "try" : "tries"}` }
     broken = state === "failed" ? broken + 1 : 0
@@ -598,8 +605,6 @@ export async function resumeSession(sessionID: string) {
     if (res && res.status < 500) break
     await sleep(500)
   }
-  // The IP changed but the chat did not get the message: say so in the bar instead of looking finished.
-  autoNote += " - could not send \"continue\" to the chat, send it yourself"
   return false
 }
 
@@ -617,7 +622,7 @@ export function startWatch(rotateNow: (sessionID: string) => void) {
     if (streak >= 10) return void (autoNote = "auto-rotate paused: 10 rotations in a row, it tries again in 3 minutes")
     last = now
     streak++
-    autoNote = `auto-rotated x${streak} (${why}) at ${new Date().toLocaleTimeString()}`
+    autoStatus(`${why}, changing the IP…`)
     rotateNow(sessionID)
   }
 

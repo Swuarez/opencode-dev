@@ -1283,7 +1283,7 @@ index d147662..1c44215 100644
          },
          deb: { fpm: [metainfoFpm(appId), legacyDesktopEntryFpm] },
 diff --git a/packages/desktop/package.json b/packages/desktop/package.json
-index 0ff5675..bafdc13 100644
+index 0ff5675..d996765 100644
 --- a/packages/desktop/package.json
 +++ b/packages/desktop/package.json
 @@ -1,7 +1,7 @@
@@ -1291,10 +1291,50 @@ index 0ff5675..bafdc13 100644
    "name": "@opencode/desktop",
    "private": true,
 -  "version": "2.2.5",
-+  "version": "2.2.7",
++  "version": "2.2.8",
    "type": "module",
    "license": "MIT",
    "homepage": "https://opencode.ai",
+diff --git a/packages/desktop/src/main/infinite/autorotate.live.test.ts b/packages/desktop/src/main/infinite/autorotate.live.test.ts
+new file mode 100644
+index 0000000..e9ee879
+--- /dev/null
++++ b/packages/desktop/src/main/infinite/autorotate.live.test.ts
+@@ -0,0 +1,34 @@
++import { expect, mock, test } from "bun:test"
++
++// Live check of the two Auto-rotate steps that talk to OpenCode: the probe on a temporary session and the
++// "continue" sent to the chat. It spends free messages, so it only runs when a server is given:
++//   OCINF_LIVE_URL=http://127.0.0.1:PORT OCINF_LIVE_PASSWORD=... OCINF_LIVE_SESSION=ses_... OCINF_LIVE_CLI=path\opencode-cli.exe
++mock.module("electron", () => ({ app: { getPath: () => ".", once: () => undefined } }))
++
++const { OCINF_LIVE_URL: url, OCINF_LIVE_PASSWORD: password, OCINF_LIVE_SESSION: session, OCINF_LIVE_CLI: cli } = process.env
++
++test.skipIf(!url || !password || !session || !cli)(
++  "the probe answers and continue reaches the chat",
++  async () => {
++    const { probeIp, resumeSession } = await import("./infinite")
++    const { SidecarCredentials } = await import("../service/sidecar-credentials")
++    SidecarCredentials.set({ url: url!, password: password! })
++
++    const started = Date.now()
++    expect(await probeIp([cli!])).toBe("ok")
++    console.log(`probe took ${((Date.now() - started) / 1000).toFixed(1)} s`)
++
++    expect(await resumeSession(session!)).toBe(true)
++    const auth = { Authorization: SidecarCredentials.authorization(SidecarCredentials.get(), `${url}/api`)! }
++    // The server took the message; the chat must also show it and get an answer after it.
++    for (let i = 0; i < 60; i++) {
++      const messages: { type: string; text?: string }[] = (await (await fetch(`${url}/api/session/${session}/message`, { headers: auth })).json()).data
++      const sent = messages.findIndex((message) => message.type === "user" && message.text === "continue")
++      // Newest first: an assistant message before the "continue" one is its answer.
++      if (sent > 0 && messages.slice(0, sent).some((message) => message.type === "assistant")) return
++      await new Promise((resolve) => setTimeout(resolve, 1000))
++    }
++    throw new Error('no answer after "continue"')
++  },
++  180_000,
++)
 diff --git a/packages/desktop/src/main/infinite/infinite.test.ts b/packages/desktop/src/main/infinite/infinite.test.ts
 new file mode 100644
 index 0000000..44e3e49
@@ -1327,10 +1367,10 @@ index 0000000..44e3e49
 +})
 diff --git a/packages/desktop/src/main/infinite/infinite.ts b/packages/desktop/src/main/infinite/infinite.ts
 new file mode 100644
-index 0000000..27ac4ec
+index 0000000..b8c2b9a
 --- /dev/null
 +++ b/packages/desktop/src/main/infinite/infinite.ts
-@@ -0,0 +1,661 @@
+@@ -0,0 +1,666 @@
 +import { app } from "electron"
 +import { execFile, spawn, type ChildProcess } from "node:child_process"
 +import { existsSync, readFileSync } from "node:fs"
@@ -1833,13 +1873,15 @@ index 0000000..27ac4ec
 +const HUNT_MAX = 10
 +
 +/** One cheap message on a throwaway session (`run --standalone` has its own server) through the current proxy. */
-+function probeIp(command: readonly string[]) {
++export function probeIp(command: readonly string[]) {
 +  return new Promise<"ok" | "limit" | "failed">((resolve) => {
 +    // --archived keeps the probe sessions out of the session list.
 +    const args = ["run", "--standalone", "--archived", "-m", PROBE_MODEL, "Reply with exactly the word: pong"]
 +    const proc = spawn(command[0]!, [...command.slice(1), ...args], {
 +      env: { ...process.env, ...proxyEnv() },
 +      windowsHide: true,
++      // stdin must be closed: `run` reads it when it is a pipe and would wait there until the timeout.
++      stdio: ["ignore", "pipe", "pipe"],
 +    })
 +    let out = ""
 +    let err = ""
@@ -1859,10 +1901,14 @@ index 0000000..27ac4ec
 +/** Rotates until a probe on a throwaway session gets an answer, so the chat only ever meets a working IP. */
 +export async function huntIp(command: readonly string[]): Promise<Result> {
 +  const result = await hunt(command)
-+  // The bar shows how the hunt ended, instead of staying on "looking for a free IP".
-+  const at = new Date().toLocaleTimeString()
-+  autoNote = result.ok ? `auto-rotated at ${at}` : `auto-rotate failed at ${at}: ${result.message}`
++  // A failure ends here; after a success the caller still has to send "continue" and reports that itself.
++  if (!result.ok) autoStatus(`auto-rotate failed: ${result.message}`, true)
 +  return result
++}
++
++/** What the bar shows about Auto-rotate: only what has really happened, with the time once it is over. */
++export function autoStatus(text: string, done = false) {
++  autoNote = done ? `${text} (${new Date().toLocaleTimeString()})` : text
 +}
 +
 +async function hunt(command: readonly string[]): Promise<Result> {
@@ -1872,9 +1918,10 @@ index 0000000..27ac4ec
 +  const brokenMax = getMode() === "PROXY" ? HUNT_MAX : 2
 +  let broken = 0
 +  for (let attempt = 1; attempt <= HUNT_MAX; attempt++) {
-+    autoNote = `looking for a free IP (${attempt}/${HUNT_MAX})`
++    autoStatus(`changing the IP (${attempt}/${HUNT_MAX})…`)
 +    const net = await rotateOnly()
 +    if (!net.ok) return net
++    autoStatus(`testing ${net.ip ?? "the new IP"} on a temporary session (${attempt}/${HUNT_MAX})…`)
 +    const state = await probeIp(command)
 +    if (state === "ok") return { ...net, message: `${net.message} - works after ${attempt} ${attempt === 1 ? "try" : "tries"}` }
 +    broken = state === "failed" ? broken + 1 : 0
@@ -1931,8 +1978,6 @@ index 0000000..27ac4ec
 +    if (res && res.status < 500) break
 +    await sleep(500)
 +  }
-+  // The IP changed but the chat did not get the message: say so in the bar instead of looking finished.
-+  autoNote += " - could not send \"continue\" to the chat, send it yourself"
 +  return false
 +}
 +
@@ -1950,7 +1995,7 @@ index 0000000..27ac4ec
 +    if (streak >= 10) return void (autoNote = "auto-rotate paused: 10 rotations in a row, it tries again in 3 minutes")
 +    last = now
 +    streak++
-+    autoNote = `auto-rotated x${streak} (${why}) at ${new Date().toLocaleTimeString()}`
++    autoStatus(`${why}, changing the IP…`)
 +    rotateNow(sessionID)
 +  }
 +
@@ -1994,10 +2039,10 @@ index 0000000..27ac4ec
 +}
 diff --git a/packages/desktop/src/main/ipc-handlers/infinite.ts b/packages/desktop/src/main/ipc-handlers/infinite.ts
 new file mode 100644
-index 0000000..cb75220
+index 0000000..c827dea
 --- /dev/null
 +++ b/packages/desktop/src/main/ipc-handlers/infinite.ts
-@@ -0,0 +1,125 @@
+@@ -0,0 +1,136 @@
 +import { Effect } from "effect"
 +import { InfiniteRpcs } from "../../shared/ipc-rpc/infinite"
 +import {
@@ -2007,6 +2052,7 @@ index 0000000..cb75220
 +  fetchList,
 +  getMode,
 +  getOptions,
++  autoStatus,
 +  huntIp,
 +  lock,
 +  restoreSession,
@@ -2102,8 +2148,18 @@ index 0000000..cb75220
 +            yield* stopService
 +            yield* startService
 +          }
-+          // The conversation goes on by itself once the new IP works.
-+          if (net.ok && sessionID) yield* Effect.ignore(Effect.tryPromise(() => resumeSession(sessionID)))
++          if (!net.ok) return net
++          // The conversation goes on by itself once the new IP works; the bar says whether the message really went.
++          if (!sessionID) {
++            autoStatus(`new IP ${net.ip ?? ""} works, no chat to continue`, true)
++            return net
++          }
++          autoStatus(`new IP ${net.ip ?? ""} works, sending "continue"…`)
++          const sent = yield* Effect.promise(() => resumeSession(sessionID).catch(() => false))
++          autoStatus(
++            sent ? `new IP ${net.ip ?? ""} works, "continue" sent to your chat` : `new IP ${net.ip ?? ""} works, but "continue" could not be sent: send it yourself`,
++            true,
++          )
 +          return net
 +        }),
 +      )

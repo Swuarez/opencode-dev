@@ -7,6 +7,7 @@ import {
   fetchList,
   getMode,
   getOptions,
+  autoStatus,
   huntIp,
   lock,
   restoreSession,
@@ -102,8 +103,18 @@ export const infiniteHandlers = InfiniteRpcs.toLayer(
             yield* stopService
             yield* startService
           }
-          // The conversation goes on by itself once the new IP works.
-          if (net.ok && sessionID) yield* Effect.ignore(Effect.tryPromise(() => resumeSession(sessionID)))
+          if (!net.ok) return net
+          // The conversation goes on by itself once the new IP works; the bar says whether the message really went.
+          if (!sessionID) {
+            autoStatus(`new IP ${net.ip ?? ""} works, no chat to continue`, true)
+            return net
+          }
+          autoStatus(`new IP ${net.ip ?? ""} works, sending "continue"…`)
+          const sent = yield* Effect.promise(() => resumeSession(sessionID).catch(() => false))
+          autoStatus(
+            sent ? `new IP ${net.ip ?? ""} works, "continue" sent to your chat` : `new IP ${net.ip ?? ""} works, but "continue" could not be sent: send it yourself`,
+            true,
+          )
           return net
         }),
       )
