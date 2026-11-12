@@ -46,6 +46,7 @@ const clampOpacity = (value: number) => (Number.isFinite(value) ? Math.min(100, 
 
 let observer: MutationObserver | undefined
 let flowing = false
+let lastDrift = -1
 // Share of each surface that stays over the background picture; 100 without a picture.
 let surfaceAlpha = 100
 // Lightness of the rainbow surfaces, in SURFACES order: dark mode, then light mode.
@@ -134,12 +135,13 @@ export function setBackgroundOpacity(value: number) {
   applyBackground()
 }
 
-// Hue moves ~36 degrees a second, a frame every 90 ms as in the .bat; a still page when the user asks for less motion.
+// The accents move ~36 degrees a second, a frame every 90 ms as in the .bat; a still page when the user asks for less motion.
 function tickRainbow() {
   const root = document.documentElement
   if (root.dataset.theme !== "rainbow") {
     if (!flowing) return
     flowing = false
+    lastDrift = -1
     for (const name of ACCENTS) root.style.removeProperty(name)
     paintText(getTextColor() || undefined)
     applyBackground()
@@ -147,18 +149,22 @@ function tickRainbow() {
   }
   flowing = true
   const hue = (Date.now() / 28) % 360
-  const textHue = (hue + 180) % 360
   const dark = root.dataset.colorScheme === "dark"
   const color = `hsl(${hue.toFixed(0)} 85% ${dark ? 66 : 46}%)`
   root.style.setProperty("--v2-background-bg-accent", `hsl(${hue.toFixed(0)} 70% ${dark ? 36 : 52}%)`)
   for (const name of ACCENTS.slice(1)) root.style.setProperty(name, color)
-  // The background flows as well: every surface takes the hue, dark (or pale) enough to read on, over the picture if any.
+  // Only the accents move fast. The background and the text drift: one degree every half second, a full turn in
+  // three minutes, so the window is never seen changing while you read.
+  const drift = Math.floor(Date.now() / 500) % 360
+  if (drift === lastDrift) return
+  lastDrift = drift
+  const textHue = (drift + 180) % 360
   RAINBOW_SURFACES[dark ? "dark" : "light"].forEach((light, index) => {
-    const surface = `hsl(${hue.toFixed(0)} ${dark ? 60 : 80}% ${light}%)`
+    const surface = `hsl(${drift} ${dark ? 60 : 80}% ${light}%)`
     root.style.setProperty(SURFACES[index]!, surfaceAlpha === 100 ? surface : `color-mix(in srgb, ${surface} ${surfaceAlpha}%, transparent)`)
   })
-  // The text flows too, in the opposite hue of the background and lighter (darker in light mode), so it stays readable.
-  if (!getTextColor()) paintText(`hsl(${textHue.toFixed(0)} 90% ${dark ? 82 : 26}%)`)
+  // The text takes the opposite hue of the background, lighter (darker in light mode), so it stays readable.
+  if (!getTextColor()) paintText(`hsl(${textHue} 90% ${dark ? 82 : 26}%)`)
 }
 
 /** Starts both effects once; the theme machine changes data-theme / data-color-scheme and the style element on every switch. */

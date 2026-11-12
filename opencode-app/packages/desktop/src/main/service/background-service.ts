@@ -2,7 +2,7 @@ import { app } from "electron"
 import type { Endpoint } from "@opencode/client/service"
 import nodePath from "node:path"
 import { Context, Effect, FileSystem, Layer, Option, Path, Schema } from "effect"
-import { prepareMode, proxyEnv } from "../infinite/infinite"
+import { prepareMode, serviceEnv } from "../infinite/infinite"
 import { SidecarChanged } from "../../shared/ipc-rpc/events"
 import { CHANNEL } from "../constants"
 import { emitIpcEvent } from "../ipc-events"
@@ -68,7 +68,7 @@ const ensure = Effect.fn("BackgroundService.ensure")(function* (mode: Background
       version,
       // A fixed port makes a second contender fail to bind and back off; port 0 never collides, so two
       // services could boot against the same database.
-      env: proxyEnv(),
+      env: serviceEnv(),
       command: [
         ...setup.cli.command,
         "serve",

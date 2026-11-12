@@ -107,6 +107,24 @@ export function proxyEnv(): Record<string, string> {
   return { HTTP_PROXY: url, HTTPS_PROXY: url, http_proxy: url, https_proxy: url, NO_PROXY: skip, no_proxy: skip }
 }
 
+// Context windows measured against the free models (largest prompt that passed, 2026-11). Only the ones whose
+// declared window was wrong are listed; the rest (glm-5.3, iceman, flint at 262144, mimo-v2.6 at 327680, the 1M
+// models) already declare what they take.
+// shortcut: a fixed table, a model that changes upstream keeps this value; measure again if a model starts failing.
+const MODEL_LIMITS: Record<string, { context: number; input?: number }> = {
+  "deepseek-v4.1-flash-free": { context: 262_144 },
+  "nemotron-3.5-lightning-free": { context: 490_000 },
+  "big-pickle": { context: 305_000, input: 305_000 },
+}
+
+/** Everything the background service gets from Infinite: the proxy, and the context limits as inline config. */
+export function serviceEnv(): Record<string, string> {
+  // A config the user passed in the environment themselves wins.
+  if (process.env.OPENCODE_CONFIG_CONTENT) return proxyEnv()
+  const models = Object.fromEntries(Object.entries(MODEL_LIMITS).map(([id, limit]) => [id, { limit }]))
+  return { ...proxyEnv(), OPENCODE_CONFIG_CONTENT: JSON.stringify({ providers: { opencode: { models } } }) }
+}
+
 function run(file: string, args: string[], timeout = 20_000) {
   return new Promise<{ ok: boolean; out: string }>((resolve) => {
     execFile(file, args, { timeout, windowsHide: true }, (error, stdout, stderr) =>
@@ -477,13 +495,16 @@ export function lock() {
 export const rotateOnly = () => rotate(getMode()).then(remember)
 
 const PROBE_MODEL = "opencode/deepseek-v4.1-flash-free"
-const PROBE_LIMIT = /free usage limit|usage limit|rate limit|insufficient credits|out of usage|payment required/i
+// Only what a new IP can lift. A budget or credit message is not one: it ends the hunt as a failed probe instead.
+const PROBE_LIMIT = /free usage limit|rate limit|too many requests/i
 const HUNT_MAX = 10
 
 /** One cheap message on a throwaway session (`run --standalone` has its own server) through the current proxy. */
 function probeIp(command: readonly string[]) {
   return new Promise<"ok" | "limit" | "failed">((resolve) => {
-    const proc = spawn(command[0]!, [...command.slice(1), "run", "--standalone", "-m", PROBE_MODEL, "Reply with exactly the word: pong"], {
+    // --archived keeps the probe sessions out of the session list.
+    const args = ["run", "--standalone", "--archived", "-m", PROBE_MODEL, "Reply with exactly the word: pong"]
+    const proc = spawn(command[0]!, [...command.slice(1), ...args], {
       env: { ...process.env, ...proxyEnv() },
       windowsHide: true,
     })
@@ -495,14 +516,27 @@ function probeIp(command: readonly string[]) {
     proc.once("error", () => resolve("failed"))
     proc.once("close", (code) => {
       clearTimeout(timer)
-      if (PROBE_LIMIT.test(err) || (code !== 0 && PROBE_LIMIT.test(out))) return resolve("limit")
-      resolve(code === 0 && out.trim() ? "ok" : "failed")
+      // Only the answer that was asked for proves the IP works; only a limit text proves it is burned.
+      if (code === 0 && /pong/i.test(out)) return resolve("ok")
+      resolve(PROBE_LIMIT.test(err) || PROBE_LIMIT.test(out) ? "limit" : "failed")
     })
   })
 }
 
 /** Rotates until a probe on a throwaway session gets an answer, so the chat only ever meets a working IP. */
 export async function huntIp(command: readonly string[]): Promise<Result> {
+  const result = await hunt(command)
+  // The bar shows how the hunt ended, instead of staying on "looking for a free IP".
+  const at = new Date().toLocaleTimeString()
+  autoNote = result.ok ? `auto-rotated at ${at}` : `auto-rotate failed at ${at}: ${result.message}`
+  return result
+}
+
+async function hunt(command: readonly string[]): Promise<Result> {
+  // None has no IP to change: probing it again would only spend free messages.
+  if (getMode() === "NONE") return { ok: false, message: "pick WARP, Tor or Proxy first (None cannot change the IP)" }
+  // A dead free proxy fails the probe without being a limit, so Proxy keeps trying; elsewhere two in a row mean the probe is broken.
+  const brokenMax = getMode() === "PROXY" ? HUNT_MAX : 2
   let broken = 0
   for (let attempt = 1; attempt <= HUNT_MAX; attempt++) {
     autoNote = `looking for a free IP (${attempt}/${HUNT_MAX})`
@@ -510,15 +544,18 @@ export async function huntIp(command: readonly string[]): Promise<Result> {
     if (!net.ok) return net
     const state = await probeIp(command)
     if (state === "ok") return { ...net, message: `${net.message} - works after ${attempt} ${attempt === 1 ? "try" : "tries"}` }
-    // A probe that fails for another reason is no proof the IP is burned; two in a row mean the probe itself is broken.
-    if (state === "failed" && ++broken >= 2) return { ok: false, message: "The IP probe failed twice for a reason that is not a limit." }
+    broken = state === "failed" ? broken + 1 : 0
+    if (broken >= brokenMax) return { ok: false, message: "the IP probe failed for a reason that is not a limit" }
   }
-  return { ok: false, message: `No free IP after ${HUNT_MAX} tries.` }
+  return { ok: false, message: `no free IP after ${HUNT_MAX} tries` }
 }
 
-// What the server calls a limit: see toSessionError in packages/core/src/session/to-session-error.ts. Only the ones a
-// new IP can lift: the free allowance and rate limits. Account budgets (Go, ChatGPT, quota) would not change.
-const LIMIT_ERRORS = /^provider\.(free-limit|rate-limit)$/
+// What the server calls a limit: see toSessionError in packages/core/src/session/to-session-error.ts. Only the free
+// allowance counts. A rate limit (429) passes by itself and may come from the user's own provider, and account
+// budgets (Go, ChatGPT, quota) do not change with the IP: rotating for those would be a false alarm.
+const LIMIT_ERROR = "provider.free-limit"
+// An event older than this was replayed by a reconnect, not raised now.
+const LIMIT_FRESH_MS = 60_000
 
 /** The session a server-sent event block reports as stopped by a limit, `""` when it names none, else undefined. */
 export function limitSession(block: string) {
@@ -533,7 +570,8 @@ export function limitSession(block: string) {
     // v2 events carry the error in `data`, the older ones in `properties`.
     const body = event.data ?? event.properties
     const type: unknown = body?.error?.type
-    if (typeof type !== "string" || !LIMIT_ERRORS.test(type)) return undefined
+    if (type !== LIMIT_ERROR) return undefined
+    if (typeof event.created === "number" && Date.now() - event.created > LIMIT_FRESH_MS) return undefined
     return typeof body.sessionID === "string" ? body.sessionID : ""
   } catch {
     return undefined
@@ -557,9 +595,11 @@ export async function resumeSession(sessionID: string) {
         }).catch(() => undefined)
       : undefined
     if (res?.ok) return true
-    if (res && res.status < 500) return false
+    if (res && res.status < 500) break
     await sleep(500)
   }
+  // The IP changed but the chat did not get the message: say so in the bar instead of looking finished.
+  autoNote += " - could not send \"continue\" to the chat, send it yourself"
   return false
 }
 
@@ -573,7 +613,8 @@ export function startWatch(rotateNow: (sessionID: string) => void) {
     if (!load().auto || locked) return
     if (now - last > 180_000) streak = 0
     // A fresh IP can be burned too (WARP needed 4 tries in a test): repeat quickly, but not forever.
-    if (now - last < 3_000 || streak >= 10) return
+    if (now - last < 3_000) return
+    if (streak >= 10) return void (autoNote = "auto-rotate paused: 10 rotations in a row, it tries again in 3 minutes")
     last = now
     streak++
     autoNote = `auto-rotated x${streak} (${why}) at ${new Date().toLocaleTimeString()}`
