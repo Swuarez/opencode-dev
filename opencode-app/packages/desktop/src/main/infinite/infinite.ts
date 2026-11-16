@@ -299,12 +299,17 @@ const MODEL_LIMITS: Record<string, { context: number; input?: number }> = {
   "big-pickle": { context: 305_000, input: 305_000 },
 }
 
-/** Everything the background service gets from Infinite: the proxy, and the context limits as inline config. */
+/**
+ * Everything the background service gets from Infinite: the proxy, the context limits as inline config, and the
+ * shared database. The CLI is built for a custom channel, which would otherwise open its own empty
+ * `opencode-<channel>.db` and hide the user's existing chats in `opencode.db`.
+ */
 export function serviceEnv(): Record<string, string> {
+  const base = { ...proxyEnv(), OPENCODE_DISABLE_CHANNEL_DB: "1" }
   // A config the user passed in the environment themselves wins.
-  if (process.env.OPENCODE_CONFIG_CONTENT) return proxyEnv()
+  if (process.env.OPENCODE_CONFIG_CONTENT) return base
   const models = Object.fromEntries(Object.entries(MODEL_LIMITS).map(([id, limit]) => [id, { limit }]))
-  return { ...proxyEnv(), OPENCODE_CONFIG_CONTENT: JSON.stringify({ providers: { opencode: { models } } }) }
+  return { ...base, OPENCODE_CONFIG_CONTENT: JSON.stringify({ providers: { opencode: { models } } }) }
 }
 
 function run(file: string, args: string[], timeout = 20_000) {

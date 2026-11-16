@@ -508,7 +508,7 @@ the file to an issue.
 
 **Get it.** It is attached to the [latest release](https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest) as a link, because it is too big (about 268 MiB, 281 MB) for a release file. Direct link: `https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest/downloads/OpenCode-Infinite-Desktop.exe`. Check it against the SHA-256 below before you run it.
 
-SHA-256: `d5ad878a3afa8c00d818b75e5dafa34c5155990781799418dad6495b96e38567`
+SHA-256: `c5184292da6174f947045a57c4b0006142fe9a83f1e34a992fae1a8d5f401f41`
 
 **What you need.**
 
