@@ -97,4 +97,11 @@ export const api: ElectronAPI = {
   infiniteRestoreSession: () => invoke("InfiniteRestoreSession").then(mutable),
   infiniteAutoRotate: (sessionID: string) => invoke("InfiniteAutoRotate", { sessionID }),
   infiniteFetchList: (url: string) => invoke("InfiniteFetchList", { url }),
+  infiniteClearBurned: () => invoke("InfiniteClearBurned").then(mutable),
+  infiniteRoute64Import: (text: string) => invoke("InfiniteRoute64Import", { text }).then(mutable),
+  infiniteRoute64Status: () => invoke("InfiniteRoute64Status").then(mutable),
+  infiniteRoute64Up: () => invoke("InfiniteRoute64Up").then(mutable),
+  infiniteRoute64Remove: () => invoke("InfiniteRoute64Remove").then(mutable),
+  infiniteToolPlan: (tool) => invoke("InfiniteToolPlan", { tool }).then(mutable),
+  infiniteToolInstall: (tool, confirmed) => invoke("InfiniteToolInstall", { tool, confirmed }).then(mutable),
 }

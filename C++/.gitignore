@@ -1,6 +1,0 @@
-﻿# Build output and Visual Studio state
-obj/
-.vs/
-# Local per-user settings and backup copies
-*.user
-*.bak-*

@@ -6,14 +6,6 @@ const KEY_OPACITY = "infinite-bg-opacity"
 const MAX_SIDE = 1920
 // The layers that paint the window; the rest of the interface sits on top of them.
 const SURFACES = ["base", "deep", "layer-01", "layer-02", "layer-03", "layer-04"].map((name) => `--v2-background-bg-${name}`)
-// The accent tokens the rainbow theme moves, like the .bat's flowing colors.
-const ACCENTS = [
-  "--v2-background-bg-accent",
-  "--surface-interactive-base",
-  "--text-interactive-base",
-  "--border-interactive-base",
-  "--icon-interactive-base",
-]
 
 // Text tokens by weight: the full color, then the muted and the faint steps mixed from it.
 const TEXTS: [string, number][] = [
@@ -31,6 +23,8 @@ const TEXTS: [string, number][] = [
   ["--v2-icon-icon-faint", 52],
 ]
 const KEY_TEXT = "infinite-text-color"
+const KEY_RAINBOW = "infinite-rainbow"
+export type RainbowTarget = "text" | "background"
 
 const read = (key: string) => {
   try {
@@ -135,36 +129,48 @@ export function setBackgroundOpacity(value: number) {
   applyBackground()
 }
 
-// The accents move ~36 degrees a second, a frame every 90 ms as in the .bat; a still page when the user asks for less motion.
+/** What the rainbow theme moves: only the text, or only the background. Text is the default. */
+export const getRainbow = (): RainbowTarget => (read(KEY_RAINBOW) === "background" ? "background" : "text")
+
+/** Saves the rainbow target and puts the look back, so the change is seen at once. */
+export function setRainbow(target: RainbowTarget) {
+  try {
+    localStorage.setItem(KEY_RAINBOW, target)
+  } catch {}
+  restoreLook()
+}
+
+// Back to the theme's own text and background; the rainbow starts again on the next tick if the theme is still rainbow.
+function restoreLook() {
+  lastDrift = -1
+  paintText(getTextColor() || undefined)
+  applyBackground()
+}
+
+// One degree every half second (a full turn in three minutes) so the change is slow enough to read over; a still page
+// when the user asks for less motion.
 function tickRainbow() {
   const root = document.documentElement
   if (root.dataset.theme !== "rainbow") {
     if (!flowing) return
     flowing = false
-    lastDrift = -1
-    for (const name of ACCENTS) root.style.removeProperty(name)
-    paintText(getTextColor() || undefined)
-    applyBackground()
+    restoreLook()
     return
   }
   flowing = true
-  const hue = (Date.now() / 28) % 360
   const dark = root.dataset.colorScheme === "dark"
-  const color = `hsl(${hue.toFixed(0)} 85% ${dark ? 66 : 46}%)`
-  root.style.setProperty("--v2-background-bg-accent", `hsl(${hue.toFixed(0)} 70% ${dark ? 36 : 52}%)`)
-  for (const name of ACCENTS.slice(1)) root.style.setProperty(name, color)
-  // Only the accents move fast. The background and the text drift: one degree every half second, a full turn in
-  // three minutes, so the window is never seen changing while you read.
   const drift = Math.floor(Date.now() / 500) % 360
   if (drift === lastDrift) return
   lastDrift = drift
-  const textHue = (drift + 180) % 360
-  RAINBOW_SURFACES[dark ? "dark" : "light"].forEach((light, index) => {
-    const surface = `hsl(${drift} ${dark ? 60 : 80}% ${light}%)`
-    root.style.setProperty(SURFACES[index]!, surfaceAlpha === 100 ? surface : `color-mix(in srgb, ${surface} ${surfaceAlpha}%, transparent)`)
-  })
+  if (getRainbow() === "background") {
+    RAINBOW_SURFACES[dark ? "dark" : "light"].forEach((light, index) => {
+      const surface = `hsl(${drift} ${dark ? 60 : 80}% ${light}%)`
+      root.style.setProperty(SURFACES[index]!, surfaceAlpha === 100 ? surface : `color-mix(in srgb, ${surface} ${surfaceAlpha}%, transparent)`)
+    })
+    return
+  }
   // The text takes the opposite hue of the background, lighter (darker in light mode), so it stays readable.
-  if (!getTextColor()) paintText(`hsl(${textHue} 90% ${dark ? 82 : 26}%)`)
+  if (!getTextColor()) paintText(`hsl(${(drift + 180) % 360} 90% ${dark ? 82 : 26}%)`)
 }
 
 /** Starts both effects once; the theme machine changes data-theme / data-color-scheme and the style element on every switch. */

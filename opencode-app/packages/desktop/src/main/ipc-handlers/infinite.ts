@@ -4,13 +4,16 @@ import {
   applyMode,
   archiveAuth,
   checkIp,
+  clearBurned,
   fetchList,
   getMode,
   getOptions,
   autoStatus,
   huntIp,
+  leaveMode,
   lock,
   restoreSession,
+  pending,
   resumeSession,
   rotateOnly,
   setMode,
@@ -19,6 +22,8 @@ import {
   upstreamKnown,
   type Result,
 } from "../infinite/infinite"
+import { install, plan } from "../infinite/install"
+import { bringUpRoute64, importRoute64, removeRoute64, route64Status } from "../infinite/route64"
 import { BackgroundService, registrationFile } from "../service/background-service"
 import { DesktopCli } from "../service/desktop-cli"
 
@@ -63,8 +68,11 @@ export const infiniteHandlers = InfiniteRpcs.toLayer(
     const setModeFlow = (mode: Parameters<typeof applyMode>[0]) =>
       guarded(
         Effect.gen(function* () {
+          const previous = getMode()
           yield* stopService
           yield* Effect.tryPromise(() => setMode(mode))
+          // Leaving Route64 takes its tunnel down; leaving Mullvad or Windscribe disconnects that client.
+          yield* Effect.tryPromise(() => leaveMode(previous, mode))
           return yield* withService(() => applyMode(mode))
         }),
       )
@@ -96,6 +104,7 @@ export const infiniteHandlers = InfiniteRpcs.toLayer(
     const autoRotate = (sessionID: string) =>
       guarded(
         Effect.gen(function* () {
+          const started = Date.now()
           const cli = yield* desktopCli.resolve
           const net = yield* Effect.tryPromise(() => huntIp(cli.command))
           // A proxy that changed needs the service restarted behind it.
@@ -104,22 +113,60 @@ export const infiniteHandlers = InfiniteRpcs.toLayer(
             yield* startService
           }
           if (!net.ok) return net
-          // The conversation goes on by itself once the new IP works; the bar says whether the message really went.
-          if (!sessionID) {
-            autoStatus(`new IP ${net.ip ?? ""} works, no chat to continue`, true)
+          // Every chat that is waiting gets "continue" on this one new IP, in parallel.
+          if (sessionID) pending.add(sessionID)
+          const chats = [...pending]
+          pending.clear()
+          const seconds = ((Date.now() - started) / 1000).toFixed(1)
+          if (!chats.length) {
+            autoStatus(`new IP ${net.ip ?? ""} works in ${seconds}s, no chat to continue`, true)
             return net
           }
-          autoStatus(`new IP ${net.ip ?? ""} works, sending "continue"…`)
-          const sent = yield* Effect.promise(() => resumeSession(sessionID).catch(() => false))
+          autoStatus(`new IP ${net.ip ?? ""} works, sending "continue" to ${chats.length} chat(s)…`)
+          const results = yield* Effect.promise(() =>
+            Promise.all(chats.map((id) => resumeSession(id).catch(() => false))),
+          )
+          const sent = results.filter(Boolean).length
+          // Timing of the whole rotation, for checking the 3-5 s target in logs.
+          console.info(`[auto-rotate] ${chats.length} chat(s) continued in ${seconds}s (${sent} sent)`)
           autoStatus(
-            sent ? `new IP ${net.ip ?? ""} works, "continue" sent to your chat` : `new IP ${net.ip ?? ""} works, but "continue" could not be sent: send it yourself`,
+            sent === chats.length
+              ? `new IP ${net.ip ?? ""} in ${seconds}s, "continue" sent to ${sent} chat(s)`
+              : `new IP ${net.ip ?? ""} in ${seconds}s, "continue" sent to ${sent} of ${chats.length} chat(s): send the rest yourself`,
             true,
           )
           return net
         }),
       )
 
-    const trigger = startWatch((sessionID) => void runFork(autoRotate(sessionID)))
+    // Failed hunts in a row. The chats stay waiting and are retried a little later, then reported for the user.
+    let failedHunts = 0
+    const trigger = startWatch((sessionID) =>
+      void runFork(
+        autoRotate(sessionID).pipe(
+          Effect.tap((net) =>
+            Effect.sync(() => {
+              if (net.ok) {
+                failedHunts = 0
+                // A chat that reached the limit while this rotation was resuming the others starts its own rotation.
+                if (pending.size) trigger("chats waiting")
+                return
+              }
+              if (!pending.size) return
+              if (failedHunts < 3) {
+                failedHunts++
+                autoStatus(`no working IP (${net.message}), retrying in 60 s (${failedHunts}/3)`)
+                setTimeout(() => trigger("retry after a failed IP"), 60_000)
+                return
+              }
+              failedHunts = 0
+              autoStatus(`no working IP after 3 tries: send "continue" yourself in ${pending.size} chat(s)`, true)
+              pending.clear()
+            }),
+          ),
+        ),
+      ),
+    )
 
     return InfiniteRpcs.of({
       InfiniteGetMode: () => Effect.sync(getMode),
@@ -128,9 +175,16 @@ export const infiniteHandlers = InfiniteRpcs.toLayer(
       InfiniteRestoreSession: restoreFlow,
       InfiniteAutoRotate: ({ sessionID }) => Effect.sync(() => trigger("limit reached", sessionID)),
       InfiniteFetchList: ({ url }) => Effect.promise(() => fetchList(url)),
+      InfiniteClearBurned: () => Effect.promise(clearBurned),
       InfiniteCheckIp: () => Effect.promise(checkIp),
       InfiniteGetOptions: () => Effect.sync(getOptions),
       InfiniteSetOptions: (options) => Effect.promise(() => setOptions(options).then(getOptions)),
+      InfiniteToolPlan: ({ tool }) => Effect.promise(() => plan(tool)),
+      InfiniteToolInstall: ({ tool, confirmed }) => Effect.promise(() => install(tool, confirmed)),
+      InfiniteRoute64Import: ({ text }) => Effect.promise(() => importRoute64(text)),
+      InfiniteRoute64Status: () => Effect.promise(route64Status),
+      InfiniteRoute64Up: () => Effect.promise(bringUpRoute64),
+      InfiniteRoute64Remove: () => Effect.promise(removeRoute64),
     })
   }),
 )

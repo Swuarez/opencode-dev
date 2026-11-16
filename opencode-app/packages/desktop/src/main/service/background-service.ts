@@ -73,7 +73,7 @@ const ensure = Effect.fn("BackgroundService.ensure")(function* (mode: Background
         ...setup.cli.command,
         "serve",
         "--service",
-        ...(setup.isolated ? ["--hostname", "0.0.0.0", "--port", String(0x0c0c)] : []),
+        ...(setup.isolated ? ["--hostname", "0.0.0.0", "--port", String(0x0c0d)] : []),
       ],
       onStart: (reason, previousVersion) =>
         runFork(Effect.logInfo("v2 CLI background service starting", { reason, previousVersion })),
@@ -112,10 +112,21 @@ const prepare = Effect.fn("BackgroundService.prepare")(function* (mode: Backgrou
   if (isolated) process.env.XDG_STATE_HOME = app.getPath("userData")
   const client = yield* Effect.promise(() => import("@opencode/client/service"))
 
-  const file = registrationFile()
+  const file = registrationFile() ?? customChannelFile(cli.version)
 
   return { cli, client, file, isolated, version }
 })
+
+// A CLI built for a custom channel (`0.0.0-<channel>-<timestamp>`) registers in `service-<channel>.json`, not `service.json`.
+function customChannelFile(version: string) {
+  const channel = /^0\.0\.0-(.+)-\d{12}$/.exec(version)?.[1]
+  if (!channel || channel === "dev" || channel.startsWith("dev-")) return undefined
+  return nodePath.join(
+    process.env.XDG_STATE_HOME ?? nodePath.join(app.getPath("home"), ".local", "state"),
+    "opencode",
+    `service-${channel.replace(/[^a-zA-Z0-9._-]/g, "-")}.json`,
+  )
+}
 
 export function registrationFile() {
   return process.env.OPENCODE_DESKTOP_SERVER_CHANNEL === "local"

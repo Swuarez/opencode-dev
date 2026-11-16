@@ -55,6 +55,13 @@ export function createDesktopPlatform(api: ElectronAPI, windowState: DesktopWind
       restoreSession: () => api.infiniteRestoreSession(),
       autoRotate: (sessionID: string) => api.infiniteAutoRotate(sessionID),
       fetchList: (url: string) => api.infiniteFetchList(url),
+      clearBurned: () => api.infiniteClearBurned(),
+      route64Import: (text: string) => api.infiniteRoute64Import(text),
+      route64Status: () => api.infiniteRoute64Status(),
+      route64Up: () => api.infiniteRoute64Up(),
+      route64Remove: () => api.infiniteRoute64Remove(),
+      toolPlan: (tool: "WARP" | "WIREGUARD") => api.infiniteToolPlan(tool),
+      toolInstall: (tool: "WARP" | "WIREGUARD", confirmed: boolean) => api.infiniteToolInstall(tool, confirmed),
     },
     onDragCancel: (callback) => {
       window.addEventListener(DragCancelEvent, callback)

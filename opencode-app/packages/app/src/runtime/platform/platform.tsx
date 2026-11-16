@@ -116,15 +116,22 @@ type PlatformBase = {
 
   /** OpenCode Infinite: proxy mode and limit reset controls (desktop only) */
   infinite?: {
-    getMode(): Promise<"WARP" | "TOR" | "PROXY" | "NONE">
-    setMode(mode: "WARP" | "TOR" | "PROXY" | "NONE"): Promise<{ ok: boolean; message: string; ip?: string }>
+    getMode(): Promise<"WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE">
+    setMode(mode: "WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE"): Promise<{ ok: boolean; message: string; ip?: string }>
     resetLimit(): Promise<{ ok: boolean; message: string; ip?: string }>
-    getOptions(): Promise<{ auto: boolean; country: string; custom: string }>
-    setOptions(options: { auto: boolean; country: string; custom: string }): Promise<{ auto: boolean; country: string; custom: string }>
+    getOptions(): Promise<{ auto: boolean; country: string; custom: string; fast: boolean; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }>
+    setOptions(options: { auto: boolean; country: string; custom: string; fast: boolean; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }): Promise<{ auto: boolean; country: string; custom: string; fast: boolean; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }>
     checkIp(): Promise<{ ok: boolean; message: string; ip?: string }>
     restoreSession(): Promise<{ ok: boolean; message: string; ip?: string }>
     autoRotate(sessionID: string): Promise<void>
     fetchList(url: string): Promise<{ ok: boolean; text: string }>
+    clearBurned(): Promise<{ ok: boolean; message: string }>
+    route64Import(text: string): Promise<{ ok: boolean; message: string; endpoint?: string }>
+    route64Status(): Promise<{ imported: boolean; endpoint?: string; up: boolean }>
+    route64Up(): Promise<{ ok: boolean; message: string }>
+    route64Remove(): Promise<{ ok: boolean; message: string }>
+    toolPlan(tool: "WARP" | "WIREGUARD"): Promise<{ installed: boolean; url?: string; publisher?: string }>
+    toolInstall(tool: "WARP" | "WIREGUARD", confirmed: boolean): Promise<{ ok: boolean; message: string }>
   }
 
   /** Run a desktop-only menu action from the app chrome */

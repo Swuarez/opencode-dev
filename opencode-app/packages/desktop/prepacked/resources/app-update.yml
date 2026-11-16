@@ -1,0 +1,4 @@
+provider: generic
+url: https://opencode.ai/update/api/dev/desktop/opencode/
+channel: latest
+updaterCacheDirName: '@opencodedesktop-updater'

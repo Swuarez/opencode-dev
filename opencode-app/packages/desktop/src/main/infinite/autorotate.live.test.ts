@@ -3,7 +3,8 @@ import { expect, mock, test } from "bun:test"
 // Live check of the two Auto-rotate steps that talk to OpenCode: the probe on a temporary session and the
 // "continue" sent to the chat. It spends free messages, so it only runs when a server is given:
 //   OCINF_LIVE_URL=http://127.0.0.1:PORT OCINF_LIVE_PASSWORD=... OCINF_LIVE_SESSION=ses_... OCINF_LIVE_CLI=path\opencode-cli.exe
-mock.module("electron", () => ({ app: { getPath: () => ".", once: () => undefined } }))
+const electron = { app: { getPath: () => ".", once: () => undefined } }
+mock.module("electron", () => ({ ...electron, default: electron }))
 
 const { OCINF_LIVE_URL: url, OCINF_LIVE_PASSWORD: password, OCINF_LIVE_SESSION: session, OCINF_LIVE_CLI: cli } = process.env
 

@@ -80,13 +80,20 @@ export type ElectronAPI = {
   setSpellcheckEnabled(enabled: boolean): Promise<void>
   recordFatalRendererError(error: FatalRendererError): Promise<void>
   setNativeTranslations(bundle: DesktopNativeBundle): Promise<void>
-  infiniteGetMode(): Promise<"WARP" | "TOR" | "PROXY" | "NONE">
-  infiniteSetMode(mode: "WARP" | "TOR" | "PROXY" | "NONE"): Promise<{ ok: boolean; message: string; ip?: string }>
+  infiniteGetMode(): Promise<"WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE">
+  infiniteSetMode(mode: "WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE"): Promise<{ ok: boolean; message: string; ip?: string }>
   infiniteResetLimit(): Promise<{ ok: boolean; message: string; ip?: string }>
-  infiniteGetOptions(): Promise<{ auto: boolean; country: string; custom: string }>
-  infiniteSetOptions(options: { auto: boolean; country: string; custom: string }): Promise<{ auto: boolean; country: string; custom: string }>
+  infiniteGetOptions(): Promise<{ auto: boolean; country: string; custom: string; fast: boolean; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }>
+  infiniteSetOptions(options: { auto: boolean; country: string; custom: string; fast: boolean; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }): Promise<{ auto: boolean; country: string; custom: string; fast: boolean; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }>
   infiniteCheckIp(): Promise<{ ok: boolean; message: string; ip?: string }>
   infiniteRestoreSession(): Promise<{ ok: boolean; message: string; ip?: string }>
   infiniteAutoRotate(sessionID: string): Promise<void>
   infiniteFetchList(url: string): Promise<{ ok: boolean; text: string }>
+  infiniteClearBurned(): Promise<{ ok: boolean; message: string }>
+  infiniteRoute64Import(text: string): Promise<{ ok: boolean; message: string; endpoint?: string }>
+  infiniteRoute64Status(): Promise<{ imported: boolean; endpoint?: string; up: boolean }>
+  infiniteRoute64Up(): Promise<{ ok: boolean; message: string }>
+  infiniteRoute64Remove(): Promise<{ ok: boolean; message: string }>
+  infiniteToolPlan(tool: "WARP" | "WIREGUARD"): Promise<{ installed: boolean; url?: string; publisher?: string }>
+  infiniteToolInstall(tool: "WARP" | "WIREGUARD", confirmed: boolean): Promise<{ ok: boolean; message: string }>
 }
