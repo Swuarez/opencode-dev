@@ -710,6 +710,35 @@ function FastField() {
   )
 }
 
+// How many IPs one Auto-rotate tries before it gives up (see infinite.ts hunt). Saved when the field is left.
+function AttemptsField() {
+  const infinite = usePlatform().infinite
+  const [attempts, setAttempts] = createSignal(10)
+  onMount(() => void infinite?.getOptions().then((options) => setAttempts(options.attempts)))
+
+  const save = async (value: string) => {
+    const options = await infinite?.getOptions()
+    if (!options) return
+    // The main process clamps it to 1-50; the field shows what was really kept.
+    const kept = await infinite?.setOptions({ ...options, attempts: Number(value) })
+    if (kept) setAttempts(kept.attempts)
+  }
+
+  return (
+    <label class="flex items-center gap-2 text-12-regular text-v2-text-text-muted">
+      <input
+        type="number"
+        min="1"
+        max="50"
+        class={field.replace("w-full", "w-20")}
+        value={attempts()}
+        onChange={(event) => void save(event.currentTarget.value)}
+      />
+      IPs to try per rotation
+    </label>
+  )
+}
+
 // Basic: the connection itself is picked in the bottom bar. Here are the settings that change how it behaves.
 // Restore defaults: free proxy list, Auto-rotate on, no background, theme text color; the theme itself is kept.
 function BasicSection() {
@@ -744,6 +773,13 @@ function BasicSection() {
         hint='Fast mode sends "continue" as soon as the IP changes, without checking it first: about 3 to 4 s instead of about 7 s. If the new IP is already limited, the chat hits the limit again and rotates again.'
       >
         <FastField />
+      </Card>
+
+      <Card
+        title="Auto-rotate attempts"
+        hint="How many new IPs Auto-rotate tries, each checked on a temporary session, before it stops and tells you. More attempts find a free IP more often but can take longer. 1 to 50, default 10."
+      >
+        <AttemptsField />
       </Card>
 
       <Card title="Recent connection changes" hint="The last ten changes on this computer. Nothing is sent anywhere.">

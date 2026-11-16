@@ -57,6 +57,8 @@ type Saved = {
   auto: boolean
   country: string
   fast: boolean
+  /** How many IPs one Auto-rotate tries before it gives up. */
+  attempts: number
   rotateUrl: string
   vpnLocations: string
   socks: string
@@ -68,6 +70,10 @@ type Saved = {
   chain: string
 }
 let saved: Saved | undefined
+const HUNT_DEFAULT = 10
+/** IPs one Auto-rotate may try: a whole number from 1 to 50, the default when missing or invalid. */
+const attemptsOf = (value: unknown) =>
+  typeof value === "number" && Number.isFinite(value) ? Math.min(50, Math.max(1, Math.round(value))) : HUNT_DEFAULT
 const MODES: Mode[] = ["WARP", "TOR", "PROXY", "SOCKS", "ROUTE64", "MULLVAD", "WINDSCRIBE"]
 
 function load(): Saved {
@@ -83,6 +89,7 @@ function load(): Saved {
       auto: raw.auto === true,
       country: typeof raw.country === "string" && /^[A-Za-z]{2}$/.test(raw.country) ? raw.country.toUpperCase() : "",
       fast: raw.fast === true,
+      attempts: attemptsOf(raw.attempts),
       rotateUrl: typeof raw.rotateUrl === "string" ? raw.rotateUrl : "",
       vpnLocations: typeof raw.vpnLocations === "string" ? raw.vpnLocations : "",
       socks: typeof raw.socks === "string" ? raw.socks : "",
@@ -96,6 +103,7 @@ function load(): Saved {
       auto: false,
       country: "",
       fast: false,
+      attempts: HUNT_DEFAULT,
       rotateUrl: "",
       vpnLocations: "",
       socks: "",
@@ -117,6 +125,8 @@ export type Options = {
   country: string
   custom: string
   fast: boolean
+  /** How many IPs one Auto-rotate tries before it gives up (1 to 50). */
+  attempts: number
   /** Optional URL that changes the IP when opened; called before each rotation in Proxy mode. */
   rotateUrl: string
   /** Mullvad country codes or Windscribe location names, separated by commas or spaces. Empty means the default. */
@@ -133,6 +143,7 @@ export const getOptions = (): Options => ({
   country: load().country,
   custom: load().custom ?? "",
   fast: load().fast,
+  attempts: load().attempts,
   rotateUrl: load().rotateUrl,
   vpnLocations: load().vpnLocations,
   socks: load().socks,
@@ -255,6 +266,7 @@ const customList = () => (load().custom ?? "").split("\n").filter(Boolean)
 export async function setOptions(next: Options) {
   load().auto = next.auto
   load().fast = next.fast === true
+  load().attempts = attemptsOf(next.attempts)
   load().custom = normalizeProxies(next.custom).join("\n") || undefined
   load().country = /^[A-Za-z]{2}$/.test(next.country) ? next.country.toUpperCase() : ""
   load().rotateUrl = normalizeRotateUrl(next.rotateUrl ?? "")
@@ -300,9 +312,77 @@ function reachable(url: string) {
   })
 }
 
+const GATE_PORT = 18120
+const GATE_WAIT_MS = 75_000
+const gates = new Set<number>()
+// Tunnels the door already handed to WARP. A WARP re-registration does not close them: they hang without an answer
+// (seen in a live test), so the next request on a kept-alive connection stalls and ends in ECONNRESET.
+const open = new Set<Socket>()
+
+/** Closes the tunnels opened before a new WARP registration, so OpenCode reconnects on the new IP at once. */
+function dropGateTunnels() {
+  open.forEach((socket) => socket.destroy())
+  open.clear()
+}
+
+/**
+ * A local door in front of WARP. While WARP re-registers (a few seconds, longer when Cloudflare slows new
+ * registrations) its port refuses connections, which OpenCode shows as "ECONNREFUSED: Unable to connect". The door
+ * holds each request until WARP answers again, so a rotation costs a short wait instead of an error.
+ */
+// shortcut: CONNECT (https) only, like the SOCKS bridge; waits at most GATE_WAIT_MS per request, then refuses.
+export function warpGate(listen: number, to: number) {
+  if (gates.has(listen)) return
+  gates.add(listen)
+  createServer((client) => {
+    client.on("error", () => client.destroy())
+    client.once("data", (head) => {
+      client.pause() // whatever follows the first bytes waits for the pipe below
+      const until = Date.now() + GATE_WAIT_MS
+      const attempt = () => {
+        if (client.destroyed) return
+        const up = tcp(to, "127.0.0.1")
+        let passed = false
+        const retry = () => {
+          if (passed) return
+          passed = true
+          up.destroy()
+          if (Date.now() < until) setTimeout(attempt, 400)
+          else client.destroy()
+        }
+        up.once("error", retry)
+        up.once("close", retry)
+        up.once("connect", () => {
+          up.write(head)
+          up.once("data", (reply) => {
+            // A 5xx while WARP is still coming up is retried, not shown.
+            if (/^HTTP\/1\.\d 5/.test(reply.toString("latin1", 0, 12))) return retry()
+            passed = true
+            up.removeListener("error", retry)
+            up.removeListener("close", retry)
+            up.on("error", () => client.destroy())
+            open.add(client)
+            client.once("close", () => open.delete(client))
+            client.write(reply)
+            client.pipe(up)
+            up.pipe(client)
+          })
+        })
+      }
+      attempt()
+    })
+  })
+    .on("error", () => undefined) // port already taken: another door is serving it
+    .listen(listen, "127.0.0.1")
+}
+
 /** Environment handed to the background service so only OpenCode goes through the proxy. */
 export function proxyEnv(): Record<string, string> {
-  const url = upstream()
+  let url = upstream()
+  if (url === WARP_PROXY) {
+    warpGate(GATE_PORT, WARP_PORT)
+    url = `http://127.0.0.1:${GATE_PORT}`
+  }
   if (!url || proxyDead) return {}
   const skip = "127.0.0.1,localhost,::1"
   return { HTTP_PROXY: url, HTTPS_PROXY: url, http_proxy: url, https_proxy: url, NO_PROXY: skip, no_proxy: skip }
@@ -364,8 +444,24 @@ async function waitProxy() {
 
 type Connected = Result & { loc?: string }
 
+/**
+ * Creates a WARP registration when there is none. Cloudflare refuses new ones for a while after many in a row (seen in
+ * a live run), so it backs off and tries again; without a registration WARP has no proxy at all.
+ */
+async function ensureRegistration(): Promise<boolean> {
+  if ((await warp("registration", "show")).ok) return true
+  for (const wait of [0, 2_000, 4_000, 8_000, 12_000, 16_000]) {
+    await sleep(wait)
+    if ((await warp("registration", "new")).ok) return true
+  }
+  return false
+}
+
 async function connect(): Promise<Connected> {
   if (!(await warp("status")).ok) return { ok: false, message: "warp-cli not found (is Cloudflare WARP installed?)." }
+  // A rotation that lost its new registration (or a fresh install) leaves WARP unable to connect: make one first.
+  if (!(await ensureRegistration()))
+    return { ok: false, message: "Could not create a WARP registration (Cloudflare is refusing new ones for now)." }
   await warp("mode", "proxy")
   await warp("proxy", "port", String(WARP_PORT))
   if (!(await warp("connect")).ok) return { ok: false, message: "warp-cli connect failed." }
@@ -391,22 +487,12 @@ async function rotateWarp(): Promise<Result> {
 /** Same steps and waits as :reg_drop / :reg_new in the .bat. */
 async function newWarpRegistration(): Promise<Connected> {
   await warp("disconnect")
+  // Requests that arrive from here on wait at the door and leave on the new IP; the ones already through it are dead.
+  dropGateTunnels()
   await warp("registration", "delete")
   // The delete returns before the daemon lets go; wait until `registration show` stops answering.
   for (let i = 0; i < 15 && (await warp("registration", "show")).ok; i++) await sleep(300)
-  // Cloudflare refuses new registrations for a while after many in a row (seen in a live run); back off, then give up.
-  let created = await warp("registration", "new")
-  for (const wait of [2_000, 5_000, 10_000]) {
-    if (created.ok) break
-    await sleep(wait)
-    created = await warp("registration", "new")
-  }
-  if (!created.ok)
-    return {
-      ok: false,
-      message: "Could not create a WARP registration. Try warp-cli registration delete / new as administrator.",
-    }
-  return connect()
+  return connect() // creates the new registration, with the back-off, before connecting
 }
 
 // --- session ------------------------------------------------------------------------------------------------------
@@ -871,6 +957,8 @@ export async function checkIp(): Promise<Result> {
   }
   // Not reachable right now (still connecting, or rotating): show the IP OpenCode was last using, not an error.
   const last = known[mode]
+  // While a rotation holds the lock the network is down on purpose; saying "not answering" there looks like a failure.
+  if (locked) return { ok: false, ip: last, message: autoNote || "changing the IP…" }
   return last ? { ok: false, ip: last, message: "not answering right now" } : { ok: false, message: "connecting…" }
 }
 
@@ -892,7 +980,6 @@ export const rotateOnly = () => rotate(getMode()).then(remember)
 const PROBE_MODEL = "opencode/deepseek-v4.1-flash-free"
 // Only what a new IP can lift. A budget or credit message is not one: it ends the hunt as a failed probe instead.
 const PROBE_LIMIT = /free usage limit|rate limit|too many requests/i
-const HUNT_MAX = 10
 
 /** One cheap message on a throwaway session (`run --standalone` has its own server) through the current proxy. */
 export function probeIp(command: readonly string[]) {
@@ -939,11 +1026,12 @@ async function hunt(command: readonly string[]): Promise<Result> {
   if (chain.length === 1 && getMode() === "NONE")
     return { ok: false, message: "pick WARP, Tor or Proxy first (None cannot change the IP)" }
   // A dead free proxy fails the probe without being a limit, so Proxy keeps trying; elsewhere two in a row mean the probe is broken.
-  const brokenMax = () => (getMode() === "PROXY" ? HUNT_MAX : 2)
+  const max = load().attempts
+  const brokenMax = () => (getMode() === "PROXY" ? max : 2)
   let broken = 0
   let rotateFails = 0
   let stage = 0
-  for (let attempt = 1; attempt <= HUNT_MAX; attempt++) {
+  for (let attempt = 1; attempt <= max; attempt++) {
     const mode = chain[stage]!
     // The fallback chain only moves on when the current mode gives nothing; a switch is one attempt less.
     if (mode !== getMode()) {
@@ -955,7 +1043,7 @@ async function hunt(command: readonly string[]): Promise<Result> {
       }
       refillPoolIfProxy()
     }
-    autoStatus(`changing the IP (${attempt}/${HUNT_MAX})…`)
+    autoStatus(`changing the IP (${attempt}/${max})…`)
     const net = await rotateOnly()
     // One failed rotation can be a slow WARP registration; two in a row mean the network itself is down.
     if (!net.ok) {
@@ -970,9 +1058,12 @@ async function hunt(command: readonly string[]): Promise<Result> {
       console.info(`[auto-rotate] fast mode: ${net.ip} used without a probe`)
       return { ...net, message: `${net.message} - not checked (fast mode)` }
     }
-    autoStatus(`testing ${net.ip ?? "the new IP"} on a temporary session (${attempt}/${HUNT_MAX})…`)
+    autoStatus(`testing ${net.ip ?? "the new IP"} on a temporary session (${attempt}/${max})…`)
     const probeStart = Date.now()
-    const state = await probeIp(command)
+    // Two answers in a row, not one: shared WARP IPs often have a single free message left, which one probe spends,
+    // and the chat's "continue" then meets the limit (seen 3 times out of 3 in a live run).
+    const first = await probeIp(command)
+    const state = first === "ok" ? await probeIp(command) : first
     console.info(`[auto-rotate] try ${attempt} ${net.ip}: ${state} (probe ${((Date.now() - probeStart) / 1000).toFixed(1)}s)`)
     if (state === "ok") return { ...net, message: `${net.message} - works after ${attempt} ${attempt === 1 ? "try" : "tries"}` }
     broken = state === "failed" ? broken + 1 : 0
@@ -981,7 +1072,7 @@ async function hunt(command: readonly string[]): Promise<Result> {
       broken = 0
     }
   }
-  return { ok: false, message: `no free IP after ${HUNT_MAX} tries` }
+  return { ok: false, message: `no free IP after ${max} tries` }
 }
 
 // What the server calls a limit: see toSessionError in packages/core/src/session/to-session-error.ts. Only the free
@@ -990,6 +1081,11 @@ async function hunt(command: readonly string[]): Promise<Result> {
 const LIMIT_ERROR = "provider.free-limit"
 // An event older than this was replayed by a reconnect, not raised now.
 const LIMIT_FRESH_MS = 60_000
+/** When each chat last got "continue" from Auto-rotate. */
+const resumedAt = new Map<string, number>()
+// The renderer reports every limit it sees, including a replay or the twin of an event the stream already handled.
+// Right after a "continue" only the stream (it carries the event time) may start another rotation for that chat.
+const RENDERER_QUIET_MS = 5_000
 
 /** The session a server-sent event block reports as stopped by a limit, `""` when it names none, else undefined. */
 export function limitSession(block: string) {
@@ -1006,7 +1102,11 @@ export function limitSession(block: string) {
     const type: unknown = body?.error?.type
     if (type !== LIMIT_ERROR) return undefined
     if (typeof event.created === "number" && Date.now() - event.created > LIMIT_FRESH_MS) return undefined
-    return typeof body.sessionID === "string" ? body.sessionID : ""
+    const id = typeof body.sessionID === "string" ? body.sessionID : ""
+    // A limit raised before the last "continue" belongs to the failure that "continue" already answered (a replay
+    // after a reconnect or restart): it must not send the chat another one.
+    if (typeof event.created === "number" && event.created < (resumedAt.get(id) ?? 0)) return undefined
+    return id
   } catch {
     return undefined
   }
@@ -1019,6 +1119,7 @@ export const pending = new Set<string>()
 export async function resumeSession(sessionID: string) {
   if (!sessionID) return false
   const text = "continue"
+  resumedAt.set(sessionID, Date.now())
   // After a service restart the new one needs a moment before it accepts requests.
   for (let attempt = 0; attempt < 20; attempt++) {
     const sidecar = SidecarCredentials.get()
@@ -1062,7 +1163,8 @@ export function startWatch(rotateNow: (sessionID: string) => void) {
   let last = 0
   let streak = 0
   let fails = 0
-  const trigger = (why: string, sessionID = "") => {
+  const trigger = (why: string, sessionID = "", fromStream = false) => {
+    if (sessionID && !fromStream && Date.now() - (resumedAt.get(sessionID) ?? 0) < RENDERER_QUIET_MS) return
     const now = Date.now()
     if (!load().auto) return
     // Every chat that hit the limit is kept, even while a rotation is running; the finished rotation resumes them all.
@@ -1106,7 +1208,7 @@ export function startWatch(rotateNow: (sessionID: string) => void) {
       buffer = blocks.pop() ?? ""
       for (const block of blocks) {
         const session = limitSession(block)
-        if (session !== undefined) trigger("limit reached", session)
+        if (session !== undefined) trigger("limit reached", session, true)
       }
     }
   }

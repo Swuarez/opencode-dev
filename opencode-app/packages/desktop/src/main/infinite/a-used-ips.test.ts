@@ -12,6 +12,7 @@ writeFileSync(
     auto: false,
     country: "",
     fast: true,
+    attempts: 10,
     rotateUrl: "",
     vpnLocations: "",
     socks: "",
@@ -33,6 +34,14 @@ test("a failover chain is normalised: known modes only, deduplicated, without th
   await I.setMode("WARP")
   await I.setOptions({ ...I.getOptions(), chain: "tor, proxy, TOR, nope, warp" })
   expect(I.getOptions().chain).toBe("TOR,PROXY")
+})
+
+test("Auto-rotate attempts are kept as a whole number from 1 to 50", async () => {
+  const cases: [number, number][] = [[25, 25], [99, 50], [0, 1], [3.6, 4], [Number.NaN, 10]]
+  for (const [given, kept] of cases) {
+    await I.setOptions({ ...I.getOptions(), attempts: given })
+    expect(I.getOptions().attempts).toBe(kept)
+  }
 })
 
 test("the used-IP window expires after a day and never before", () => {

@@ -83,8 +83,8 @@ export type ElectronAPI = {
   infiniteGetMode(): Promise<"WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE">
   infiniteSetMode(mode: "WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE"): Promise<{ ok: boolean; message: string; ip?: string }>
   infiniteResetLimit(): Promise<{ ok: boolean; message: string; ip?: string }>
-  infiniteGetOptions(): Promise<{ auto: boolean; country: string; custom: string; fast: boolean; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }>
-  infiniteSetOptions(options: { auto: boolean; country: string; custom: string; fast: boolean; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }): Promise<{ auto: boolean; country: string; custom: string; fast: boolean; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }>
+  infiniteGetOptions(): Promise<{ auto: boolean; country: string; custom: string; fast: boolean; attempts: number; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }>
+  infiniteSetOptions(options: { auto: boolean; country: string; custom: string; fast: boolean; attempts: number; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }): Promise<{ auto: boolean; country: string; custom: string; fast: boolean; attempts: number; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }>
   infiniteCheckIp(): Promise<{ ok: boolean; message: string; ip?: string }>
   infiniteRestoreSession(): Promise<{ ok: boolean; message: string; ip?: string }>
   infiniteAutoRotate(sessionID: string): Promise<void>

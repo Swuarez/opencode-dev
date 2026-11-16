@@ -33,8 +33,8 @@ VPN Gate, which the desktop app does not.
 
 | File | Platform | What it is | Version |
 |---|---|---|---|
-| `OpenCode-Infinite-Desktop.exe` | Windows 10 / 11 (x64) | **The desktop app.** Installer of OpenCode (v2.2.12) with a bottom bar: Auto, None, WARP, Tor, Proxy, SOCKS5, Route64, Mullvad and Windscribe, Reset limit, Auto-rotate and three Settings tabs. Tor is bundled. See [section 14](#14-opencode-desktop-infinite) | 2.2.8 |
-| `OpenCode Infinite.bat` | Windows 10 / 11 (x64, ARM64, x86 limited) | Full launcher: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages; single-instance lock that checks PID, start time, executable and .bat path | 2.60.11 |
+| `OpenCode-Infinite-Desktop.exe` | Windows 10 / 11 (x64) | **The desktop app.** Installer of OpenCode (v2.2.13) with a bottom bar: Auto, None, WARP, Tor, Proxy, SOCKS5, Route64, Mullvad and Windscribe, Reset limit, Auto-rotate and three Settings tabs. Tor is bundled. See [section 14](#14-opencode-desktop-infinite) | 2.2.8 |
+| `OpenCode Infinite.bat` | Windows 10 / 11 (x64, ARM64, x86 limited) | Full launcher: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages; single-instance lock that checks PID, start time, executable and .bat path | 2.60.12 |
 | `opencode-infinite.sh` | Linux (bash; Ubuntu 24.04 with apt; also dnf, pacman and zypper) | Full, including the desktop app, except the Windows-only items. See [Linux: what is different](#linux-what-is-different) | linux-0.4.7 |
 
 The sections marked **Windows only** below are not on Linux.
@@ -502,13 +502,13 @@ the file to an issue.
 
 ## 14. OpenCode Desktop (Infinite)
 
-`OpenCode-Infinite-Desktop.exe` is the OpenCode desktop app (v2.2.12) with the launcher's tools built in, so you pick the exit IP from the app itself. No launcher is needed.
+`OpenCode-Infinite-Desktop.exe` is the OpenCode desktop app (v2.2.13) with the launcher's tools built in, so you pick the exit IP from the app itself. No launcher is needed.
 
 ![OpenCode Desktop with the Infinite bar](images/08-desktop.webp)
 
 **Get it.** It is attached to the [latest release](https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest) as a link, because it is too big (about 268 MiB, 281 MB) for a release file. Direct link: `https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest/downloads/OpenCode-Infinite-Desktop.exe`. Check it against the SHA-256 below before you run it.
 
-SHA-256: `7941a4bd86e8a88707c9fa8b41a18769dce2f1a7c54a5b658192bb93645d483b`
+SHA-256: `3c400898f84a9b578839e71406e63df49268ad095ef0304a34b41561f8b129e3`
 
 **Connections.** The bar starts with **Auto** and **None**. Turn on **Settings > Basic > Advanced mode** to see every connection and the Advanced tab.
 
@@ -537,14 +537,14 @@ VPN Gate is only in the `.bat` and the `.sh`.
 | **Fix connection** | Tests what works on this computer and puts the best connection in place: WARP, your own SOCKS5 and proxy lists, Tor, then direct. It never uses Route64, Mullvad or Windscribe on its own |
 | **Status** | What each connection needs and whether this computer has it, with **Use**, **Install** (WARP, with your confirmation) and **Settings** buttons |
 | **Reset limit** | Gets a new IP after "You've used today's free messages" and lets you send again |
-| **Auto-rotate** | When the free usage limit stops the chat, it changes the IP, tries it on a temporary session, and sends `continue` to the chats that stopped, only once one works (up to 10 IPs). It also rotates when the connection stays down for about 30 s |
+| **Auto-rotate** | When the free usage limit stops the chat, it changes the IP, tries it on a temporary session, and sends `continue` to the chats that stopped, only once one works: the IP has to answer twice on the temporary session, so an IP with a single free message left is skipped (up to 10 IPs by default, set in **Settings > Basic > Auto-rotate attempts**). Each chat gets one `continue` per limit. It also rotates when the connection stays down for about 30 s |
 | **Settings** | Three tabs, below |
 
 **Settings.**
 
 | Tab | What is in it |
 |---|---|
-| **Basic** | **Advanced mode**; **Exit country** (two letters, for proxies from that country); **Speed** (**Fast mode**, off by default: it sends `continue` as soon as the IP changes, without checking it first, about 3 to 4 s instead of about 7 s, and if that IP is already limited the chat rotates again); **Recent connection changes** (the last ten, kept only on this computer); **Reset** |
+| **Basic** | **Advanced mode**; **Exit country** (two letters, for proxies from that country); **Speed** (**Fast mode**, off by default: it sends `continue` as soon as the IP changes, without checking it first, about 3 to 4 s instead of about 7 s, and if that IP is already limited the chat rotates again); **Auto-rotate attempts** (how many IPs one rotation tries, 1 to 50, default 10); **Recent connection changes** (the last ten, kept only on this computer); **Reset** |
 | **Advanced** (with Advanced mode) | **Proxies** (one or a list, from text, a file or a URL, with an optional change-IP URL); **SOCKS5 servers**; **Failover chain** (the modes Auto-rotate falls back to, in order, when the chosen one cannot get a fresh IP, for example `TOR,PROXY`); **route64 tunnel**; **VPN locations** for Mullvad or Windscribe, separated by commas |
 | **Personalization** | **Theme** (Rainbow and the pastel ones first), **Rainbow moves**, **Font**, **Size**, **Motion**, **Background** image, **Settings window** opacity (how solid this window is) and **Text color** |
 
@@ -583,9 +583,17 @@ The `opencode-infinite` start screen replaces the normal one.
 
 ## Versions and status
 
-**Latest version:** launcher 2.60.11 (`.bat`), Linux script 0.4.7.
-**OpenCode Desktop (Infinite build):** 2.2.12, installer `OpenCode-Infinite-Desktop.exe` ([section 14](#14-opencode-desktop-infinite)).
-**Latest published release:** 2.60.11 (2026-11-16). **Previous:** 2.60.10 (2026-11-16).
+**Latest version:** launcher 2.60.12 (`.bat`), Linux script 0.4.7.
+**OpenCode Desktop (Infinite build):** 2.2.13, installer `OpenCode-Infinite-Desktop.exe` ([section 14](#14-opencode-desktop-infinite)).
+**Latest published release:** 2.60.12 (2026-11-16). **Previous:** 2.60.11 (2026-11-16).
+
+### 2.60.12
+
+- **Auto-rotate with WARP without errors (desktop 2.2.13):** OpenCode now reaches WARP through a small local door that holds each request while WARP changes its IP, so the chat waits a few seconds instead of showing `ECONNREFUSED: Unable to connect`. Connections left hanging by the change are closed, which ends the `ECONNRESET ... retrying` after a rotation.
+- **WARP repairs a missing registration:** when Cloudflare refuses a new registration for a while, the app keeps trying (about 40 s) and any later reconnect creates one, instead of leaving WARP without a proxy ("not answering right now").
+- **One `continue` per limit:** the new IP has to answer twice on a temporary session before the chat gets `continue`, and repeated or replayed limit events no longer send extra ones.
+- **Auto-rotate attempts:** a new setting in Settings > Basic (1 to 50, default 10).
+- Launcher and Linux script: unchanged, only the `.bat` version number moves.
 
 ### 2.60.11
 

@@ -31,6 +31,7 @@ const Options = Schema.Struct({
   country: Schema.String,
   custom: Schema.String,
   fast: Schema.Boolean,
+  attempts: Schema.Number,
   rotateUrl: Schema.String,
   vpnLocations: Schema.String,
   socks: Schema.String,

@@ -119,8 +119,8 @@ type PlatformBase = {
     getMode(): Promise<"WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE">
     setMode(mode: "WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE"): Promise<{ ok: boolean; message: string; ip?: string }>
     resetLimit(): Promise<{ ok: boolean; message: string; ip?: string }>
-    getOptions(): Promise<{ auto: boolean; country: string; custom: string; fast: boolean; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }>
-    setOptions(options: { auto: boolean; country: string; custom: string; fast: boolean; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }): Promise<{ auto: boolean; country: string; custom: string; fast: boolean; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }>
+    getOptions(): Promise<{ auto: boolean; country: string; custom: string; fast: boolean; attempts: number; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }>
+    setOptions(options: { auto: boolean; country: string; custom: string; fast: boolean; attempts: number; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }): Promise<{ auto: boolean; country: string; custom: string; fast: boolean; attempts: number; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }>
     checkIp(): Promise<{ ok: boolean; message: string; ip?: string }>
     restoreSession(): Promise<{ ok: boolean; message: string; ip?: string }>
     autoRotate(sessionID: string): Promise<void>
