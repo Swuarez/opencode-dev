@@ -5,13 +5,13 @@ Infinite gets a new exit IP and carries on in the same chat.
 
 ## OpenCode Desktop Infinite (recommended on Windows)
 
-**`OpenCode-Infinite-Desktop.exe`** is the OpenCode desktop app (v2.2.9) with the
+**`OpenCode-Infinite-Desktop.exe`** is the OpenCode desktop app (v2.2.10) with the
 tools built in: one installer, no launcher, no terminal. A bar at the bottom of
 the window controls everything.
 
 ![OpenCode Desktop with the Infinite bar](images/08-desktop.webp)
 
-- **Four routes, only for OpenCode:** WARP, Tor (bundled, nothing to install), your own Proxy or a free list, or None. Your browser and other apps stay direct, and the exit IP is shown in the bar.
+- **Many routes, only for OpenCode:** Auto (WARP when it works, otherwise direct) and None by default; with Advanced mode also WARP, Tor (bundled), Proxy, SOCKS5, Route64 (WireGuard), Mullvad and Windscribe. Your browser and other apps stay direct, and the exit IP is shown in the bar.
 - **Reset limit:** one click gets a new IP after "You've used today's free messages".
 - **Auto-rotate:** when the free limit stops the chat, it changes the IP, tests it on a temporary session, and sends `continue` to your chat once an IP works (up to 10 tries).
 - **Providers:** DeepAI is in the provider list next to the others.
@@ -33,8 +33,8 @@ VPN Gate, which the desktop app does not.
 
 | File | Platform | What it is | Version |
 |---|---|---|---|
-| `OpenCode-Infinite-Desktop.exe` | Windows 10 / 11 (x64) | **The desktop app.** Installer of OpenCode (v2.2.9) with a bottom bar: WARP, Tor, Proxy or None, Reset limit, Auto-rotate. Tor is bundled. See [section 14](#14-opencode-desktop-infinite) | 2.2.8 |
-| `OpenCode Infinite.bat` | Windows 10 / 11 (x64, ARM64, x86 limited) | Full launcher: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages; single-instance lock that checks PID, start time, executable and .bat path | 2.60.8 |
+| `OpenCode-Infinite-Desktop.exe` | Windows 10 / 11 (x64) | **The desktop app.** Installer of OpenCode (v2.2.10) with a bottom bar: Auto, None, WARP, Tor, Proxy, SOCKS5, Route64, Mullvad and Windscribe, Reset limit, Auto-rotate and three Settings tabs. Tor is bundled. See [section 14](#14-opencode-desktop-infinite) | 2.2.8 |
+| `OpenCode Infinite.bat` | Windows 10 / 11 (x64, ARM64, x86 limited) | Full launcher: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages; single-instance lock that checks PID, start time, executable and .bat path | 2.60.9 |
 | `opencode-infinite.sh` | Linux (bash; Ubuntu 24.04 with apt; also dnf, pacman and zypper) | Full, including the desktop app, except the Windows-only items. See [Linux: what is different](#linux-what-is-different) | linux-0.4.7 |
 
 The sections marked **Windows only** below are not on Linux.
@@ -44,7 +44,7 @@ The sections marked **Windows only** below are not on Linux.
 
 ### Windows: .bat or desktop?
 
-- **Desktop installer (start here):** the OpenCode desktop app itself with WARP, Tor, Proxy and None in its bottom bar. WireGuard and VPN Gate are not in it (section 14).
+- **Desktop installer (start here):** the OpenCode desktop app itself with its connections in a bottom bar: Auto and None, and with Advanced mode WARP, Tor, Proxy, SOCKS5, Route64, Mullvad and Windscribe. VPN Gate is not in it (section 14).
 - **`.bat`:** the full launcher in a terminal, with every setting and the automatic resume of your chat.
 
 Versions, what was checked and the open items are at the end, in [Versions and status](#versions-and-status).
@@ -502,43 +502,55 @@ the file to an issue.
 
 ## 14. OpenCode Desktop (Infinite)
 
-`OpenCode-Infinite-Desktop.exe` is the OpenCode desktop app (v2.2.9) with the launcher's tools built in, so you pick the exit IP from the app itself. No launcher is needed.
+`OpenCode-Infinite-Desktop.exe` is the OpenCode desktop app (v2.2.10) with the launcher's tools built in, so you pick the exit IP from the app itself. No launcher is needed.
 
 ![OpenCode Desktop with the Infinite bar](images/08-desktop.webp)
 
 **Get it.** It is attached to the [latest release](https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest) as a link, because it is too big (about 268 MiB, 281 MB) for a release file. Direct link: `https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest/downloads/OpenCode-Infinite-Desktop.exe`. Check it against the SHA-256 below before you run it.
 
-SHA-256: `c5184292da6174f947045a57c4b0006142fe9a83f1e34a992fae1a8d5f401f41`
+SHA-256: `4012d8f0d3dde72814ba5cb1f19138221e82aec6dac0f3bc6b4b8c31df868315`
 
-**What you need.**
+**Connections.** The bar starts with **Auto** and **None**. Turn on **Settings > Basic > Advanced mode** to see every connection and the Advanced tab.
 
-| Mode | Needs |
-|---|---|
-| **None** | Nothing: direct connection |
-| **Tor** | Nothing: a portable Tor is bundled |
-| **Proxy** | Nothing: your own proxy, or a free list |
-| **WARP** | [Cloudflare WARP](https://one.one.one.one) installed (`warp-cli`). Without it the app says it cannot find `warp-cli` |
+| Connection | What it is | Needs |
+|---|---|---|
+| **Auto** | WARP when it works, otherwise a direct connection | Nothing; it never installs anything |
+| **None** | Direct connection (no IP to change) | Nothing |
+| **WARP** | Cloudflare WARP as the route for OpenCode | [Cloudflare WARP](https://one.one.one.one) (`warp-cli`). If it is missing the app offers to install it from Cloudflare (publisher checked; Windows asks for administrator) |
+| **Tor** | A new Tor circuit for each new IP | Nothing: a portable Tor is bundled |
+| **Proxy** | Your own proxy or a whole list, or a free list | Nothing |
+| **SOCKS5** | The SOCKS5 servers you list in Settings > Advanced | The servers (`host:port`, `socks5://host:port` or with `user:password@`) |
+| **Route64** | A WireGuard tunnel from route64 | WireGuard (the app offers to install it) and the `.conf` you download from manager.route64.org, imported in Settings > Advanced > route64 tunnel |
+| **Mullvad** / **Windscribe** | Switches the server of the VPN client you already use | The client installed and logged in. The app only changes the server and never stores your account |
 
-WireGuard and VPN Gate are only in the `.bat` and the `.sh`.
+VPN Gate is only in the `.bat` and the `.sh`.
 
 **The bottom bar** (the strip at the bottom of the screenshot):
 
 | Control | What it does |
 |---|---|
-| **WARP / Tor / Proxy / None** | Route for OpenCode. Only OpenCode goes through it; your browser and other apps stay direct. The exit IP is shown on the right |
+| **Connection** | Route for OpenCode (the table above). Only OpenCode goes through it; your browser and other apps stay direct. The exit IP is shown on the right |
 | **Reset limit** | Gets a new IP after "You've used today's free messages" and lets you send again |
-| **Auto-rotate** | When the free usage limit stops the chat, it changes the IP, tries it on a temporary session, and sends `continue` to your chat only once one works (up to 10 IPs). It also rotates when the connection stays down for about 30 s |
-| **Settings** | Your own proxy list (from text, a file or a URL), and the themes, pastel ones first |
+| **Auto-rotate** | When the free usage limit stops the chat, it changes the IP, tries it on a temporary session, and sends `continue` to the chats that stopped, only once one works (up to 10 IPs). It also rotates when the connection stays down for about 30 s |
+| **Settings** | Three tabs, below |
+
+**Settings.**
+
+| Tab | What is in it |
+|---|---|
+| **Basic** | **Advanced mode**; **Exit country** (two letters, for proxies from that country); **Speed** (**Fast mode**, off by default: it sends `continue` as soon as the IP changes, without checking it first, about 3 to 4 s instead of about 7 s, and if that IP is already limited the chat rotates again); **Recent connection changes** (the last ten, kept only on this computer); **Reset** |
+| **Advanced** (with Advanced mode) | **Proxies** (one or a list, from text, a file or a URL, with an optional change-IP URL); **SOCKS5 servers**; **Failover chain** (the modes Auto-rotate falls back to, in order, when the chosen one cannot get a fresh IP, for example `TOR,PROXY`); **route64 tunnel**; **VPN locations** for Mullvad or Windscribe, separated by commas |
+| **Personalization** | **Theme** (Rainbow and the pastel ones first), **Rainbow moves**, **Font**, **Size**, **Motion**, **Background** image and **Text color** |
 
 The `opencode-infinite` start screen replaces the normal one.
 
-**Look (Settings > Themes).** Pick **Rainbow**, a theme whose accent colors flow like the `.bat`'s rainbow while the background and the text drift slowly through the colors (a still palette if Windows is set to reduce motion). **Text color** sets one color for all the text on any theme; with it, Rainbow keeps moving only the background and the accents. **Background image > Choose image…** puts your own picture behind the window; it is shrunk to 1920 px and kept in the app only, **Remove** takes it away, and **Interface opacity** sets how much of the picture shows through.
+**Look (Settings > Personalization).** Pick **Rainbow**, a theme whose accent colors flow like the `.bat`'s rainbow while the background and the text drift slowly through the colors (a still palette if Windows is set to reduce motion). **Text color** sets one color for all the text on any theme; with it, Rainbow keeps moving only the background and the accents. **Background image > Choose image…** puts your own picture behind the window; it is shrunk to 1920 px and kept in the app only, **Remove** takes it away, and **Interface opacity** sets how much of the picture shows through.
 
 **Updates.** From desktop 2.2.6 the app's update button reads `latest.yml` from the latest release of this repository and installs `OpenCode-Infinite-Desktop.exe` from there, so an update keeps the Infinite bar. Older installs still update from opencode.ai, which would replace them with the plain OpenCode: install 2.2.6 by hand once.
 
 **Build.** The full source is in [`opencode-app/`](opencode-app/BUILD.md): clone the repository, `bun install`, build the CLI, add the portable Tor bundle and pack. The steps are in `BUILD.md`.
 
-**Not in the desktop app:** WireGuard, VPN Gate and the `.bat`'s automatic chat resume by settings (`RESUME_MODE`). Use the `.bat` for those.
+**Not in the desktop app:** VPN Gate, the `.bat`'s own WireGuard setup (the desktop has Route64 instead) and the `.bat`'s automatic chat resume by settings (`RESUME_MODE`). Use the `.bat` for those.
 
 ## Linux: what is different
 
@@ -565,9 +577,15 @@ The `opencode-infinite` start screen replaces the normal one.
 
 ## Versions and status
 
-**Latest version:** launcher 2.60.8 (`.bat`), Linux script 0.4.7.
-**OpenCode Desktop (Infinite build):** 2.2.9, installer `OpenCode-Infinite-Desktop.exe` ([section 14](#14-opencode-desktop-infinite)).
-**Latest published release:** 2.60.8 (2026-11-16). **Previous:** 2.60.7 (2026-11-12).
+**Latest version:** launcher 2.60.9 (`.bat`), Linux script 0.4.7.
+**OpenCode Desktop (Infinite build):** 2.2.10, installer `OpenCode-Infinite-Desktop.exe` ([section 14](#14-opencode-desktop-infinite)).
+**Latest published release:** 2.60.9 (2026-11-16). **Previous:** 2.60.8 (2026-11-16).
+
+### 2.60.9
+
+- **Your old chats are back:** desktop 2.2.8 to 2.2.9 builds opened a new empty database (`opencode-infinite-desktop-2.2.8.db`) instead of the one with your chats (`opencode.db`), so the old sessions looked lost. They were never deleted. Desktop 2.2.10 uses `opencode.db` again. If an older build was still running its background service, 2.2.10 restarts it, so just update and open the app. Chats started with the empty database stay in that file.
+- **New connections and settings, now documented** (section 14): **Auto** and **None** by default, and with **Advanced mode** also WARP, Tor, Proxy, **SOCKS5**, **Route64** (WireGuard), **Mullvad** and **Windscribe**. Settings has three tabs: **Basic**, **Advanced** (proxies, SOCKS5 servers, failover chain, route64 tunnel, VPN locations) and **Personalization**.
+- **Launcher and Linux script:** unchanged; only the version number of the `.bat` moves.
 
 ### 2.60.8
 
