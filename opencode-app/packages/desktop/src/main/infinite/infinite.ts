@@ -86,7 +86,8 @@ function load(): Saved {
       proxy: raw.proxy,
       socksCurrent: typeof raw.socksCurrent === "string" ? raw.socksCurrent : undefined,
       custom: typeof raw.custom === "string" ? raw.custom : undefined,
-      auto: raw.auto === true,
+      // Auto-rotate is on unless the user turned it off.
+      auto: raw.auto !== false,
       country: typeof raw.country === "string" && /^[A-Za-z]{2}$/.test(raw.country) ? raw.country.toUpperCase() : "",
       fast: raw.fast === true,
       attempts: attemptsOf(raw.attempts),
@@ -100,7 +101,7 @@ function load(): Saved {
   } catch {
     saved = {
       mode: "NONE",
-      auto: false,
+      auto: true,
       country: "",
       fast: false,
       attempts: HUNT_DEFAULT,
@@ -326,12 +327,13 @@ function dropGateTunnels() {
 }
 
 /**
- * A local door in front of WARP. While WARP re-registers (a few seconds, longer when Cloudflare slows new
- * registrations) its port refuses connections, which OpenCode shows as "ECONNREFUSED: Unable to connect". The door
- * holds each request until WARP answers again, so a rotation costs a short wait instead of an error.
+ * A local door in front of the HTTP proxy of the mode (WARP, or the picked proxy in Proxy mode). OpenCode always talks
+ * to the door, so a new IP or a new proxy needs no service restart: `target` is read per connection. While WARP
+ * re-registers its port refuses connections, which OpenCode shows as "ECONNREFUSED: Unable to connect"; the door holds
+ * each request until the target answers again, so a rotation costs a short wait instead of an error.
  */
 // shortcut: CONNECT (https) only, like the SOCKS bridge; waits at most GATE_WAIT_MS per request, then refuses.
-export function warpGate(listen: number, to: number) {
+export function proxyGate(listen: number, target: () => string | undefined) {
   if (gates.has(listen)) return
   gates.add(listen)
   createServer((client) => {
@@ -339,21 +341,24 @@ export function warpGate(listen: number, to: number) {
     client.once("data", (head) => {
       client.pause() // whatever follows the first bytes waits for the pipe below
       const until = Date.now() + GATE_WAIT_MS
+      const later = () => (Date.now() < until ? void setTimeout(attempt, 400) : client.destroy())
       const attempt = () => {
         if (client.destroyed) return
-        const up = tcp(to, "127.0.0.1")
+        const url = URL.parse(target() ?? "")
+        // No proxy picked yet (Proxy mode while it searches): wait for one like for a refused port.
+        if (!url?.port) return later()
+        const up = tcp(Number(url.port), url.hostname)
         let passed = false
         const retry = () => {
           if (passed) return
           passed = true
           up.destroy()
-          if (Date.now() < until) setTimeout(attempt, 400)
-          else client.destroy()
+          later()
         }
         up.once("error", retry)
         up.once("close", retry)
         up.once("connect", () => {
-          up.write(head)
+          up.write(withProxyAuth(head, url))
           up.once("data", (reply) => {
             // A 5xx while WARP is still coming up is retried, not shown.
             if (/^HTTP\/1\.\d 5/.test(reply.toString("latin1", 0, 12))) return retry()
@@ -376,13 +381,25 @@ export function warpGate(listen: number, to: number) {
     .listen(listen, "127.0.0.1")
 }
 
+/** A proxy with a login gets it as a Proxy-Authorization header, which OpenCode would have sent from the proxy URL. */
+function withProxyAuth(head: Buffer, url: URL) {
+  if (!url.username) return head
+  const text = head.toString("latin1")
+  const end = text.indexOf("\r\n\r\n")
+  if (end < 0) return head
+  const login = Buffer.from(`${decodeURIComponent(url.username)}:${decodeURIComponent(url.password)}`).toString("base64")
+  return Buffer.concat([
+    Buffer.from(`${text.slice(0, end)}\r\nProxy-Authorization: Basic ${login}`, "latin1"),
+    head.subarray(Buffer.byteLength(text.slice(0, end), "latin1")),
+  ])
+}
+
 /** Environment handed to the background service so only OpenCode goes through the proxy. */
 export function proxyEnv(): Record<string, string> {
-  let url = upstream()
-  if (url === WARP_PROXY) {
-    warpGate(GATE_PORT, WARP_PORT)
-    url = `http://127.0.0.1:${GATE_PORT}`
-  }
+  // WARP and Proxy go through the door, which follows the current target: a new IP or proxy needs no restart.
+  const gated = getMode() === "WARP" || getMode() === "PROXY"
+  if (gated) proxyGate(GATE_PORT, upstream)
+  const url = gated ? `http://127.0.0.1:${GATE_PORT}` : upstream()
   if (!url || proxyDead) return {}
   const skip = "127.0.0.1,localhost,::1"
   return { HTTP_PROXY: url, HTTPS_PROXY: url, http_proxy: url, https_proxy: url, NO_PROXY: skip, no_proxy: skip }
@@ -404,7 +421,13 @@ const MODEL_LIMITS: Record<string, { context: number; input?: number }> = {
  * `opencode-<channel>.db` and hide the user's existing chats in `opencode.db`.
  */
 export function serviceEnv(): Record<string, string> {
-  const base = { ...proxyEnv(), OPENCODE_DISABLE_CHANNEL_DB: "1" }
+  const base = {
+    ...proxyEnv(),
+    OPENCODE_DISABLE_CHANNEL_DB: "1",
+    // The chat retries a spent free allowance instead of failing, and Auto-rotate changes the IP under that retry
+    // (see core session/runner/retry.ts).
+    ...(load().auto ? { OPENCODE_INFINITE_FREE_RETRY: "1" } : {}),
+  }
   // A config the user passed in the environment themselves wins.
   if (process.env.OPENCODE_CONFIG_CONTENT) return base
   const models = Object.fromEntries(Object.entries(MODEL_LIMITS).map(([id, limit]) => [id, { limit }]))
@@ -874,9 +897,6 @@ export const rotate = (m: Mode): Promise<Result> => {
   return Promise.resolve({ ok: true, message: "No proxy (NONE)." })
 }
 
-/** WARP, Tor and None keep the same proxy URL across a rotation, so the service can start before the new IP is ready. */
-export const upstreamKnown = () => getMode() !== "PROXY"
-
 /** Apply a mode change before the service is restarted behind it. */
 export async function applyMode(next: Mode): Promise<Result> {
   await setMode(next)
@@ -923,6 +943,8 @@ async function remember(result: Result) {
   if (result.ok && result.ip && result.ip !== known[mode]) {
     burn(known[mode])
     await save()
+    // Connections still open through the door use the old IP or proxy; closing them moves OpenCode to the new one.
+    dropGateTunnels()
   }
   if (result.ok && result.ip) known[mode] = result.ip
   return result
@@ -1088,28 +1110,42 @@ const resumedAt = new Map<string, number>()
 const RENDERER_QUIET_MS = 5_000
 
 /** The session a server-sent event block reports as stopped by a limit, `""` when it names none, else undefined. */
-export function limitSession(block: string) {
+/**
+ * True for a fresh "retry scheduled" event caused by the free limit: the chat is waiting to resend on its own, so only
+ * the IP has to change, with no probe and no "continue".
+ */
+export function limitRetry(block: string) {
+  const event = sseEvent(block)
+  if (event?.type !== "session.retry.scheduled" || event.data?.error?.type !== LIMIT_ERROR) return false
+  return typeof event.created !== "number" || Date.now() - event.created <= LIMIT_FRESH_MS
+}
+
+function sseEvent(block: string) {
   const data = block
     .split("\n")
     .filter((line) => line.startsWith("data:"))
     .map((line) => line.slice(5).trim())
     .join("")
   try {
-    const event = JSON.parse(data)
-    if (event?.type !== "session.step.failed" && event?.type !== "session.error") return undefined
-    // v2 events carry the error in `data`, the older ones in `properties`.
-    const body = event.data ?? event.properties
-    const type: unknown = body?.error?.type
-    if (type !== LIMIT_ERROR) return undefined
-    if (typeof event.created === "number" && Date.now() - event.created > LIMIT_FRESH_MS) return undefined
-    const id = typeof body.sessionID === "string" ? body.sessionID : ""
-    // A limit raised before the last "continue" belongs to the failure that "continue" already answered (a replay
-    // after a reconnect or restart): it must not send the chat another one.
-    if (typeof event.created === "number" && event.created < (resumedAt.get(id) ?? 0)) return undefined
-    return id
+    return JSON.parse(data)
   } catch {
     return undefined
   }
+}
+
+export function limitSession(block: string) {
+  const event = sseEvent(block)
+  if (event?.type !== "session.step.failed" && event?.type !== "session.error") return undefined
+  // v2 events carry the error in `data`, the older ones in `properties`.
+  const body = event.data ?? event.properties
+  const type: unknown = body?.error?.type
+  if (type !== LIMIT_ERROR) return undefined
+  if (typeof event.created === "number" && Date.now() - event.created > LIMIT_FRESH_MS) return undefined
+  const id = typeof body.sessionID === "string" ? body.sessionID : ""
+  // A limit raised before the last "continue" belongs to the failure that "continue" already answered (a replay
+  // after a reconnect or restart): it must not send the chat another one.
+  if (typeof event.created === "number" && event.created < (resumedAt.get(id) ?? 0)) return undefined
+  return id
 }
 
 /** Chats that reached the limit and are waiting for the next working IP. */
@@ -1159,10 +1195,19 @@ export function decide(state: {
 }
 
 /** Watches the service's event stream and the connection; `rotateNow` runs the rotation and resumes the session. */
-export function startWatch(rotateNow: (sessionID: string) => void) {
+export function startWatch(rotateNow: (sessionID: string) => void, swapNow: () => void) {
   let last = 0
   let streak = 0
   let fails = 0
+  let swapped = 0
+  // The chat is retrying a spent free allowance by itself: change the IP under it. Each failed retry asks again; one
+  // already running (or just finished, within 3 s) answers them all.
+  const swap = () => {
+    if (!load().auto || locked || Date.now() - swapped < 3_000) return
+    swapped = Date.now()
+    autoStatus("free limit reached, changing the IP while the chat waits…")
+    swapNow()
+  }
   const trigger = (why: string, sessionID = "", fromStream = false) => {
     if (sessionID && !fromStream && Date.now() - (resumedAt.get(sessionID) ?? 0) < RENDERER_QUIET_MS) return
     const now = Date.now()
@@ -1207,6 +1252,7 @@ export function startWatch(rotateNow: (sessionID: string) => void) {
       const blocks = buffer.split("\n\n")
       buffer = blocks.pop() ?? ""
       for (const block of blocks) {
+        if (limitRetry(block)) swap()
         const session = limitSession(block)
         if (session !== undefined) trigger("limit reached", session, true)
       }

@@ -1,6 +1,6 @@
 export * as SessionRunnerRetry from "./retry.js"
 
-import { AIError, isRetryable } from "@opencode/ai/effect"
+import { AIError, isRetryable as providerRetryable } from "@opencode/ai/effect"
 import { Agent } from "@opencode/schema/agent"
 import { Model } from "@opencode/schema/model"
 import { SessionError } from "@opencode/schema/session-error"
@@ -12,7 +12,17 @@ import { SessionEvent } from "../event.js"
 import { SessionMessage } from "../message.js"
 import { SessionSchema } from "../schema.js"
 
-export { isRetryable }
+// OpenCode Infinite: with Auto-rotate on, the desktop app starts the service with this variable and changes the exit IP
+// as soon as it sees a retry scheduled for the free allowance. The step then waits and resends on the new IP instead
+// of failing, so the chat needs no "continue". Without the variable the free limit ends the step as before.
+const freeRetry = process.env.OPENCODE_INFINITE_FREE_RETRY === "1"
+const FREE_RETRY_DELAY_MS = 1_500
+
+/** The daily free allowance of OpenCode Zen ran out (see toSessionError). */
+export const isFreeLimit = (error: AIError) =>
+  error.reason._tag === "QuotaExceeded" && error.reason.body?.includes("FreeUsageLimitError") === true
+
+export const isRetryable = (error: AIError) => providerRetryable(error) || (freeRetry && isFreeLimit(error))
 
 interface Input {
   readonly cause: AIError
@@ -50,7 +60,10 @@ export const policy = (sessionID: SessionSchema.ID) =>
           Number.isFinite(event.decision.delay) && event.decision.delay >= 0
             ? Math.ceil(event.decision.delay)
             : next.delay
-        return { retry: true as const, attempt: next.attempt, delay: normalized }
+        // The desktop app holds the resend at its local proxy until the new IP is up, so the free limit needs no
+        // growing back-off: a short fixed wait lets the IP change start first, then the resend goes out on it.
+        const delay = freeRetry && isFreeLimit(input.cause) ? FREE_RETRY_DELAY_MS : normalized
+        return { retry: true as const, attempt: next.attempt, delay }
       })
   })
 

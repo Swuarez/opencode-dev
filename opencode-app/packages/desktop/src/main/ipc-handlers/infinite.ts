@@ -19,7 +19,6 @@ import {
   setMode,
   setOptions,
   startWatch,
-  upstreamKnown,
   type Result,
 } from "../infinite/infinite"
 import { install, plan } from "../infinite/install"
@@ -47,13 +46,8 @@ export const infiniteHandlers = InfiniteRpcs.toLayer(
     // None) it starts while the network work runs, instead of after it.
     const withService = (network: () => Promise<Result>) =>
       Effect.gen(function* () {
-        const work = Effect.tryPromise(network)
-        if (!upstreamKnown()) {
-          const result = yield* work
-          yield* startService
-          return result
-        }
-        const [result] = yield* Effect.all([work, startService], { concurrency: 2 })
+        // The service only ever sees a local address (the door or a bridge), so it starts while the network work runs.
+        const [result] = yield* Effect.all([Effect.tryPromise(network), startService], { concurrency: 2 })
         return result
       })
 
@@ -111,11 +105,6 @@ export const infiniteHandlers = InfiniteRpcs.toLayer(
           const started = Date.now()
           const cli = yield* desktopCli.resolve
           const net = yield* Effect.tryPromise(() => huntIp(cli.command))
-          // A proxy that changed needs the service restarted behind it.
-          if (net.ok && !upstreamKnown()) {
-            yield* stopService
-            yield* startService
-          }
           if (!net.ok) return net
           // Every chat that is waiting gets "continue" on this one new IP, in parallel.
           if (sessionID) pending.add(sessionID)
@@ -170,6 +159,22 @@ export const infiniteHandlers = InfiniteRpcs.toLayer(
           ),
         ),
       ),
+      // The chat is retrying the free limit itself: only the IP changes (the old one is remembered as used), no probe.
+      () =>
+        void runFork(
+          guarded(
+            Effect.gen(function* () {
+              const started = Date.now()
+              const net = yield* Effect.tryPromise(rotateOnly)
+              const seconds = ((Date.now() - started) / 1000).toFixed(1)
+              autoStatus(
+                net.ok ? `new IP ${net.ip ?? ""} in ${seconds}s, the chat resends on it` : `IP change failed: ${net.message}`,
+                true,
+              )
+              return net
+            }),
+          ),
+        ),
     )
 
     return InfiniteRpcs.of({

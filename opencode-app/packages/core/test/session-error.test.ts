@@ -83,6 +83,22 @@ describe("toSessionError", () => {
     }
     const free = fail("https://opencode.ai/inference/openai/v1/chat/completions", freeBody, { "retry-after": "3600" })
     expect(SessionRunnerRetry.isRetryable(free)).toBe(false)
+    expect(SessionRunnerRetry.isFreeLimit(free)).toBe(true)
+    expect(SessionRunnerRetry.isFreeLimit(llm(new QuotaExceededError({ message: "quota" })))).toBe(false)
+    // OpenCode Infinite: with Auto-rotate the desktop starts the service with this variable, read once at import, so
+    // the free limit is retried (the app changes the IP under the retry). A fresh process sees it from the start.
+    const withRetry = Bun.spawnSync({
+      cmd: [
+        process.execPath,
+        "-e",
+        `const { SessionRunnerRetry } = await import("@opencode/core/session/runner/retry")
+         const { AIError, QuotaExceededError } = await import("@opencode/ai/effect")
+         const body = ${JSON.stringify(JSON.stringify(freeBody))}
+         console.log(SessionRunnerRetry.isRetryable(new AIError({ reason: new QuotaExceededError({ message: "q", body }) })))`,
+      ],
+      env: { ...process.env, OPENCODE_INFINITE_FREE_RETRY: "1" },
+    })
+    expect(withRetry.stdout.toString().trim()).toBe("true")
     expect(toSessionError(free)).toEqual({
       type: "provider.free-limit",
       message: "Free usage limit reached. Connect a provider or subscribe to OpenCode Go to keep going, or switch models.",

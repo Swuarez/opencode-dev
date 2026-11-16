@@ -5,7 +5,7 @@ import { expect, mock, test } from "bun:test"
 const electron = { app: { getPath: () => ".", once: () => undefined } }
 mock.module("electron", () => ({ ...electron, default: electron }))
 
-const { decide, limitSession } = await import("./infinite")
+const { decide, limitRetry, limitSession } = await import("./infinite")
 
 const idle = { now: 100_000, last: 0, streak: 0, locked: false, pending: false }
 
@@ -41,4 +41,15 @@ test("only the free limit of a fresh event asks for a rotation", () => {
   expect(limitSession(block({ ...failed("provider.free-limit"), type: "session.step.finished" }))).toBeUndefined()
   expect(limitSession(block({ type: "message.part", data: { text: "Free usage limit reached. provider.free-limit" } }))).toBeUndefined()
   expect(limitSession("data: not json")).toBeUndefined()
+})
+
+// The chat retrying a spent free allowance asks only for a new IP; a failed step is still the "continue" path.
+test("a retry scheduled for the free limit asks for an IP change, nothing else does", () => {
+  const retry = (type: string, created = Date.now()) => ({ ...failed(type, created), type: "session.retry.scheduled" })
+  expect(limitRetry(block(retry("provider.free-limit")))).toBe(true)
+  expect(limitRetry(block(retry("provider.transport")))).toBe(false)
+  expect(limitRetry(block(retry("provider.free-limit", Date.now() - 120_000)))).toBe(false)
+  expect(limitRetry(block(failed("provider.free-limit")))).toBe(false)
+  expect(limitSession(block(retry("provider.free-limit")))).toBeUndefined()
+  expect(limitRetry("data: not json")).toBe(false)
 })
