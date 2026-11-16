@@ -281,10 +281,29 @@ function upstream() {
   if (mode === "SOCKS") return `http://127.0.0.1:${SOCKS_HTTP}`
 }
 
+// Set when the proxy of the saved mode refuses connections at service start. Pointing the service at it anyway makes
+// every request fail with ECONNREFUSED (WARP switched off, Tor or the proxy gone), so the service goes direct instead.
+let proxyDead = false
+
+/** True when something accepts connections at the proxy's address. */
+function reachable(url: string) {
+  return new Promise<boolean>((resolve) => {
+    const { hostname, port } = new URL(url)
+    const socket = tcp(Number(port), hostname)
+    const done = (ok: boolean) => {
+      socket.destroy()
+      resolve(ok)
+    }
+    socket.setTimeout(2_000, () => done(false))
+    socket.once("connect", () => done(true))
+    socket.once("error", () => done(false))
+  })
+}
+
 /** Environment handed to the background service so only OpenCode goes through the proxy. */
 export function proxyEnv(): Record<string, string> {
   const url = upstream()
-  if (!url) return {}
+  if (!url || proxyDead) return {}
   const skip = "127.0.0.1,localhost,::1"
   return { HTTP_PROXY: url, HTTPS_PROXY: url, http_proxy: url, https_proxy: url, NO_PROXY: skip, no_proxy: skip }
 }
@@ -694,6 +713,13 @@ export async function prepareMode() {
   if (getMode() === "SOCKS") startBridge(SOCKS_HTTP, () => parseSocks(load().socksCurrent ?? ""))
   // The SOCKS bridge serves a stored entry, so it has to be listening before the service starts.
   if (getMode() === "SOCKS") startBridge(SOCKS_HTTP, () => parseSocks(load().socksCurrent ?? ""))
+  proxyDead = false
+  const url = upstream()
+  if (!url || (await reachable(url))) return
+  // WARP can be switched back on; the others were started above.
+  if (getMode() === "WARP" && (await connect().catch(() => undefined))?.ok && (await reachable(url))) return
+  proxyDead = true
+  autoStatus(`${getMode()} is not answering; OpenCode connects directly until you pick it again`)
 }
 
 /** Proxy mode with a change-IP URL: open it first so the provider gives a new IP before the next proxy is picked. */
@@ -805,6 +831,8 @@ const known: Partial<Record<Mode, string>> = {}
 /** Keeps the IP a mode is on and remembers the one it replaced as used. */
 async function remember(result: Result) {
   const mode = getMode()
+  // A mode that just worked has a live proxy again.
+  if (result.ok) proxyDead = false
   // The IP being replaced must not come back from the next rotation, so it is remembered as used.
   if (result.ok && result.ip && result.ip !== known[mode]) {
     burn(known[mode])

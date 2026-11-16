@@ -33,8 +33,8 @@ VPN Gate, which the desktop app does not.
 
 | File | Platform | What it is | Version |
 |---|---|---|---|
-| `OpenCode-Infinite-Desktop.exe` | Windows 10 / 11 (x64) | **The desktop app.** Installer of OpenCode (v2.2.10) with a bottom bar: Auto, None, WARP, Tor, Proxy, SOCKS5, Route64, Mullvad and Windscribe, Reset limit, Auto-rotate and three Settings tabs. Tor is bundled. See [section 14](#14-opencode-desktop-infinite) | 2.2.8 |
-| `OpenCode Infinite.bat` | Windows 10 / 11 (x64, ARM64, x86 limited) | Full launcher: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages; single-instance lock that checks PID, start time, executable and .bat path | 2.60.10 |
+| `OpenCode-Infinite-Desktop.exe` | Windows 10 / 11 (x64) | **The desktop app.** Installer of OpenCode (v2.2.12) with a bottom bar: Auto, None, WARP, Tor, Proxy, SOCKS5, Route64, Mullvad and Windscribe, Reset limit, Auto-rotate and three Settings tabs. Tor is bundled. See [section 14](#14-opencode-desktop-infinite) | 2.2.8 |
+| `OpenCode Infinite.bat` | Windows 10 / 11 (x64, ARM64, x86 limited) | Full launcher: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages; single-instance lock that checks PID, start time, executable and .bat path | 2.60.11 |
 | `opencode-infinite.sh` | Linux (bash; Ubuntu 24.04 with apt; also dnf, pacman and zypper) | Full, including the desktop app, except the Windows-only items. See [Linux: what is different](#linux-what-is-different) | linux-0.4.7 |
 
 The sections marked **Windows only** below are not on Linux.
@@ -502,13 +502,13 @@ the file to an issue.
 
 ## 14. OpenCode Desktop (Infinite)
 
-`OpenCode-Infinite-Desktop.exe` is the OpenCode desktop app (v2.2.10) with the launcher's tools built in, so you pick the exit IP from the app itself. No launcher is needed.
+`OpenCode-Infinite-Desktop.exe` is the OpenCode desktop app (v2.2.12) with the launcher's tools built in, so you pick the exit IP from the app itself. No launcher is needed.
 
 ![OpenCode Desktop with the Infinite bar](images/08-desktop.webp)
 
 **Get it.** It is attached to the [latest release](https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest) as a link, because it is too big (about 268 MiB, 281 MB) for a release file. Direct link: `https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest/downloads/OpenCode-Infinite-Desktop.exe`. Check it against the SHA-256 below before you run it.
 
-SHA-256: `3824685a93641e91ced89c82c3fddacb59fb569502669c08e6f7395551176d73`
+SHA-256: `7941a4bd86e8a88707c9fa8b41a18769dce2f1a7c54a5b658192bb93645d483b`
 
 **Connections.** The bar starts with **Auto** and **None**. Turn on **Settings > Basic > Advanced mode** to see every connection and the Advanced tab.
 
@@ -523,6 +523,10 @@ SHA-256: `3824685a93641e91ced89c82c3fddacb59fb569502669c08e6f7395551176d73`
 | **Route64** | A WireGuard tunnel from route64 | WireGuard (the app offers to install it) and the `.conf` you download from manager.route64.org, imported in Settings > Advanced > route64 tunnel |
 | **Mullvad** / **Windscribe** | Switches the server of the VPN client you already use | The client installed and logged in. The app only changes the server and never stores your account |
 
+**Automatic connection.** The first time the app opens, a **Connection** window finds what works and sets it up on its own; it does not come back. While the app runs, a watcher checks the connection every 20 s and, if the proxy of the chosen mode stops answering, repairs it (at most every two minutes; a direct connection is left alone). If the proxy of the saved mode is down when the app starts, OpenCode connects directly instead of failing every request with `ECONNREFUSED`.
+
+**Your own gateway (OmniRoute).** In **Providers**, pick **OmniRoute**, enter the API address of your OmniRoute (or any OpenAI-compatible server), for example `https://your-server/v1`, and its key. The models are the ones your server lists at `/models`; they load when the app starts and when you connect.
+
 VPN Gate is only in the `.bat` and the `.sh`.
 
 **The bottom bar** (the strip at the bottom of the screenshot):
@@ -530,6 +534,8 @@ VPN Gate is only in the `.bat` and the `.sh`.
 | Control | What it does |
 |---|---|
 | **Connection** | Route for OpenCode (the table above). Only OpenCode goes through it; your browser and other apps stay direct. The exit IP is shown on the right |
+| **Fix connection** | Tests what works on this computer and puts the best connection in place: WARP, your own SOCKS5 and proxy lists, Tor, then direct. It never uses Route64, Mullvad or Windscribe on its own |
+| **Status** | What each connection needs and whether this computer has it, with **Use**, **Install** (WARP, with your confirmation) and **Settings** buttons |
 | **Reset limit** | Gets a new IP after "You've used today's free messages" and lets you send again |
 | **Auto-rotate** | When the free usage limit stops the chat, it changes the IP, tries it on a temporary session, and sends `continue` to the chats that stopped, only once one works (up to 10 IPs). It also rotates when the connection stays down for about 30 s |
 | **Settings** | Three tabs, below |
@@ -540,7 +546,7 @@ VPN Gate is only in the `.bat` and the `.sh`.
 |---|---|
 | **Basic** | **Advanced mode**; **Exit country** (two letters, for proxies from that country); **Speed** (**Fast mode**, off by default: it sends `continue` as soon as the IP changes, without checking it first, about 3 to 4 s instead of about 7 s, and if that IP is already limited the chat rotates again); **Recent connection changes** (the last ten, kept only on this computer); **Reset** |
 | **Advanced** (with Advanced mode) | **Proxies** (one or a list, from text, a file or a URL, with an optional change-IP URL); **SOCKS5 servers**; **Failover chain** (the modes Auto-rotate falls back to, in order, when the chosen one cannot get a fresh IP, for example `TOR,PROXY`); **route64 tunnel**; **VPN locations** for Mullvad or Windscribe, separated by commas |
-| **Personalization** | **Theme** (Rainbow and the pastel ones first), **Rainbow moves**, **Font**, **Size**, **Motion**, **Background** image and **Text color** |
+| **Personalization** | **Theme** (Rainbow and the pastel ones first), **Rainbow moves**, **Font**, **Size**, **Motion**, **Background** image, **Settings window** opacity (how solid this window is) and **Text color** |
 
 The `opencode-infinite` start screen replaces the normal one.
 
@@ -577,9 +583,17 @@ The `opencode-infinite` start screen replaces the normal one.
 
 ## Versions and status
 
-**Latest version:** launcher 2.60.10 (`.bat`), Linux script 0.4.7.
-**OpenCode Desktop (Infinite build):** 2.2.11, installer `OpenCode-Infinite-Desktop.exe` ([section 14](#14-opencode-desktop-infinite)).
-**Latest published release:** 2.60.10 (2026-11-16). **Previous:** 2.60.9 (2026-11-16).
+**Latest version:** launcher 2.60.11 (`.bat`), Linux script 0.4.7.
+**OpenCode Desktop (Infinite build):** 2.2.12, installer `OpenCode-Infinite-Desktop.exe` ([section 14](#14-opencode-desktop-infinite)).
+**Latest published release:** 2.60.11 (2026-11-16). **Previous:** 2.60.10 (2026-11-16).
+
+### 2.60.11
+
+- **Connection that fixes itself (desktop 2.2.12):** a **Fix connection** button and a **Status** panel in the bar, a first-run setup, and a watcher that repairs a dead proxy. If the proxy of the saved mode is down at start, OpenCode goes direct instead of failing with `ECONNREFUSED`. Details in section 14.
+- **OmniRoute as a provider:** add your own OmniRoute (or any OpenAI-compatible server) in Providers with its address and key.
+- **Settings window opacity:** a slider in Settings > Personalization (the window was too transparent over a background picture).
+- **Fixed:** `Desktop IPC handler failed` when opening the Connection window or the Route64 settings without a Route64 config; the background service is now stopped through its real registration file, so a mode change really restarts it.
+- Launcher and Linux script: unchanged, only the `.bat` version number moves.
 
 ### 2.60.10
 

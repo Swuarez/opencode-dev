@@ -2,7 +2,7 @@ import { createSignal, For, Match, onMount, Show, Switch, type JSX } from "solid
 import { Dialog, DialogBody, DialogHeader, DialogTitleGroup } from "@opencode/ui/dialog"
 import { useTheme, type ColorScheme } from "@opencode/ui/theme/context"
 import { usePlatform } from "@/runtime/platform/platform"
-import { clearBackground, getBackground, getRainbow, getTextColor, setBackgroundFile, setBackgroundOpacity, setRainbow, setTextColor, type RainbowTarget } from "@/shell/infinite-look"
+import { clearBackground, getBackground, getDialogOpacity, getRainbow, getTextColor, setBackgroundFile, setBackgroundOpacity, setDialogOpacity, setRainbow, setTextColor, type RainbowTarget } from "@/shell/infinite-look"
 import { createAppearanceSettingsController } from "@/settings/general/controllers"
 import { readHistory } from "@/shell/infinite-history"
 import { advancedMode, setAdvancedMode } from "@/shell/infinite-state"
@@ -49,7 +49,7 @@ export function SettingsDialog() {
     } else setAdvancedMode(true)
   }
   return (
-    <Dialog size="wide">
+    <Dialog size="wide" containerClass="infinite-settings">
       <DialogHeader>
         <DialogTitleGroup title="Settings" description="Connection and appearance. Basic has what most people need." />
       </DialogHeader>
@@ -137,6 +137,9 @@ export function SettingsDialog() {
                 </Card>
                 <Card title="Motion" hint="Turn off the moving parts of the interface.">
                   <MotionSection />
+                </Card>
+                <Card title="Settings window" hint="How solid this window is. Lower shows more of what is behind it.">
+                  <DialogOpacitySection />
                 </Card>
                 <Card title="Background" hint="Your own picture behind the window. It is shrunk and kept in this app only.">
                   <BackgroundSection />
@@ -394,6 +397,26 @@ function SocksSection() {
         <Show when={note()}>{(value) => <span class="text-12-regular text-v2-text-text-muted">{value()}</span>}</Show>
       </div>
     </section>
+  )
+}
+
+function DialogOpacitySection() {
+  const [value, setValue] = createSignal(getDialogOpacity())
+  return (
+    <label class="flex items-center gap-3 text-12-regular text-v2-text-text-muted">
+      <span class="w-40 shrink-0">Window opacity {value()}%</span>
+      <input
+        type="range"
+        min="30"
+        max="100"
+        value={value()}
+        class="flex-1"
+        onInput={(event) => {
+          setDialogOpacity(Number(event.currentTarget.value))
+          setValue(getDialogOpacity())
+        }}
+      />
+    </label>
   )
 }
 

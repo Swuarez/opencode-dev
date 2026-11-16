@@ -83,6 +83,16 @@
   height: 100vh;
 }
 
+/* Settings window: repaints the surface colors from the solid theme colors at the opacity picked in Personalization. */
+.infinite-settings {
+  --v2-background-bg-base: color-mix(in srgb, var(--infinite-solid-base) var(--infinite-dialog-alpha, 100%), transparent);
+  --v2-background-bg-deep: color-mix(in srgb, var(--infinite-solid-deep) var(--infinite-dialog-alpha, 100%), transparent);
+  --v2-background-bg-layer-01: color-mix(in srgb, var(--infinite-solid-layer-01) var(--infinite-dialog-alpha, 100%), transparent);
+  --v2-background-bg-layer-02: color-mix(in srgb, var(--infinite-solid-layer-02) var(--infinite-dialog-alpha, 100%), transparent);
+  --v2-background-bg-layer-03: color-mix(in srgb, var(--infinite-solid-layer-03) var(--infinite-dialog-alpha, 100%), transparent);
+  --v2-background-bg-layer-04: color-mix(in srgb, var(--infinite-solid-layer-04) var(--infinite-dialog-alpha, 100%), transparent);
+}
+
 @layer components {
   [data-slot="session-chat-panel"][data-scrollbar-hidden="true"]
     [data-slot="session-timeline-visible"]

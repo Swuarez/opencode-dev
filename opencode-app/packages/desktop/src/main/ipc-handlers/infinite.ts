@@ -24,7 +24,7 @@ import {
 } from "../infinite/infinite"
 import { install, plan } from "../infinite/install"
 import { bringUpRoute64, importRoute64, removeRoute64, route64Status } from "../infinite/route64"
-import { BackgroundService, registrationFile } from "../service/background-service"
+import { BackgroundService, customChannelFile, registrationFile } from "../service/background-service"
 import { DesktopCli } from "../service/desktop-cli"
 
 export const infiniteHandlers = InfiniteRpcs.toLayer(
@@ -33,9 +33,13 @@ export const infiniteHandlers = InfiniteRpcs.toLayer(
     const desktopCli = yield* DesktopCli.Service
     const runFork = Effect.runForkWith(yield* Effect.context())
 
-    const stopService = Effect.tryPromise(async () => {
-      const client = await import("@opencode/client/service")
-      await client.Service.stop({ file: registrationFile() })
+    // This CLI registers under its own channel name, so stopping must look in that file, not the default one.
+    const stopService = Effect.gen(function* () {
+      const cli = yield* desktopCli.resolve
+      yield* Effect.tryPromise(async () => {
+        const client = await import("@opencode/client/service")
+        await client.Service.stop({ file: registrationFile() ?? customChannelFile(cli.version) })
+      })
     })
     const startService = Effect.asVoid(background.reconnect)
 

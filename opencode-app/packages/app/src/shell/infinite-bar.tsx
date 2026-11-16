@@ -5,6 +5,8 @@ import { advancedMode, autoRotate as auto, setAutoRotate as setAuto } from "@/sh
 import { initLook } from "@/shell/infinite-look"
 import { SettingsDialog } from "@/shell/settings-dialog"
 import { addHistory } from "@/shell/infinite-history"
+import { ConnectionDialog } from "@/shell/connection-dialog"
+import { fixConnection } from "@/shell/infinite-doctor"
 
 type Mode = "WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE"
 // Auto is not a mode of its own: it picks WARP when it works, otherwise None, and the bar then shows that mode.
@@ -42,6 +44,23 @@ const names: Record<string, string> = {
 }
 const modeLabel = (mode: string) => names[mode] ?? mode
 
+// First-run marker: kept in this app's local storage, like the other per-computer preferences.
+const SETUP_KEY = "opencode.infinite.setup"
+const readFlag = (key: string) => {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return "1"
+  }
+}
+const writeFlag = (key: string, value: string) => {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    // Without storage the setup would repeat; readFlag answers "done" then, so it never loops.
+  }
+}
+
 // Bottom bar with the OpenCode Infinite controls: connection choice, limit reset, IP check, auto-rotate and settings.
 export function InfiniteBar() {
   const platform = usePlatform()
@@ -60,11 +79,42 @@ export function InfiniteBar() {
     })
     void infinite?.getOptions().then((options) => setAuto(options.auto))
     void infinite?.checkIp().then(setResult)
-    // Keeps the dot honest between clicks: a dead proxy shows up within seconds.
+    // The doctor (panel, first run or watchdog) changed the connection: show the new mode and IP.
+    const refresh = () => {
+      void infinite?.getMode().then((current) => {
+        setMode(current)
+        setSelected(current)
+      })
+      void infinite?.checkIp().then(setResult)
+    }
+    window.addEventListener("infinite-connection", refresh)
+    // First run: set the connection up on its own and show what was found. Never again after that.
+    if (infinite && readFlag(SETUP_KEY) !== "1") {
+      writeFlag(SETUP_KEY, "1")
+      dialog.show(() => <ConnectionDialog autostart />)
+    }
+    // Keeps the dot honest between clicks, and heals a dead connection: a mode other than Direct whose proxy stopped
+    // answering is repaired (at most every two minutes), so the chats keep working without anyone clicking.
+    let lastHeal = 0
     const timer = setInterval(() => {
-      if (!busy()) void infinite?.checkIp().then((checked) => !busy() && setResult(checked))
+      if (busy()) return
+      void infinite?.checkIp().then((checked) => {
+        if (busy()) return
+        setResult(checked)
+        if (checked.ok || mode() === "NONE" || Date.now() - lastHeal < 120_000) return
+        lastHeal = Date.now()
+        void run("Connection lost, fixing it…", async () => {
+          const outcome = await fixConnection(infinite!, (message) => setResult({ ok: true, message }))
+          setMode(outcome.mode)
+          setSelected(outcome.mode)
+          return { ok: outcome.ok, message: outcome.message, ip: outcome.ip }
+        })
+      })
     }, 20_000)
-    onCleanup(() => clearInterval(timer))
+    onCleanup(() => {
+      clearInterval(timer)
+      window.removeEventListener("infinite-connection", refresh)
+    })
   })
 
   const saveOptions = (next: boolean) => {
@@ -182,6 +232,25 @@ export function InfiniteBar() {
           </For>
         </div>
 
+        <button
+          type="button"
+          class={button}
+          disabled={busy()}
+          title="Tests what works on this computer and puts the best connection in place."
+          onClick={() =>
+            void run("Fixing the connection…", async () => {
+              const outcome = await fixConnection(infinite!, (message) => setResult({ ok: true, message }), true)
+              setMode(outcome.mode)
+              setSelected(outcome.mode)
+              return { ok: outcome.ok, message: outcome.message, ip: outcome.ip }
+            })
+          }
+        >
+          Fix connection
+        </button>
+        <button type="button" class={button} title="What works on this computer." onClick={() => void dialog.show(() => <ConnectionDialog />)}>
+          Status
+        </button>
         <button type="button" class={button} disabled={busy()} onClick={() => void run("Resetting limit…", () => infinite!.resetLimit())}>
           Reset limit
         </button>

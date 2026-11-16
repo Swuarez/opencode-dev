@@ -3,6 +3,7 @@ export const popularProviders = [
   "opencode",
   "anthropic",
   "deepai",
+  "omniroute",
   "github-copilot",
   "openai",
   "google",

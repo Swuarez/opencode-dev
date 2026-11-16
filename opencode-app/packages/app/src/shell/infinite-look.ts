@@ -3,6 +3,7 @@
 // variables inline, so the image shows through and the theme keeps working.
 const KEY_IMAGE = "infinite-bg"
 const KEY_OPACITY = "infinite-bg-opacity"
+const KEY_DIALOG_OPACITY = "infinite-dialog-opacity"
 const MAX_SIDE = 1920
 // The layers that paint the window; the rest of the interface sits on top of them.
 const SURFACES = ["base", "deep", "layer-01", "layer-02", "layer-03", "layer-04"].map((name) => `--v2-background-bg-${name}`)
@@ -79,6 +80,10 @@ export function applyBackground() {
   const frame = [document.body, document.getElementById("root")]
   for (const element of frame) element?.style.setProperty("background-color", image ? "transparent" : "")
   surfaceAlpha = 100
+  // The settings window repaints the surfaces from these solid colors (see .infinite-settings in index.css).
+  const solid = getComputedStyle(root)
+  for (const name of SURFACES) root.style.setProperty(name.replace("--v2-background-bg-", "--infinite-solid-"), solid.getPropertyValue(name).trim())
+  root.style.setProperty("--infinite-dialog-alpha", `${getDialogOpacity()}%`)
   if (!image) {
     root.style.removeProperty("background-image")
     return
@@ -120,6 +125,16 @@ export function clearBackground() {
     localStorage.removeItem(KEY_IMAGE)
   } catch {}
   applyBackground()
+}
+
+/** How much of the settings window stays solid, 30 to 100. */
+export const getDialogOpacity = () => clampOpacity(Number(read(KEY_DIALOG_OPACITY) ?? 95))
+
+export function setDialogOpacity(value: number) {
+  try {
+    localStorage.setItem(KEY_DIALOG_OPACITY, String(clampOpacity(value)))
+  } catch {}
+  document.documentElement.style.setProperty("--infinite-dialog-alpha", `${getDialogOpacity()}%`)
 }
 
 export function setBackgroundOpacity(value: number) {

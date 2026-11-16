@@ -44,7 +44,8 @@ export async function route64Status(): Promise<Route64Status> {
     if (parsed.ok) endpoint = parsed.conf.peers[0]!.endpoint
   }
   const service = await run("sc", ["query", `WireGuardTunnel$${TUNNEL}`])
-  return { imported: exists, endpoint, up: service.ok && /RUNNING/.test(service.out) }
+  // The IPC schema's `endpoint` may be absent but never undefined: an explicit undefined fails the reply as a handler error.
+  return { imported: exists, ...(endpoint ? { endpoint } : {}), up: service.ok && /RUNNING/.test(service.out) }
 }
 
 /**

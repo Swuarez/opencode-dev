@@ -118,7 +118,7 @@ const prepare = Effect.fn("BackgroundService.prepare")(function* (mode: Backgrou
 })
 
 // A CLI built for a custom channel (`0.0.0-<channel>-<timestamp>`) registers in `service-<channel>.json`, not `service.json`.
-function customChannelFile(version: string) {
+export function customChannelFile(version: string) {
   const channel = /^0\.0\.0-(.+)-\d{12}$/.exec(version)?.[1]
   if (!channel || channel === "dev" || channel.startsWith("dev-")) return undefined
   return nodePath.join(
