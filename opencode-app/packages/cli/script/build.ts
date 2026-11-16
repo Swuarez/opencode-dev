@@ -198,7 +198,8 @@ export default { path: file, version: ${JSON.stringify(opencodePty.version)}, sh
       outfile: path.join(outdir, name, "bin", binary),
       execArgv: [
         "--smol",
-        `--user-agent=opencode/${Script.channel}/${Script.version}/cli`,
+        // Same floor as App.useragent: the free tier rejects the 0.0.0-* build versions.
+        `--user-agent=opencode/${Script.channel}/${Script.version.startsWith("0.0.0-") ? "1.18.0" : Script.version}/cli`,
         "--use-system-ca",
         "--no-warnings",
         "--",

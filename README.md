@@ -34,7 +34,7 @@ VPN Gate, which the desktop app does not.
 | File | Platform | What it is | Version |
 |---|---|---|---|
 | `OpenCode-Infinite-Desktop.exe` | Windows 10 / 11 (x64) | **The desktop app.** Installer of OpenCode (v2.2.10) with a bottom bar: Auto, None, WARP, Tor, Proxy, SOCKS5, Route64, Mullvad and Windscribe, Reset limit, Auto-rotate and three Settings tabs. Tor is bundled. See [section 14](#14-opencode-desktop-infinite) | 2.2.8 |
-| `OpenCode Infinite.bat` | Windows 10 / 11 (x64, ARM64, x86 limited) | Full launcher: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages; single-instance lock that checks PID, start time, executable and .bat path | 2.60.9 |
+| `OpenCode Infinite.bat` | Windows 10 / 11 (x64, ARM64, x86 limited) | Full launcher: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages; single-instance lock that checks PID, start time, executable and .bat path | 2.60.10 |
 | `opencode-infinite.sh` | Linux (bash; Ubuntu 24.04 with apt; also dnf, pacman and zypper) | Full, including the desktop app, except the Windows-only items. See [Linux: what is different](#linux-what-is-different) | linux-0.4.7 |
 
 The sections marked **Windows only** below are not on Linux.
@@ -508,7 +508,7 @@ the file to an issue.
 
 **Get it.** It is attached to the [latest release](https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest) as a link, because it is too big (about 268 MiB, 281 MB) for a release file. Direct link: `https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest/downloads/OpenCode-Infinite-Desktop.exe`. Check it against the SHA-256 below before you run it.
 
-SHA-256: `4012d8f0d3dde72814ba5cb1f19138221e82aec6dac0f3bc6b4b8c31df868315`
+SHA-256: `3824685a93641e91ced89c82c3fddacb59fb569502669c08e6f7395551176d73`
 
 **Connections.** The bar starts with **Auto** and **None**. Turn on **Settings > Basic > Advanced mode** to see every connection and the Advanced tab.
 
@@ -577,9 +577,14 @@ The `opencode-infinite` start screen replaces the normal one.
 
 ## Versions and status
 
-**Latest version:** launcher 2.60.9 (`.bat`), Linux script 0.4.7.
-**OpenCode Desktop (Infinite build):** 2.2.10, installer `OpenCode-Infinite-Desktop.exe` ([section 14](#14-opencode-desktop-infinite)).
-**Latest published release:** 2.60.9 (2026-11-16). **Previous:** 2.60.8 (2026-11-16).
+**Latest version:** launcher 2.60.10 (`.bat`), Linux script 0.4.7.
+**OpenCode Desktop (Infinite build):** 2.2.11, installer `OpenCode-Infinite-Desktop.exe` ([section 14](#14-opencode-desktop-infinite)).
+**Latest published release:** 2.60.10 (2026-11-16). **Previous:** 2.60.9 (2026-11-16).
+
+### 2.60.10
+
+- **Free tier works again:** the free models answered OpenCode 1.18.0 or newer is required to use the free tier, because our builds identify themselves as  .0.0-<channel>-<date> and the server reads that as an old client. The desktop app and the CLI now announce 1.18.0 to the model servers. Nothing else changes (service, database and chats stay as they were).
+- **OpenCode Desktop 2.2.11:** the update button of 2.2.10 installs it. Launcher and Linux script: unchanged, only the .bat version number moves.
 
 ### 2.60.9
 

@@ -21,8 +21,14 @@ export function make(input: Partial<Info> = {}): Info {
   }
 }
 
+// The free tier rejects clients older than this. Our own builds are versioned `0.0.0-<channel>-<timestamp>`
+// (the version also picks the service file and DB), so they advertise this floor instead.
+// shortcut: raise when the server's minimum goes up.
+const MIN_SERVER_VERSION = "1.18.0"
+
 export function useragent(app: Info) {
-  return `opencode/${app.channel}/${app.version}/${app.name}`
+  const version = app.version.startsWith("0.0.0-") ? MIN_SERVER_VERSION : app.version
+  return `opencode/${app.channel}/${version}/${app.name}`
 }
 
 export const layer = (input?: Partial<Info>) => Layer.succeed(Metadata, make(input))
