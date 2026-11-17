@@ -76,7 +76,19 @@ export const InfiniteToolInstall = Rpc.make("InfiniteToolInstall", {
   success: Route64Result,
 })
 
+export const InfiniteDictate = Rpc.make("InfiniteDictate", {
+  payload: { language: Schema.String },
+  success: Schema.Struct({ ok: Schema.Boolean, text: Schema.String, message: Schema.String }),
+})
+
+export const InfiniteDictateStop = Rpc.make("InfiniteDictateStop", {})
+
+export const InfiniteDictateLanguages = Rpc.make("InfiniteDictateLanguages", { success: Schema.Array(Schema.String) })
+
 export const InfiniteRpcs = RpcGroup.make(
+  InfiniteDictate,
+  InfiniteDictateStop,
+  InfiniteDictateLanguages,
   InfiniteToolPlan,
   InfiniteToolInstall,
   InfiniteRoute64Import,

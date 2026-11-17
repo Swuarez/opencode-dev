@@ -89,6 +89,9 @@ export type ElectronAPI = {
   infiniteRestoreSession(): Promise<{ ok: boolean; message: string; ip?: string }>
   infiniteAutoRotate(sessionID: string): Promise<void>
   infiniteFetchList(url: string): Promise<{ ok: boolean; text: string }>
+  infiniteDictate(language: string): Promise<{ ok: boolean; text: string; message: string }>
+  infiniteDictateStop(): Promise<void>
+  infiniteDictateLanguages(): Promise<string[]>
   infiniteClearBurned(): Promise<{ ok: boolean; message: string }>
   infiniteRoute64Import(text: string): Promise<{ ok: boolean; message: string; endpoint?: string }>
   infiniteRoute64Status(): Promise<{ imported: boolean; endpoint?: string; up: boolean }>

@@ -45,6 +45,7 @@ import type {
   ComposerSuggestion,
 } from "../types"
 import type { ComposerEditorModel, ComposerSelectControl } from "./interaction"
+import { DictationButton } from "../dictation"
 import { isAttachment, promptLength } from "../prompt-parts"
 import { editorMatchesPrompt, getCursorPosition, isEditorDomBlank, isPromptInlineBlank } from "./dom"
 import {
@@ -513,6 +514,9 @@ export function ComposerEditor(props: ComposerEditorProps) {
                     <Keybind keys={props.exitShellKeybind ?? ["ESC"]} variant="neutral" />
                   </span>
                 </Button>
+              </Show>
+              <Show when={mode() === "normal"}>
+                <DictationButton controller={props.controller} disabled={view.draftOnly} />
               </Show>
               <ComposerEditorSubmitButton
                 mode={mode()}
