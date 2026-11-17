@@ -33,8 +33,8 @@ VPN Gate, which the desktop app does not.
 
 | File | Platform | What it is | Version |
 |---|---|---|---|
-| `OpenCode-Infinite-Desktop.exe` | Windows 10 / 11 (x64) | **The desktop app.** Installer of OpenCode (v2.2.18) with a bottom bar: Auto, None, WARP, Tor, Proxy, SOCKS5, Route64, Mullvad and Windscribe, Reset limit, Auto-rotate and three Settings tabs. Tor is bundled. See [section 14](#14-opencode-desktop-infinite) | 2.2.8 |
-| `OpenCode Infinite.bat` | Windows 10 / 11 (x64, ARM64, x86 limited) | Full launcher: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages; single-instance lock that checks PID, start time, executable and .bat path | 2.60.17 |
+| `OpenCode-Infinite-Desktop.exe` | Windows 10 / 11 (x64) | **The desktop app.** Installer of OpenCode (v2.2.19) with a bottom bar: Auto, None, WARP, Tor, Proxy, SOCKS5, Route64, Mullvad and Windscribe, Reset limit, Auto-rotate and three Settings tabs. Tor is bundled. See [section 14](#14-opencode-desktop-infinite) | 2.2.8 |
+| `OpenCode Infinite.bat` | Windows 10 / 11 (x64, ARM64, x86 limited) | Full launcher: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages; single-instance lock that checks PID, start time, executable and .bat path | 2.60.18 |
 | `opencode-infinite.sh` | Linux (bash; Ubuntu 24.04 with apt; also dnf, pacman and zypper) | Full, including the desktop app, except the Windows-only items. See [Linux: what is different](#linux-what-is-different) | linux-0.4.7 |
 
 The sections marked **Windows only** below are not on Linux.
@@ -502,13 +502,13 @@ the file to an issue.
 
 ## 14. OpenCode Desktop (Infinite)
 
-`OpenCode-Infinite-Desktop.exe` is the OpenCode desktop app (v2.2.18) with the launcher's tools built in, so you pick the exit IP from the app itself. No launcher is needed.
+`OpenCode-Infinite-Desktop.exe` is the OpenCode desktop app (v2.2.19) with the launcher's tools built in, so you pick the exit IP from the app itself. No launcher is needed.
 
 ![OpenCode Desktop with the Infinite bar](images/08-desktop.webp)
 
 **Get it.** It is attached to the [latest release](https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest) as a link, because it is too big (about 268 MiB, 281 MB) for a release file. Direct link: `https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest/downloads/OpenCode-Infinite-Desktop.exe`. Check it against the SHA-256 below before you run it.
 
-SHA-256: `903941daeecacad724e62b79d2f755a7d8ab596ec161b9b109d55fe010cd7eab`
+SHA-256: `c7e2526fbedf0b31790525ccb15c140bfcec033266179eb241d0cc1f5080ec00`
 
 **Connections.** The bar starts with **Auto** and **None**. Turn on **Settings > Basic > Advanced mode** to see every connection and the Advanced tab.
 
@@ -583,9 +583,14 @@ The `opencode-infinite` start screen replaces the normal one.
 
 ## Versions and status
 
-**Latest version:** launcher 2.60.17 (`.bat`), Linux script 0.4.7.
-**OpenCode Desktop (Infinite build):** 2.2.18, installer `OpenCode-Infinite-Desktop.exe` ([section 14](#14-opencode-desktop-infinite)).
-**Latest published release:** 2.60.17 (2026-11-17). **Previous:** 2.60.16 (2026-11-17).
+**Latest version:** launcher 2.60.18 (`.bat`), Linux script 0.4.7.
+**OpenCode Desktop (Infinite build):** 2.2.19, installer `OpenCode-Infinite-Desktop.exe` ([section 14](#14-opencode-desktop-infinite)).
+**Latest published release:** 2.60.18 (2026-11-17). **Previous:** 2.60.17 (2026-11-17).
+
+### 2.60.18
+
+- **Your own proxies (desktop 2.2.19):** proxy and SOCKS5 lists now take the `host:port:user:password` form that providers such as Webshare hand out. When the saved proxy does not answer at start, the app picks another one from the list instead of connecting directly with your real IP. A list of one rotating gateway can be rotated (2.2.18 got stuck), the bar shows the real exit IP instead of the gateway's name, and entries that share one host name with different logins count as different proxies. With a list of your own (Proxy or SOCKS5), a proxy that stops answering is replaced by the next one even with Auto-rotate off. Your own paid proxies get 8 seconds to answer the check instead of 2.
+- Launcher and Linux script: unchanged, only the `.bat` version number moves.
 
 ### 2.60.17
 

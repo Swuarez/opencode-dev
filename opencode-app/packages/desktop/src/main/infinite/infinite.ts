@@ -179,7 +179,14 @@ export const burnedExpired = (burnedAt: number, now = Date.now()) => burnedAt > 
 
 const burnedList = () => load().burned ?? []
 const isBurned = (ip: string | undefined) => !!ip && burnedList().includes(ip)
-const proxyIp = (proxy: string) => proxy.slice(proxy.indexOf("://") + 3).replace(/^.*@/, "").split(":")[0]!
+/**
+ * What tells two proxies apart for the used-IP memory: the address when the host is an IP, else the whole entry.
+ * A provider's gateway (p.webshare.io with user-1, user-2…) shares one host name across many different exits.
+ */
+const proxyKey = (proxy: string) => {
+  const host = proxy.slice(proxy.indexOf("://") + 3).replace(/^.*@/, "").split(":")[0]!
+  return /^[\d.]+$/.test(host) ? host : proxy
+}
 
 /** Remembers an IP as used, so the next rotation does not land on it again. */
 function burn(ip: string | undefined) {
@@ -191,7 +198,7 @@ function burn(ip: string | undefined) {
 
 /** A list this short uses every entry up: forget the burned IPs of that list instead of failing on them. */
 function unburnList(list: string[]) {
-  load().burned = burnedList().filter((ip) => !list.some((entry) => proxyIp(entry) === ip))
+  load().burned = burnedList().filter((ip) => !list.some((entry) => proxyKey(entry) === ip))
   if (!load().burned.length) load().burnedAt = 0
 }
 
@@ -209,9 +216,15 @@ const normalizeRotateUrl = (value: string) => {
   return /^https?:\/\//i.test(text) && URL.canParse(text) ? text : ""
 }
 
-/** "host:port" or a full http(s) URL (credentials allowed); anything else counts as no custom proxy. */
+/** Provider lists (Webshare and others) write host:port:user:password; this turns it into user:password@host:port. */
+const fromColons = (text: string) => {
+  const parts = /^([^:/@\s]+):(\d{1,5}):([^:\s]+):(\S+)$/.exec(text)
+  return parts ? `${encodeURIComponent(parts[3]!)}:${encodeURIComponent(parts[4]!)}@${parts[1]}:${parts[2]}` : text
+}
+
+/** "host:port", "host:port:user:password" or a full http(s) URL (credentials allowed); anything else is dropped. */
 const normalizeProxy = (value: string) => {
-  const text = value.trim()
+  const text = fromColons(value.trim())
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(text) && !/^https?:\/\//i.test(text)) return undefined
   if (!/:\d{1,5}\/?$/.test(text)) return undefined // a proxy always names its port
   const url = /^https?:\/\//i.test(text) ? text : `http://${text}`
@@ -223,9 +236,9 @@ const normalizeProxy = (value: string) => {
 const normalizeProxies = (text: string) =>
   [...new Set(text.split(/[\s,;]+/).flatMap((token) => normalizeProxy(token) ?? []))].slice(0, 500)
 
-/** "host:port", "socks5://host:port" or "socks5://user:password@host:port"; anything else is dropped. */
+/** "host:port", "host:port:user:password", "socks5://host:port" or "socks5://user:password@host:port"; else dropped. */
 export function parseSocks(token: string): SocksTarget | undefined {
-  const text = token.trim()
+  const text = fromColons(token.trim())
   if (!text) return undefined
   const bare = /^[a-z][a-z0-9+.-]*:\/\//i.test(text) ? text : `socks5://${text}`
   if (!/^socks5h?:\/\//i.test(bare)) return undefined
@@ -709,15 +722,21 @@ async function rotateTor(): Promise<Result> {
 
 // --- free proxies -------------------------------------------------------------------------------------------------
 
-const proxyWorks = (p: string) =>
-  run("curl", ["-s", "-m", "2", "-o", os.devNull, "-w", "%{http_code}", "-x", p, "https://opencode.ai"], 3000).then(
+// Free proxies that need more than 2 s are useless; paid residential ones are often that slow and still fine.
+const proxyWorks = (p: string, seconds = load().custom ? 8 : 2) =>
+  run("curl", ["-s", "-m", String(seconds), "-o", os.devNull, "-w", "%{http_code}", "-x", p, "https://opencode.ai"], seconds * 1000 + 1000).then(
     (c) => c.ok && /^[23]\d\d$/.test(c.out.trim()),
   )
+
+/** The exit IP the internet sees through one proxy; a rotating gateway gives a new one per connection. */
+const exitIp = (p: string) =>
+  run("curl", ["-s", "-m", "10", "-x", p, TRACE], 12_000).then((res) => (res.ok ? /^ip=(.+)$/m.exec(res.out)?.[1] : undefined))
 
 /** Resolves with the first proxy of the list that works, without waiting for the slow ones. */
 const firstWorking = (list: string[]) =>
   new Promise<string | undefined>((resolve) => {
     let pending = list.length
+    if (!pending) resolve(undefined)
     for (const p of list)
       void proxyWorks(p).then((ok) => {
         if (ok) resolve(p)
@@ -750,14 +769,14 @@ const refillPool = () =>
   (filling ??= (async () => {
     const deadline = Date.now() + REFILL_DEADLINE
     const list = (await sources())
-      .filter((proxy) => !pool.has(proxy) && !isBurned(proxyIp(proxy)))
+      .filter((proxy) => !pool.has(proxy) && !isBurned(proxyKey(proxy)))
       .sort(() => Math.random() - 0.5)
       .slice(0, REFILL_MAX)
     for (let i = 0; i < list.length && poolLive().length < POOL_TARGET && Date.now() < deadline; i += 40)
       await Promise.all(
         list.slice(i, i + 40).map(async (proxy) => {
-          const ip = proxyIp(proxy)
-          if (await proxyWorks(proxy)) if (![...pool.keys()].some((entry) => proxyIp(entry) === ip)) pool.set(proxy, Date.now())
+          const ip = proxyKey(proxy)
+          if (await proxyWorks(proxy)) if (![...pool.keys()].some((entry) => proxyKey(entry) === ip)) pool.set(proxy, Date.now())
         }),
       )
   })().finally(() => (filling = undefined)))
@@ -770,9 +789,10 @@ const refillPoolIfProxy = () => {
 async function pickProxy(): Promise<Result> {
   const own = customList()
   // A short list cannot avoid its own burned addresses forever; start its round again instead of giving up.
-  if (own.length && own.every((proxy) => isBurned(proxyIp(proxy)))) unburnList(own)
+  if (own.length && own.every((proxy) => isBurned(proxyKey(proxy)))) unburnList(own)
+  // A list of one is a rotating gateway: the same entry gives a new exit on every new connection.
   const usable = (proxy: string) =>
-    proxy !== load().proxy && proxyIp(proxy) !== known[getMode()] && !isBurned(proxyIp(proxy))
+    (proxy !== load().proxy || own.length === 1) && proxyKey(proxy) !== known[getMode()] && !isBurned(proxyKey(proxy))
   const hot = () =>
     poolLive()
       .sort(() => Math.random() - 0.5)
@@ -808,7 +828,8 @@ async function pickProxy(): Promise<Result> {
   await save()
   // Restock in the background so the next rotation finds something without waiting.
   refillPoolIfProxy()
-  return { ok: true, ip: proxyIp(hit), message: own.length ? `Your proxy (${own.length} in the list)` : `Proxy ${hit}` }
+  // The real exit, not the entry: a gateway's host name is not an IP, and an entry can carry a password.
+  return { ok: true, ip: await exitIp(hit), message: own.length ? `Your proxy (${own.length} in the list)` : `Proxy ${hit}` }
 }
 
 // --- public -------------------------------------------------------------------------------------------------------
@@ -820,13 +841,20 @@ export async function prepareMode() {
   if (getMode() === "PROXY") void refillPool()
   // The SOCKS bridge serves a stored entry, so it has to be listening before the service starts.
   if (getMode() === "SOCKS") startBridge(SOCKS_HTTP, () => parseSocks(load().socksCurrent ?? ""))
-  // The SOCKS bridge serves a stored entry, so it has to be listening before the service starts.
-  if (getMode() === "SOCKS") startBridge(SOCKS_HTTP, () => parseSocks(load().socksCurrent ?? ""))
   proxyDead = false
   const url = upstream()
   if (!url || (await reachable(url))) return
   // WARP can be switched back on; the others were started above.
   if (getMode() === "WARP" && (await connect().catch(() => undefined))?.ok && (await reachable(url))) return
+  // Proxy never falls back to the real IP: the door holds requests while another proxy is picked from the list.
+  if (getMode() === "PROXY") {
+    load().proxy = undefined
+    autoStatus("the saved proxy is not answering, picking another one…")
+    void pickProxy()
+      .then(remember)
+      .then((result) => autoStatus(result.ok ? `switched to another proxy` : result.message, true))
+    return
+  }
   proxyDead = true
   autoStatus(`${getMode()} is not answering; OpenCode connects directly until you pick it again`)
 }
@@ -908,8 +936,8 @@ export async function applyMode(next: Mode): Promise<Result> {
   }
   if (next === "PROXY") {
     const kept = load().custom ? undefined : load().proxy
-    const fresh = kept && !isBurned(proxyIp(kept)) && (await proxyWorks(kept))
-    return remember(fresh ? { ok: true, ip: proxyIp(kept), message: `Proxy ${kept}` } : await pickProxy())
+    const fresh = kept && !isBurned(proxyKey(kept)) && (await proxyWorks(kept))
+    return remember(fresh ? { ok: true, ip: proxyKey(kept), message: `Proxy ${kept}` } : await pickProxy())
   }
   // The route64 tunnel carries all traffic itself, so the service needs no proxy; it only has to be up.
   if (next === "ROUTE64") {
@@ -1229,13 +1257,19 @@ export function startWatch(rotateNow: (sessionID: string) => void, swapNow: () =
   }
 
   // A dead free proxy or a dropped tunnel looks like two failed checks in a row, about 30 s.
+  // Without Auto-rotate a dead proxy of the user's own list is still replaced: that costs no free messages.
+  const ownList = () => (load().mode === "PROXY" && !!load().custom) || load().mode === "SOCKS"
   setInterval(async () => {
-    if (!load().auto || load().mode === "NONE" || locked) return
+    if (load().mode === "NONE" || locked || (!load().auto && !ownList())) return
     fails = (await checkIp()).ok ? 0 : fails + 1
-    if (fails >= 2) {
-      fails = 0
-      trigger("connection lost")
-    }
+    if (fails < 2) return
+    fails = 0
+    if (load().auto) return trigger("connection lost")
+    const release = lock()
+    if (!release) return
+    autoStatus("the proxy stopped answering, moving to the next one…")
+    const result = await rotateOnly().finally(release)
+    autoStatus(result.ok ? "moved to the next proxy" : result.message, true)
   }, 15_000)
 
   const listen = async () => {

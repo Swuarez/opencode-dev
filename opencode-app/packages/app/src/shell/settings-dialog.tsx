@@ -102,7 +102,7 @@ export function SettingsDialog() {
               <div class="flex flex-col gap-5">
                 <Card
                   title="Proxies"
-                  hint="One proxy or a whole list: host:port or http://user:password@host:port. A rotating proxy goes in the list too. Used by the Proxy choice in the bottom bar."
+                  hint="One proxy or a whole list: host:port, host:port:user:password or http://user:password@host:port, separated by lines, spaces or commas. HTTP proxies only; SOCKS5 goes in its own box below. A rotating proxy goes in the list too. Empty means the free list. Used by the Proxy choice in the bottom bar."
                 >
                   <div class="flex flex-col gap-6">
                     <ProxySection />
@@ -111,7 +111,7 @@ export function SettingsDialog() {
                 </Card>
                 <Card
                   title="SOCKS5 servers"
-                  hint="What the SOCKS5 choice in the bottom bar connects through: host:port, socks5://host:port or socks5://user:password@host:port, one per line. They are only reachable from this computer."
+                  hint="What the SOCKS5 choice in the bottom bar connects through: host:port, host:port:user:password, socks5://host:port or socks5://user:password@host:port, one per line. They are only reachable from this computer."
                 >
                   <SocksSection />
                 </Card>
@@ -233,11 +233,6 @@ function ProxySection() {
 
   return (
     <section class="flex flex-col gap-5">
-      <p class="text-13-regular text-v2-text-text-muted">
-        One proxy or a whole list: host:port or http://user:password@host:port, separated by lines, spaces or commas. HTTP proxies only. Empty
-        means the free list.
-      </p>
-
       <div class="flex flex-col gap-2">
         <h3 class="text-13-medium text-v2-text-text-base">From a file</h3>
         <div class="flex items-center gap-3">

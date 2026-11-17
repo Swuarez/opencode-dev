@@ -18,6 +18,15 @@ test("a rotating endpoint is kept as a proxy in the list", async () => {
   await I.setOptions({ ...options, custom: "" })
 })
 
+test("provider lists in host:port:user:password form are kept, for HTTP and SOCKS5 alike", async () => {
+  const options = I.getOptions()
+  await I.setOptions({ ...options, custom: "gate.example:80:user-1:pa:ss\nuser:pw@10.0.0.1:3128", socks: "gate.example:1080:u:p" })
+  expect(I.getOptions().custom).toBe("http://user-1:pa%3Ass@gate.example:80\nhttp://user:pw@10.0.0.1:3128")
+  expect(I.getOptions().socks).toBe("socks5://u:p@gate.example:1080")
+  expect(I.parseSocks("gate.example:1080:u:p")).toEqual({ host: "gate.example", port: 1080, user: "u", pass: "p" })
+  await I.setOptions({ ...options, custom: "", socks: "" })
+})
+
 test("an invalid change-IP URL is dropped, a valid one is kept", async () => {
   const options = I.getOptions()
   await I.setOptions({ ...options, rotateUrl: "not a url" })
