@@ -10,6 +10,8 @@ import type { ComposerEditorModel } from "./editor/interaction"
 const QUIET_MS = 1800
 // Gives up when Win+H never types anything, so a stray later edit is not sent.
 const START_MS = 15_000
+// Time for the committed words to reach the composer before sending.
+const COMMIT_MS = 300
 
 // Microphone next to Send: opens Windows voice typing (Win+H) in the composer and sends what it typed once it goes
 // quiet. Typing a key yourself, or clicking again, cancels the automatic send.
@@ -27,24 +29,20 @@ export function DictationButton(props: { controller: ComposerEditorModel; disabl
   onCleanup(disarm)
 
   const arm = (editor: HTMLElement) => {
-    let typed = false
-    let composing = false
     let timer = setTimeout(disarm, START_MS)
-    const schedule = () => {
-      clearTimeout(timer)
-      timer = setTimeout(() => {
-        if (composing) return schedule()
-        disarm()
+    // Win+H keeps its words as an open composition while its panel is up, so waiting for compositionend never sends.
+    // Leaving the field commits the words and closes the panel; then the message goes out and the caret comes back.
+    const finish = () => {
+      disarm()
+      editor.blur()
+      setTimeout(() => {
         if (props.controller.canSubmit()) props.controller.submit()
-      }, QUIET_MS)
+        props.controller.restoreFocus()
+      }, COMMIT_MS)
     }
     const onInput = () => {
-      typed = true
-      schedule()
-    }
-    const onComposition = (event: CompositionEvent) => {
-      composing = event.type !== "compositionend"
-      if (typed || event.type === "compositionend") onInput()
+      clearTimeout(timer)
+      timer = setTimeout(finish, QUIET_MS)
     }
     // Voice typing arrives as input and composition events; a real key press means the user took over.
     const onKey = (event: KeyboardEvent) => {
@@ -52,16 +50,16 @@ export function DictationButton(props: { controller: ComposerEditorModel; disabl
       disarm()
     }
     editor.addEventListener("input", onInput)
-    editor.addEventListener("compositionstart", onComposition)
-    editor.addEventListener("compositionupdate", onComposition)
-    editor.addEventListener("compositionend", onComposition)
+    editor.addEventListener("compositionstart", onInput)
+    editor.addEventListener("compositionupdate", onInput)
+    editor.addEventListener("compositionend", onInput)
     editor.addEventListener("keydown", onKey)
     stop = () => {
       clearTimeout(timer)
       editor.removeEventListener("input", onInput)
-      editor.removeEventListener("compositionstart", onComposition)
-      editor.removeEventListener("compositionupdate", onComposition)
-      editor.removeEventListener("compositionend", onComposition)
+      editor.removeEventListener("compositionstart", onInput)
+      editor.removeEventListener("compositionupdate", onInput)
+      editor.removeEventListener("compositionend", onInput)
       editor.removeEventListener("keydown", onKey)
     }
     setArmed(true)
