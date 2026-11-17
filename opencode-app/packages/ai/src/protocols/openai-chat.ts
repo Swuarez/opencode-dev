@@ -927,6 +927,8 @@ const mapFinishReason = Effect.fnUntraced(function* (event: OpenAIChatEvent, rea
     case "length":
       return "length" as const
     case "content_filter":
+    // DeepAI spells it with a hyphen; read as unknown, the stream looked cut and the session sent "continue".
+    case "content-filter":
       return "content-filter" as const
     case "function_call":
     case "tool_calls":

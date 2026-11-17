@@ -2161,6 +2161,16 @@ describe("OpenAI Chat route", () => {
     }),
   )
 
+  it.effect("reads the hyphenated content-filter finish as a content filter", () =>
+    Effect.gen(function* () {
+      const response = yield* LLMClient.generate(request).pipe(
+        Effect.provide(fixedResponse(sseEvents(deltaChunk({ content: "Hel" }), deltaChunk({}, "content-filter")))),
+      )
+
+      expect(response.finishReason).toEqual({ normalized: "content-filter", raw: "content-filter" })
+    }),
+  )
+
   it.effect("ignores empty identity fields on later tool call deltas", () =>
     Effect.gen(function* () {
       const body = sseEvents(
