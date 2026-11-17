@@ -21,7 +21,7 @@ import {
   startWatch,
   type Result,
 } from "../infinite/infinite"
-import { dictate, dictationLanguages, stopDictation } from "../infinite/dictate"
+import { voiceTyping } from "../infinite/dictate"
 import { install, plan } from "../infinite/install"
 import { bringUpRoute64, importRoute64, removeRoute64, route64Status } from "../infinite/route64"
 import { BackgroundService, customChannelFile, registrationFile } from "../service/background-service"
@@ -185,9 +185,7 @@ export const infiniteHandlers = InfiniteRpcs.toLayer(
       InfiniteRestoreSession: restoreFlow,
       InfiniteAutoRotate: ({ sessionID }) => Effect.sync(() => trigger("limit reached", sessionID)),
       InfiniteFetchList: ({ url }) => Effect.promise(() => fetchList(url)),
-      InfiniteDictate: ({ language }) => Effect.promise(() => dictate(language)),
-      InfiniteDictateStop: () => Effect.sync(stopDictation),
-      InfiniteDictateLanguages: () => Effect.promise(dictationLanguages),
+      InfiniteDictate: () => Effect.promise(voiceTyping),
       InfiniteClearBurned: () => Effect.promise(clearBurned),
       InfiniteCheckIp: () => Effect.promise(checkIp),
       InfiniteGetOptions: () => Effect.sync(getOptions),

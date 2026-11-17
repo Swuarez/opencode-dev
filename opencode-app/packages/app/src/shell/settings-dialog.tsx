@@ -91,7 +91,7 @@ export function SettingsDialog() {
                 <Show when={usePlatform().infinite?.dictate}>
                   <Card
                     title="Voice dictation"
-                    hint="Adds a microphone next to Send. Talk, and when you stop it types what Windows heard and sends it. Uses the same speech service as Win+H."
+                    hint="Adds a microphone next to Send. It opens Windows voice typing (Win+H) in the message box and sends the text when you stop talking. Typing a key yourself cancels the send."
                   >
                     <DictationSection />
                   </Card>
@@ -165,29 +165,11 @@ export function SettingsDialog() {
 }
 
 function DictationSection() {
-  const infinite = usePlatform().infinite
-  const [languages, setLanguages] = createSignal<string[]>([])
-  onMount(() => void infinite?.dictateLanguages().then(setLanguages))
-  // Empty means Windows' default speech language; otherwise the first one that matches this app's language.
-  const current = () => dictation().language || languages().find((tag) => tag.startsWith(navigator.language.slice(0, 2))) || ""
   return (
-    <div class="flex flex-col gap-4">
-      <div>
-        <button type="button" class={chip(dictation().on)} onClick={() => setDictation({ on: !dictation().on, language: current() })}>
-          {dictation().on ? "Microphone on" : "Show microphone"}
-        </button>
-      </div>
-      <Show when={dictation().on && languages().length > 1}>
-        <div class="flex flex-wrap gap-2">
-          <For each={languages()}>
-            {(tag) => (
-              <button type="button" class={chip(current() === tag)} onClick={() => setDictation({ on: true, language: tag })}>
-                {new Intl.DisplayNames([navigator.language], { type: "language" }).of(tag) ?? tag}
-              </button>
-            )}
-          </For>
-        </div>
-      </Show>
+    <div>
+      <button type="button" class={chip(dictation().on)} onClick={() => setDictation({ on: !dictation().on })}>
+        {dictation().on ? "Microphone on" : "Show microphone"}
+      </button>
     </div>
   )
 }

@@ -25,19 +25,19 @@ export function setAdvancedMode(next: boolean) {
   }
 }
 
-// Voice dictation: a microphone button in the composer that types what Windows hears and sends it.
+// Voice dictation: a microphone button in the composer that opens Win+H and sends what it typed.
 // shortcut: kept in this app's local storage only, like Advanced mode.
 const dictationKey = "opencode.infinite.dictation"
 const readDictation = () => {
   try {
-    return JSON.parse(localStorage.getItem(dictationKey) ?? "null") as { on: boolean; language: string } | null
+    return JSON.parse(localStorage.getItem(dictationKey) ?? "null") as { on: boolean } | null
   } catch {
     return null
   }
 }
-const [dictation, setDictationSignal] = createSignal(readDictation() ?? { on: false, language: "" })
+const [dictation, setDictationSignal] = createSignal({ on: readDictation()?.on === true })
 export { dictation }
-export function setDictation(next: { on: boolean; language: string }) {
+export function setDictation(next: { on: boolean }) {
   setDictationSignal(next)
   try {
     localStorage.setItem(dictationKey, JSON.stringify(next))

@@ -125,10 +125,8 @@ type PlatformBase = {
     restoreSession(): Promise<{ ok: boolean; message: string; ip?: string }>
     autoRotate(sessionID: string): Promise<void>
     fetchList(url: string): Promise<{ ok: boolean; text: string }>
-    /** Windows dictation: listens until the speaker goes quiet and returns the words */
-    dictate(language: string): Promise<{ ok: boolean; text: string; message: string }>
-    dictateStop(): Promise<void>
-    dictateLanguages(): Promise<string[]>
+    /** Opens Windows voice typing (Win+H), which types into the focused field */
+    dictate(): Promise<{ ok: boolean; message: string }>
     clearBurned(): Promise<{ ok: boolean; message: string }>
     route64Import(text: string): Promise<{ ok: boolean; message: string; endpoint?: string }>
     route64Status(): Promise<{ imported: boolean; endpoint?: string; up: boolean }>
