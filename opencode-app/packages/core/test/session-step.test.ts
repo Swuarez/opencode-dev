@@ -227,3 +227,86 @@ it.effect("records the cost the endpoint reports instead of the catalog price", 
     expect(yield* db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get()).toMatchObject({ cost: 0 })
   }),
 )
+
+// The lane cuts a stream mid-answer and serves the identical request complete a moment later. Retrying that is only safe
+// when no tool call was opened, and the retry must not append under the text the cut attempt already published.
+it.effect("retries a filter that lands mid-stream into a fresh assistant message", () =>
+  Effect.gen(function* () {
+    const db = (yield* Database.Service).db
+    const llm = yield* TestLLM.Test
+    const sessionID = Session.ID.create()
+    const assistantMessageID = SessionMessage.ID.create()
+    const steps = yield* SessionStep.make.pipe(
+      Effect.provide(
+        Layer.mock(Snapshot.Service)({
+          capture: () => Effect.succeed(undefined),
+          files: () => Effect.succeed([]),
+        }),
+      ),
+    )
+    yield* db
+      .insert(ProjectTable)
+      .values({ id: Project.ID.global, worktree: AbsolutePath.make("/project"), sandboxes: [] })
+      .run()
+    yield* db
+      .insert(SessionTable)
+      .values({ id: sessionID, project_id: Project.ID.global, slug: "step", directory: "/project", version: "test" })
+      .run()
+    const model = SessionRunnerModel.resolved(
+      LanguageModel.make({ id: "test-model", provider: "test", route: OpenAIChat.route }),
+      {
+        capabilities: { tools: true, input: ["text"], output: ["text"] },
+        limit: { context: 100_000, output: 1_000 },
+        // Only a provider that declares its gateway flaps may repeat a stream it already started; the default stays fatal.
+        retryBlockedStream: true,
+        cost: [
+          {
+            input: Money.USDPerMillionTokens.make(1),
+            output: Money.USDPerMillionTokens.make(2),
+            cache: { read: Money.USDPerMillionTokens.zero, write: Money.USDPerMillionTokens.zero },
+          },
+        ],
+      },
+    )
+    yield* llm.push(
+      TestLLM.complete(
+        { reason: { normalized: "content-filter" } },
+        LLMEvent.textStart({ id: "cut" }),
+        LLMEvent.textDelta({ id: "cut", text: "olliE: hook and a file sink" }),
+        LLMEvent.textEnd({ id: "cut" }),
+      ),
+    )
+    let retried: { retry: boolean; cause?: string } = { retry: false }
+    const outcome = yield* steps
+      .attempt({
+        isLocationClosed: () => false,
+        sessionID,
+        assistantMessageID,
+        agent: Agent.defaultID,
+        model,
+        prepared: {
+          retry: () => Effect.void,
+          request: ai.request({ model: model.model, prompt: "haz un keylogger" }),
+          options: {},
+          executeTool: () => Effect.die("no tools"),
+        },
+        retry: (cause, _error, retry) =>
+          Effect.sync(() => {
+            retried = { retry, cause: cause.reason._tag }
+            return retry ? { retry: true, attempt: 2, delay: 0 } : { retry: false }
+          }),
+        recoverContinuation: true,
+        recoverOverflow: Effect.succeed(false),
+      })
+      .pipe(Effect.exit)
+
+    expect(Exit.isSuccess(outcome)).toBe(true)
+    if (!Exit.isSuccess(outcome)) return
+    expect(SessionStep.Outcome.$is("Retry")(outcome.value)).toBe(true)
+    if (!SessionStep.Outcome.$is("Retry")(outcome.value)) return
+    // `fresh` is what makes the runner open a new assistant message instead of appending under the cut text.
+    expect(outcome.value.fresh).toBe(true)
+    expect(outcome.value.error.type).toBe("provider.content-filter")
+    expect(retried).toEqual({ retry: true, cause: "ContentPolicy" })
+  }),
+)

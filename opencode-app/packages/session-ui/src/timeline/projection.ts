@@ -598,7 +598,9 @@ export namespace Timeline {
           }),
         )
 
-      if (view.error) rows.push(new TimelineRow.Error({ userMessageID: turnID, ...view.error }))
+      // While an attempt is being retried, the retry row is the whole story: the failure belongs to an
+      // attempt already superseded, and showing it next to "retrying" reads as a dead turn.
+      if (view.error && !view.retry) rows.push(new TimelineRow.Error({ userMessageID: turnID, ...view.error }))
     }
 
     let assistantSegment: SessionMessageAssistant[] = []

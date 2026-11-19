@@ -25,6 +25,28 @@ export function setAdvancedMode(next: boolean) {
   }
 }
 
+// Verbose status: when on, the bottom bar shows the full rotation detail (IP, reset seconds, "continue" sent…). Off by
+// default, the bar shows only the mode and a one-word state (Working, Changing IP, Not connected).
+// shortcut: kept in this app's local storage only, like Advanced mode.
+const verboseKey = "opencode.infinite.verbose"
+const readVerbose = () => {
+  try {
+    return localStorage.getItem(verboseKey) === "1"
+  } catch {
+    return false
+  }
+}
+const [verboseStatus, setVerboseSignal] = createSignal(readVerbose())
+export { verboseStatus }
+export function setVerboseStatus(next: boolean) {
+  setVerboseSignal(next)
+  try {
+    localStorage.setItem(verboseKey, next ? "1" : "0")
+  } catch {
+    // Storage can be blocked; the choice then lasts until the app restarts.
+  }
+}
+
 // Voice dictation: a microphone button in the composer that opens Win+H and sends what it typed.
 // shortcut: kept in this app's local storage only, like Advanced mode.
 const dictationKey = "opencode.infinite.dictation"

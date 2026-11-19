@@ -2,8 +2,10 @@ export * as SessionStep from "./step.js"
 
 import {
   AIError,
+  ContentPolicyError,
   InvalidProviderOutputError,
   LLMClient,
+  TransportError,
   isContextOverflowFailure,
   type ToolCall,
 } from "@opencode/ai/effect"
@@ -27,9 +29,13 @@ import { SessionRunnerModel } from "./model.js"
 import { createLLMEventPublisher } from "./publish-llm-event.js"
 import { SessionRunnerRetry } from "./retry.js"
 
-export type Outcome = Data.TaggedEnum<{
-  Completed: { readonly needsContinuation: boolean }
-  Retry: { readonly error: SessionError.Error; readonly decision: SessionRunnerRetry.Decision }
+export type Outcome = Data.TaggedEnum<{  Completed: { readonly needsContinuation: boolean }
+  Retry: {
+    readonly error: SessionError.Error
+    readonly decision: SessionRunnerRetry.Decision
+    /** The attempt already published output, so the retry writes into a new assistant message instead of appending. */
+    readonly fresh?: boolean
+  }
   Continue: {
     readonly error: SessionError.Error
     readonly decision: SessionRunnerRetry.Decision
@@ -137,10 +143,59 @@ export const make = Effect.gen(function* () {
       Effect.ensuring(publisher.flush()),
     )
 
+    // A shared lane can accept a request, open the stream, and then send nothing for tens of seconds:
+    // DeepAI's queue does exactly that. There is only one budget, because nothing on the wire distinguishes the two
+    // cases: a lane that is prefilling a 72k-character guide and a lane that has swallowed the request both open the
+    // stream and stay quiet. Measured on the real lane, a 95k-character prompt takes 3–32 s to its first token (p50 ~20 s),
+    // so the budget has to clear that whole tail or it turns working turns into failures — cutting a thinking turn on a
+    // 4 s budget was exactly that. Nothing on the wire distinguishes prefill from a held slot before the first token, so
+    // one budget sized above the slowest measured pass is the honest choice; a refused request is recovered by the
+    // content-filter retry instead.
+    //
+    // The stream runs as a daemon because a pending body read cannot be interrupted — awaiting it
+    // would hold the turn until the lane or the socket gives up — so the fiber is abandoned instead,
+    // with the publisher closed so nothing it emits later can land in the retry.
+    const firstOutputTimeout = input.model.firstOutputTimeout
+    const guarded =
+      firstOutputTimeout === undefined || firstOutputTimeout === false
+        ? providerStream
+        : Effect.gen(function* () {
+            const stream = yield* Effect.forkDetach(providerStream)
+            // `Effect.race` returns the first *success*, and waits when a branch fails, so both
+            // branches succeed here and the decision is made from which one won. A failing deadline
+            // would have held the turn until the stream itself failed, which is the opposite of a guard.
+            const armedAt = publisher.lastActivity()
+            const silent = Effect.gen(function* () {
+              while (true) {
+                const now = yield* Clock.currentTimeMillis
+                // A turn whose text or reasoning is moving keeps `lastActivity` fresh and is never cut.
+                if (publisher.lastActivity() === armedAt && now - armedAt >= firstOutputTimeout) return undefined
+                yield* Effect.sleep(Math.min(250, firstOutputTimeout))
+              }
+            })
+            const joined = yield* Effect.race(Fiber.join(stream).pipe(Effect.exit), silent)
+            if (joined !== undefined) {
+              if (Exit.isFailure(joined)) return yield* Effect.failCause(joined.cause)
+              return joined.value
+            }
+            publisher.abandon()
+            return yield* Effect.fail(
+              new AIError({
+                reason: new TransportError({
+                  message: `The provider produced nothing for ${firstOutputTimeout}ms; trying again`,
+                  transport: "http",
+                  operation: "read",
+                  code: "Stalled",
+                  phase: "receive",
+                }),
+              }),
+            )
+          })
+
     // Keep the final tool and Step events uninterruptible, even when the work itself is cancelled.
     return yield* Effect.uninterruptibleMask((restore) =>
       Effect.gen(function* () {
-        const stream = yield* restore(providerStream).pipe(Effect.exit)
+        const stream = yield* restore(guarded).pipe(Effect.exit)
         const streamFailure = Option.getOrUndefined(Exit.findErrorOption(stream))
         const streamInterrupted = Exit.hasInterrupts(stream)
         // Cancelled before the start snapshot existed: record nothing, as when the capture preceded the request.
@@ -182,6 +237,28 @@ export const make = Effect.gen(function* () {
             : undefined
         const llmFailure = streamFailure instanceof AIError ? streamFailure : unknownFinish
         const llmError = llmFailure && !recorded.providerFailed ? toSessionError(llmFailure) : undefined
+        // A gateway can close a response with content-filter before emitting a single token: DeepAI's
+        // upstream does exactly that, intermittently, on requests it answers fine a moment later. Nothing
+        // was produced, so repeating the request cannot duplicate output, and the block is transient
+        // rather than a refusal. That is the only content-filter shape worth retrying — one that arrives
+        // after output started is a decision about text that already exists and stays fatal.
+        const blockedBeforeOutput =
+          recorded.providerFailed && recorded.finish?.finish === "content-filter" && !recorded.outputStarted
+        // A filter that lands *during* a stream is the same transient gateway flap, not a verdict on the whole turn: the
+        // real lane cuts a keylogger answer mid-fence and serves the identical request complete a moment later. It is
+        // repeatable only when no tool call was opened — repeating one would run the tool twice — and because this
+        // attempt already published text, the retry has to write into a fresh assistant message (see `fresh` below).
+        const blockedMidStream =
+          input.model.retryBlockedStream === true &&
+          recorded.providerFailed &&
+          recorded.finish?.finish === "content-filter" &&
+          recorded.outputStarted &&
+          !publisher.hasToolCalls()
+        const blocked = blockedBeforeOutput || blockedMidStream
+        const retryFailure =
+          llmFailure ??
+          (blocked ? new AIError({ reason: new ContentPolicyError({ message: "Provider blocked the response" }) }) : undefined)
+        const retryError = llmError ?? (blocked ? recorded.failure : undefined)
         const tokens = recorded.finish?.usage
         yield* Effect.annotateCurrentSpan({
           ...(firstOutputAt === undefined ? {} : { "opencode.llm.first_output_ms": firstOutputAt - started }),
@@ -204,20 +281,26 @@ export const make = Effect.gen(function* () {
         )
           return Outcome.RecoverFull()
         const retry =
-          llmFailure && llmError && !isContextOverflowFailure(llmFailure)
+          retryFailure && retryError && !isContextOverflowFailure(retryFailure)
             ? yield* restore(
                 input.retry(
-                  llmFailure,
-                  llmError,
-                  SessionRunnerRetry.isRetryable(llmFailure) ||
-                    (recorded.outputStarted && isInterruptedStream(llmFailure)),
+                  retryFailure,
+                  retryError,
+                  blocked ||
+                    SessionRunnerRetry.isRetryable(retryFailure) ||
+                    (recorded.outputStarted && isInterruptedStream(retryFailure)),
                 ),
               )
             : undefined
-        if (llmFailure && llmError && retry?.retry && !recorded.outputStarted) {
+        if (retryFailure && retryError && retry?.retry && (!recorded.outputStarted || blockedMidStream)) {
+          if (blockedMidStream) {
+            // Close the partial attempt where it stands so it is never continued, then hand the retry a new message.
+            yield* publisher.failAssistant(retryError)
+            return Outcome.Retry({ error: retryError, decision: retry, fresh: true })
+          }
           // Retry state projects onto the existing assistant, even before it has produced output.
           yield* publisher.startAssistant()
-          return Outcome.Retry({ error: llmError, decision: retry })
+          return Outcome.Retry({ error: retryError, decision: retry })
         }
         if (llmError) yield* publisher.failAssistant(llmError)
 

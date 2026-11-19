@@ -5,7 +5,7 @@ import { usePlatform } from "@/runtime/platform/platform"
 import { clearBackground, getBackground, getDialogOpacity, getRainbow, getTextColor, setBackgroundFile, setBackgroundOpacity, setDialogOpacity, setRainbow, setTextColor, type RainbowTarget } from "@/shell/infinite-look"
 import { createAppearanceSettingsController } from "@/settings/general/controllers"
 import { readHistory } from "@/shell/infinite-history"
-import { advancedMode, dictation, setAdvancedMode, setDictation } from "@/shell/infinite-state"
+import { advancedMode, dictation, setAdvancedMode, setDictation, setVerboseStatus, verboseStatus } from "@/shell/infinite-state"
 
 type Tab = "basic" | "advanced" | "personalization"
 
@@ -88,10 +88,20 @@ export function SettingsDialog() {
                   </div>
                 </Card>
                 <BasicSection />
+                <Card
+                  title="Status detail"
+                  hint="The text in the bottom-right corner. Off: only the connection and a one-word state (Working, Changing IP). On: the full detail with IP, timings and what was resumed."
+                >
+                  <div>
+                    <button type="button" class={chip(verboseStatus())} onClick={() => setVerboseStatus(!verboseStatus())}>
+                      {verboseStatus() ? "Detailed" : "Simple"}
+                    </button>
+                  </div>
+                </Card>
                 <Show when={usePlatform().infinite?.dictate}>
                   <Card
                     title="Voice dictation"
-                    hint="Adds a microphone next to Send. It opens Windows voice typing (Win+H) in the message box and sends the text when you stop talking. Typing a key yourself cancels the send."
+                    hint="Adds a microphone next to Send. It opens Windows voice typing (Win+H) in the message box; talk and your words are typed there. Press Enter yourself to send."
                   >
                     <DictationSection />
                   </Card>

@@ -86,6 +86,10 @@ export const Settings = Schema.StructWithRest(
     timeout: Timeout,
     headerTimeout: Timeout,
     chunkTimeout: Timeout,
+    firstOutputTimeout: Timeout,
+    // A content-filter that lands after output started is normally a verdict on the text already produced. Providers whose
+    // gateway filters a fraction of identical requests set this, and the attempt is repeated into a fresh message.
+    retryBlockedStream: Schema.optional(Schema.Boolean),
     compaction: Compaction.pipe(optional),
     cache: Cache.pipe(optional),
     transport: Transport.pipe(optional),

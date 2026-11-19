@@ -64,26 +64,71 @@ const unreachableSchedule = Schedule.max([
 // dead provider hold a call for most of an hour. Cap those attempts well below it.
 const MAX_TIMEOUT_RETRIES = 3
 
+// A silent lane means the queue slot is stuck, not that the model is dead. Each retry takes a fresh slot. The budget is
+// small because one attempt now costs the full first-output allowance (35 s on DeepAI, sized above the slowest prefill
+// measured on the lane): two retries is three independent chances bounded at ~2 minutes, where five would hold a
+// hopeless turn for five minutes before saying so.
+const MAX_SILENCE_RETRIES = 2
+
+// A content filter that fires before any output is retried as a transient gateway fault (see
+// SessionStep). A genuine refusal must not sit through the whole general allowance, so it gets its
+// own small budget: 6 attempts, which clears an upstream that flickers the filter on a fraction of
+// requests.
+const MAX_CONTENT_FILTER_RETRIES = 5
+
+// Each attempt already costs the model's full thinking time before the filter answers, so the
+// general 2/4/8/10s backoff is most of the wall clock the user sees for a filter that clears on the
+// next try. A flat half second is enough to let a momentary flap pass.
+const CONTENT_FILTER_GAP = "500 millis"
+
+// A stuck queue slot clears on the next request, so the wait between silence retries is short and flat, not the general
+// 2/4/8/10s backoff — the point is to grab another slot quickly, the way DeepAI Code's relay does.
+const SILENCE_GAP = "1 seconds"
+
 export const policy = Effect.gen(function* () {
   const step = yield* Schedule.toStep(schedule)
   const unreachable = yield* Schedule.toStep(unreachableSchedule)
+  const contentFilter = yield* Schedule.toStep(
+    Schedule.max([Schedule.spaced(CONTENT_FILTER_GAP), Schedule.recurs(MAX_CONTENT_FILTER_RETRIES + 1)]).pipe(
+      Schedule.setInputType<Input>(),
+    ),
+  )
+  const silence = yield* Schedule.toStep(
+    Schedule.max([Schedule.spaced(SILENCE_GAP), Schedule.recurs(MAX_SILENCE_RETRIES + 1)]).pipe(
+      Schedule.setInputType<Input>(),
+    ),
+  )
   let attempt = 1
   let timeouts = 0
+  let silences = 0
+  let contentFilters = 0
   return (input: Input) =>
     Effect.gen(function* () {
       const now = yield* Clock.currentTimeMillis
       // Unreachable failures don't spend the general allowance, so a flaky link that also drops streams keeps it.
-      const next = yield* (input.retry && isUnreachable(input.cause) ? unreachable : step)(now, input).pipe(
-        Pull.catchDone(() => Effect.succeed(undefined)),
-      )
+      // Content filters and silent (stalled) slots each get their own flat, fast gap instead of the general backoff.
+      const reason = input.cause.reason
+      const next = yield* (reason._tag === "ContentPolicy"
+        ? contentFilter
+        : reason._tag === "Transport" && reason.code === "Stalled"
+          ? silence
+          : input.retry && isUnreachable(input.cause)
+            ? unreachable
+            : step)(now, input).pipe(Pull.catchDone(() => Effect.succeed(undefined)))
       if (!next) return undefined
       const [, duration] = next
       attempt++
       if (input.cause.reason._tag === "Transport" && input.cause.reason.code === "Timeout") timeouts++
+      if (input.cause.reason._tag === "Transport" && input.cause.reason.code === "Stalled") silences++
+      if (input.cause.reason._tag === "ContentPolicy") contentFilters++
       return {
         attempt,
         delay: Math.ceil(Duration.toMillis(duration)),
-        retry: input.retry && timeouts <= MAX_TIMEOUT_RETRIES,
+        retry:
+          input.retry &&
+          timeouts <= MAX_TIMEOUT_RETRIES &&
+          silences <= MAX_SILENCE_RETRIES &&
+          contentFilters <= MAX_CONTENT_FILTER_RETRIES,
       }
     })
 })

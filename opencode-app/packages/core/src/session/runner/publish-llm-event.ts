@@ -115,6 +115,21 @@ export const createLLMEventPublisher = (bus: Pick<Bus.Interface, "publish">, inp
   let stepStarted = false
   let providerFailed = false
   let outputStarted = false
+  // Set when the attempt is abandoned before any output. The stream fiber keeps running — a pending
+  // body read cannot be interrupted — so it must not be able to publish into a turn that has already
+  // moved on to its retry.
+  let abandoned = false
+  // Visible output, as opposed to a part that opened. A queued lane sends `text-start`, a role, and
+  // then a stray character of reasoning before going quiet for tens of seconds, so the first-output
+  // deadline is cleared by text the user can see, by a tool call, or by reasoning that actually kept
+  // flowing — not by the one or two characters a lane emits while it sits in the queue.
+  let textChars = 0
+  let reasoningChars = 0
+  let toolOutput = false
+  // The single clock the first-output guard watches. Any character of text or reasoning moves it:
+  // a lane that thinks out loud for twenty seconds is working, and a lane that goes quiet after a
+  // stray "**" is not. Silence is the signal, never the absence of a particular kind of delta.
+  let lastActivityAt = Date.now()
   let stepFailure: SessionError.Error | undefined
   let stepSettlement: StepRecord["finish"]
 
@@ -339,6 +354,7 @@ export const createLLMEventPublisher = (bus: Pick<Bus.Interface, "publish">, inp
     failTool(id, inputFailure(tool.input, stepSettlement?.finish === "length" ? "length" : reason))
 
   const flush = Effect.fn("SessionRunner.flush")(function* () {
+    if (abandoned) return
     yield* flushFragments()
     // The finish reason distinguishes invalid JSON from arguments cut off by the output limit.
     for (const [id, tool] of tools) {
@@ -413,6 +429,7 @@ export const createLLMEventPublisher = (bus: Pick<Bus.Interface, "publish">, inp
   )
 
   const publish = Effect.fnUntraced(function* (event: LLMEvent) {
+    if (abandoned) return
     switch (event.type) {
       case "step-start":
         yield* startAssistant()
@@ -428,9 +445,13 @@ export const createLLMEventPublisher = (bus: Pick<Bus.Interface, "publish">, inp
         })
         return
       case "text-delta":
+        textChars += event.text.length
+        if (event.text.length > 0) lastActivityAt = Date.now()
         yield* text.append(event.id, event.text, native(event.providerMetadata))
         return
       case "text-end":
+        textChars = Math.max(textChars, event.text?.length ?? 0)
+        if ((event.text?.length ?? 0) > 0) lastActivityAt = Date.now()
         yield* text.end(event.id, native(event.providerMetadata), event.text)
         return
       case "reasoning-start":
@@ -445,9 +466,13 @@ export const createLLMEventPublisher = (bus: Pick<Bus.Interface, "publish">, inp
         })
         return
       case "reasoning-delta":
+        reasoningChars += event.text.length
+        if (event.text.length > 0) lastActivityAt = Date.now()
         yield* reasoning.append(event.id, event.text, native(event.providerMetadata))
         return
       case "reasoning-end":
+        reasoningChars = Math.max(reasoningChars, event.text?.length ?? 0)
+        if ((event.text?.length ?? 0) > 0) lastActivityAt = Date.now()
         yield* reasoning.end(event.id, native(event.providerMetadata), event.text)
         return
       case "tool-input-start":
@@ -460,6 +485,10 @@ export const createLLMEventPublisher = (bus: Pick<Bus.Interface, "publish">, inp
         if (tool.name !== event.name)
           return yield* Effect.die(new Error(`Tool input name changed for ${event.id}: ${tool.name} -> ${event.name}`))
         if (!toolInput.has(event.id)) return yield* Effect.die(new Error(`Tool input delta after end: ${event.id}`))
+        if (event.text.length > 0) {
+          toolOutput = true
+          lastActivityAt = Date.now()
+        }
         yield* toolInput.append(event.id, event.text)
         return
       }
@@ -472,6 +501,7 @@ export const createLLMEventPublisher = (bus: Pick<Bus.Interface, "publish">, inp
         return
       case "tool-call": {
         outputStarted = true
+        toolOutput = true
         const tool = tools.get(event.id) ?? (yield* startToolInput(event))
         if (toolInput.has(event.id)) yield* endToolInput(event)
         if (tool.name !== event.name)
@@ -588,6 +618,16 @@ export const createLLMEventPublisher = (bus: Pick<Bus.Interface, "publish">, inp
     failUnsettledTools,
     failIncompleteTools,
     hasStarted: () => stepStarted,
+    /**
+     * Whether output the user would call output has arrived. Kept for the retry policy, which treats
+     * visible text and tool calls as a turn that cannot be repeated; the silence guard uses
+     * {@link lastActivity} instead.
+     */
+    hasContent: () => textChars > 0 || toolOutput,
+    /** Whether any tool call was opened this attempt. A retried attempt must not repeat one. */
+    hasToolCalls: () => tools.size > 0,
+    /** Epoch milliseconds of the last character of text or reasoning. Silence, not absence of text. */
+    lastActivity: () => lastActivityAt,
     /** Immutable snapshot of everything recorded for this step so far. */
     record: (): StepRecord => ({
       outputStarted,
@@ -601,6 +641,10 @@ export const createLLMEventPublisher = (bus: Pick<Bus.Interface, "publish">, inp
     }),
     startAssistant,
     streamed,
+    /** Stops the abandoned stream fiber from publishing once the turn has moved on to a retry. */
+    abandon: () => {
+      abandoned = true
+    },
   }
 }
 

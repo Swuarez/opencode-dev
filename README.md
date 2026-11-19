@@ -33,8 +33,8 @@ VPN Gate, which the desktop app does not.
 
 | File | Platform | What it is | Version |
 |---|---|---|---|
-| `OpenCode-Infinite-Desktop.exe` | Windows 10 / 11 (x64) | **The desktop app.** Installer of OpenCode (v2.2.19) with a bottom bar: Auto, None, WARP, Tor, Proxy, SOCKS5, Route64, Mullvad and Windscribe, Reset limit, Auto-rotate and three Settings tabs. Tor is bundled. See [section 14](#14-opencode-desktop-infinite) | 2.2.8 |
-| `OpenCode Infinite.bat` | Windows 10 / 11 (x64, ARM64, x86 limited) | Full launcher: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages; single-instance lock that checks PID, start time, executable and .bat path | 2.60.18 |
+| `OpenCode-Infinite-Desktop.exe` | Windows 10 / 11 (x64) | **The desktop app.** Installer of OpenCode (v2.2.20) with a bottom bar: Auto, None, WARP, Tor, Proxy, SOCKS5, Route64, Mullvad and Windscribe, Reset limit, Auto-rotate and three Settings tabs. Tor is bundled. See [section 14](#14-opencode-desktop-infinite) | 2.2.8 |
+| `OpenCode Infinite.bat` | Windows 10 / 11 (x64, ARM64, x86 limited) | Full launcher: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages; single-instance lock that checks PID, start time, executable and .bat path | 2.60.19 |
 | `opencode-infinite.sh` | Linux (bash; Ubuntu 24.04 with apt; also dnf, pacman and zypper) | Full, including the desktop app, except the Windows-only items. See [Linux: what is different](#linux-what-is-different) | linux-0.4.7 |
 
 The sections marked **Windows only** below are not on Linux.
@@ -502,7 +502,7 @@ the file to an issue.
 
 ## 14. OpenCode Desktop (Infinite)
 
-`OpenCode-Infinite-Desktop.exe` is the OpenCode desktop app (v2.2.19) with the launcher's tools built in, so you pick the exit IP from the app itself. No launcher is needed.
+`OpenCode-Infinite-Desktop.exe` is the OpenCode desktop app (v2.2.20) with the launcher's tools built in, so you pick the exit IP from the app itself. No launcher is needed.
 
 ![OpenCode Desktop with the Infinite bar](images/08-desktop.webp)
 
@@ -583,9 +583,16 @@ The `opencode-infinite` start screen replaces the normal one.
 
 ## Versions and status
 
-**Latest version:** launcher 2.60.18 (`.bat`), Linux script 0.4.7.
-**OpenCode Desktop (Infinite build):** 2.2.19, installer `OpenCode-Infinite-Desktop.exe` ([section 14](#14-opencode-desktop-infinite)).
-**Latest published release:** 2.60.18 (2026-11-17). **Previous:** 2.60.17 (2026-11-17).
+**Latest version:** launcher 2.60.19 (`.bat`), Linux script 0.4.7.
+**OpenCode Desktop (Infinite build):** 2.2.20, installer `OpenCode-Infinite-Desktop.exe` ([section 14](#14-opencode-desktop-infinite)).
+**Latest published release:** 2.60.19 (2026-11-19). **Previous:** 2.60.18 (2026-11-17).
+
+### 2.60.19
+
+- **DeepAI stops being slow (desktop 2.2.20):** the DeepAI Code lane routes by client. It served the official app in 0.2-4 s and queued everything else for 20-30 s, and it now answers the fork's own `User-Agent` with a content filter. The provider sends the user agent the official client sends and lane 7 instead of the retired 6, so a turn with the full 72k guide went from 25-36 s to 2-8 s and the mid-answer cuts are gone. The first-output watchdog now waits 35 s instead of 4 s (measured prefill on that lane peaks at 32 s), a filter that lands mid-answer is retried into a fresh message when no tool call opened, and a silent lane gets two short retries instead of five long ones.
+- **One database for the desktop:** the CLI is built for its own channel and opened an empty channel database, hiding the conversations and the DeepAI credential stored in `opencode.db`. The service now sets `OPENCODE_DISABLE_CHANNEL_DB`.
+- Launcher and Linux script: unchanged, only the `.bat` version number moves.
+- Content filter rows: while an attempt is being retried the timeline shows the retry, not the failure it superseded.
 
 ### 2.60.18
 

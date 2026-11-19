@@ -326,6 +326,9 @@ const layer = Layer.effect(
           }),
           Retry: Effect.fnUntraced(function* (outcome) {
             retryAttempt = outcome.decision.attempt
+            // A retry after published output leaves the attempt that was cut as its own message, so the retry cannot
+            // append a second answer under text that already landed.
+            if (outcome.fresh) assistantMessageID = SessionMessage.ID.create()
             yield* retry.wait({
               decision: outcome.decision,
               error: outcome.error,

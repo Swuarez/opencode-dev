@@ -53,6 +53,8 @@ export const resolved = (
     readonly limit: Model.Info["limit"]
     readonly compaction?: Provider.Compaction
     readonly transport?: Provider.Transport
+    readonly firstOutputTimeout?: number | false
+    readonly retryBlockedStream?: boolean
   },
 ): Resolved => ({
   model,
@@ -66,6 +68,8 @@ export const resolved = (
   limit: options.limit,
   compaction: options.compaction,
   transport: options.transport,
+  firstOutputTimeout: options.firstOutputTimeout,
+  retryBlockedStream: options.retryBlockedStream,
 })
 
 const layer = Layer.effect(

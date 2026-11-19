@@ -135,6 +135,10 @@ export interface Resolved {
   readonly transport?: Provider.Transport
   /** Milliseconds without streamed data before a WebSocket exchange fails; `false` disables the limit. */
   readonly chunkTimeout?: number | false
+  /** Milliseconds a request may run before its first output; `false` or omitted disables the limit. */
+  readonly firstOutputTimeout?: number | false
+  /** Whether a content-filter that lands after output started may be retried into a fresh assistant message. */
+  readonly retryBlockedStream?: boolean
 }
 
 export type MediaError =
@@ -504,6 +508,8 @@ export const layer = Layer.effect(
         cache: runtimeInfo.settings?.cache,
         transport: provider?.settings?.transport,
         chunkTimeout: Provider.timeout(provider?.settings?.chunkTimeout),
+        firstOutputTimeout: Provider.timeout(provider?.settings?.firstOutputTimeout),
+        retryBlockedStream: provider?.settings?.retryBlockedStream,
       }
     })
     const loadMedia = Effect.fnUntraced(function* <Runtime>(

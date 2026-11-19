@@ -117,13 +117,18 @@ it.live("signs in over loopback, loads the catalog and attributes every model ca
     // The catalog load follows the credential switch; a model exists only once it has landed.
     const info = yield* test.wait(test.providers.get(providerID))
     expect(info?.settings?.baseURL).toBe("https://api.deepai.org/deepai_code")
+    // Sized above the slowest prefill measured on the real lane for the app's own 95k-character body: 3–32 s, p50 ~20 s.
+    expect(info?.settings?.firstOutputTimeout).toBe(35_000)
     expect(info?.integrationID).toBe(integrationID)
 
     expect(yield* test.send()).toContainEqual(expect.objectContaining({ type: "text-delta", text: "Hello" }))
     const call = test.requests.at(-1)!
     expect(call.url).toBe("https://api.deepai.org/deepai_code/chat/completions")
     expect(call.headers.get("api-key")).toBe("deep-key")
-    expect(call.headers.get("x-deepai-code-theos")).toBe("6")
+    // Lane 7 is what the current origin serves; lane 6 answers HTTP 426 on the fast path.
+    expect(call.headers.get("x-deepai-code-theos")).toBe("7")
+    // The origin routes by user agent: Bun's default takes 14–27 s where `node` takes 15–1091 ms on the same body.
+    expect(call.headers.get("user-agent")).toBe("node")
     expect(call.headers.get("x-deepai-code-instance")).toHaveLength(32)
 
     expect(yield* test.send(Model.VariantID.make("high"))).toContainEqual(

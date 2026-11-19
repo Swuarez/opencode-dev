@@ -1,7 +1,7 @@
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { useDialog } from "@opencode/ui/context/dialog"
 import { usePlatform } from "@/runtime/platform/platform"
-import { advancedMode, autoRotate as auto, setAutoRotate as setAuto } from "@/shell/infinite-state"
+import { advancedMode, autoRotate as auto, setAutoRotate as setAuto, verboseStatus } from "@/shell/infinite-state"
 import { initLook } from "@/shell/infinite-look"
 import { SettingsDialog } from "@/shell/settings-dialog"
 import { addHistory } from "@/shell/infinite-history"
@@ -272,7 +272,9 @@ export function InfiniteBar() {
             }}
           />
           <span class="truncate text-v2-text-text-faint">
-            {[modeLabel(mode()), result()?.ip && `IP ${result()?.ip}`, result()?.message].filter(Boolean).join(" · ")}
+            {verboseStatus()
+              ? [modeLabel(mode()), result()?.ip && `IP ${result()?.ip}`, result()?.message].filter(Boolean).join(" · ")
+              : `${modeLabel(mode())} · ${busy() ? "Changing IP…" : result()?.ok === false ? "Not connected" : "Working"}`}
           </span>
         </span>
       </div>
