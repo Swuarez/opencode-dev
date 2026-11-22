@@ -43,6 +43,12 @@ bunx electron-builder --win --x64 --publish never --config electron-builder.conf
 
 This produces `dist/latest.yml`, `dist/opencode-desktop-win-x64.exe` and `dist/opencode-desktop-win-x64.exe.blockmap`.
 
+For a local build, `electron-builder.store.config.ts` skips the CPU-heavy 7z compression. The installer is larger, but packaging finishes in seconds and the updater still works:
+
+```powershell
+bunx electron-builder --win --x64 --publish never --config electron-builder.store.config.ts --prepackaged $tmp
+```
+
 ## Publish
 
 ```powershell
