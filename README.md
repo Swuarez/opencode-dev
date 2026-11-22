@@ -1,39 +1,42 @@
-# OpenCode Infinite
+# OpenCode Dev
 
-Free-tier limits stop your [OpenCode](https://opencode.ai) chat. OpenCode
-Infinite gets a new exit IP and carries on in the same chat.
+Free-tier limits stop your [OpenCode](https://opencode.ai) chat. OpenCode Dev
+gets a new exit IP and carries on in the same chat.
 
-## OpenCode Desktop Infinite (recommended on Windows)
+## OpenCode Dev desktop (recommended on Windows)
 
-**`OpenCode-Infinite-Desktop.exe`** is the OpenCode desktop app (v2.2.10) with the
-tools built in: one installer, no launcher, no terminal. A bar at the bottom of
-the window controls everything.
+**OpenCode Dev** is the OpenCode desktop app (v2.2.21) with the tools built in:
+one installer, no launcher, no terminal. A bar at the bottom of the window
+controls everything.
 
-![OpenCode Desktop with the Infinite bar](images/08-desktop.webp)
+![OpenCode Desktop with the OpenCode Dev bar](images/08-desktop.webp)
 
-- **Many routes, only for OpenCode:** Auto (WARP when it works, otherwise direct) and None by default; with Advanced mode also Pool, WARP, Tor (bundled), Proxy, SOCKS5, Route64 (WireGuard), Mullvad and Windscribe. Pool hands every new connection to the next live exit, so one chat spreads across several IPs at once. Your browser and other apps stay direct, and the exit IP is shown in the bar.
+- **Many routes, only for OpenCode:** Auto (WARP when it works, otherwise direct) and None by default; with Advanced mode also Pool, WARP, Tor, Proxy, SOCKS5, Route64 (WireGuard), Mullvad and Windscribe. Pool hands every new connection to the next live exit, so one chat spreads across several IPs at once. Your browser and other apps stay direct, and the exit IP is shown in the bar.
 - **Reset limit:** one click gets a new IP after "You've used today's free messages".
 - **Auto-rotate:** when the free limit stops the chat, it changes the IP, tests it on a temporary session, and sends `continue` to your chat once an IP works (up to 10 tries).
 - **Providers:** DeepAI is in the provider list next to the others.
 - **Looks:** the Rainbow and pastel themes, one text color for any theme, and your own background image.
-- **Updates:** the app's update button installs the new Infinite build from this repository, so the bar is kept.
+- **Updates:** the app updates from this repository's GitHub Releases, never from opencode.ai, and it will not install an older build, so the bar is kept.
 
-Install it, open it, pick a route. Details, SHA-256 and the build steps are in [section 14](#14-opencode-desktop-infinite).
+Install it, open it, pick a route. Details, SHA-256 and the build steps are in [section 14](#14-opencode-desktop-dev).
 
-**Download:** [latest release](https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest)
-(the desktop installer `OpenCode-Infinite-Desktop.exe`, the `.bat`, the `.sh` and `SHA256SUMS`).
+**Download:** [latest release](https://github.com/Swuarez/opencode-dev/releases/latest)
+(the Windows installer `opencode-desktop-win-x64.exe`). The terminal launcher's
+`.bat`, `.sh` and `SHA256SUMS` are still on the
+[GitLab launcher releases](https://gitlab.com/jekooo/opencode-infinite/-/releases).
 
 ## Prefer a terminal? The launcher
 
-`OpenCode Infinite.bat` (Windows) and `opencode-infinite.sh` (Linux) start OpenCode through a different exit
-IP and resume the same chat when a limit stops it. They also have WireGuard and
+The terminal launcher keeps its original name: `OpenCode Infinite.bat` (Windows)
+and `opencode-infinite.sh` (Linux). It starts OpenCode through a different exit
+IP and resumes the same chat when a limit stops it. It also has WireGuard and
 VPN Gate, which the desktop app does not.
 
 ## Which file to use
 
 | File | Platform | What it is | Version |
 |---|---|---|---|
-| `OpenCode-Infinite-Desktop.exe` | Windows 10 / 11 (x64) | **The desktop app.** Installer of OpenCode (v2.2.20) with a bottom bar: Auto, None, Pool, WARP, Tor, Proxy, SOCKS5, Route64, Mullvad and Windscribe, Reset limit, Auto-rotate and three Settings tabs. Tor is bundled. See [section 14](#14-opencode-desktop-infinite) | 2.2.8 |
+| `opencode-desktop-win-x64.exe` | Windows 10 / 11 (x64) | **The desktop app, OpenCode Dev.** Installer of OpenCode (v2.2.21) with a bottom bar: Auto, None, Pool, WARP, Tor, Proxy, SOCKS5, Route64, Mullvad and Windscribe, Reset limit, Auto-rotate and three Settings tabs. See [section 14](#14-opencode-desktop-dev) | 2.2.21 |
 | `OpenCode Infinite.bat` | Windows 10 / 11 (x64, ARM64, x86 limited) | Full launcher: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages; single-instance lock that checks PID, start time, executable and .bat path | 2.60.19 |
 | `opencode-infinite.sh` | Linux (bash; Ubuntu 24.04 with apt; also dnf, pacman and zypper) | Full, including the desktop app, except the Windows-only items. See [Linux: what is different](#linux-what-is-different) | linux-0.4.7 |
 
@@ -70,7 +73,7 @@ Versions, what was checked and the open items are at the end, in [Versions and s
 11. [Updates](#11-updates)
 12. [Files and folders](#12-files-and-folders)
 13. [Troubleshooting](#13-troubleshooting)
-14. [OpenCode Desktop (Infinite)](#14-opencode-desktop-infinite)
+14. [OpenCode Desktop (Dev)](#14-opencode-desktop-dev)
 
 - [Linux: what is different](#linux-what-is-different)
 - [Versions and status](#versions-and-status)
@@ -437,7 +440,7 @@ No network, or an unreadable version, changes nothing.
 1. Raise the version in the launcher header (`REM  OpenCode launcher  (vX.Y)` or `(vX.Y.Z)`) and, for Linux, `VERSION=` in the script.
 2. Write the checksums and commit them with the files: `sha256sum "OpenCode Infinite.bat" opencode-infinite.sh > SHA256SUMS`.
 3. Push a tag with the same version: `git tag vX.Y && git push origin main vX.Y` (or `vX.Y.Z`; the launcher accepts both, and the header must match the tag exactly)
-4. Create the release for that tag in GitLab (**Deploy > Releases > New release**) and attach `OpenCode-Infinite.bat`, `opencode-infinite.sh` and `SHA256SUMS` (the launcher downloads the `.bat` by that name). The desktop installer `OpenCode-Infinite-Desktop.exe` (about 295 MB) is too large for a release attachment: upload it to the project's generic package registry and add it to the release as a link. Its SHA-256 goes in the release notes, not in `SHA256SUMS`, which the launcher reads.
+4. Create the release for that tag in GitLab (**Deploy > Releases > New release**) and attach `OpenCode-Infinite.bat`, `opencode-infinite.sh` and `SHA256SUMS` (the launcher downloads the `.bat` by that name). The desktop app is released separately on [GitHub](https://github.com/Swuarez/opencode-dev/releases); its installer does not go in the launcher release.
 The launcher only reads the latest release's tag and checks the file against `SHA256SUMS` at that tag, so a commit on `main` without a release reaches nobody. `.gitattributes` keeps the `.bat` files with CRLF in the repository, so the downloaded bytes are the ones that were hashed.
 
 ---
@@ -500,15 +503,15 @@ the file to an issue.
 
 ---
 
-## 14. OpenCode Desktop (Infinite)
+## 14. OpenCode Desktop (Dev)
 
-`OpenCode-Infinite-Desktop.exe` is the OpenCode desktop app (v2.2.20) with the launcher's tools built in, so you pick the exit IP from the app itself. No launcher is needed.
+OpenCode Dev is the OpenCode desktop app (v2.2.21) with the launcher's tools built in, so you pick the exit IP from the app itself. No launcher is needed.
 
-![OpenCode Desktop with the Infinite bar](images/08-desktop.webp)
+![OpenCode Desktop with the OpenCode Dev bar](images/08-desktop.webp)
 
-**Get it.** It is attached to the [latest release](https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest) as a link, because it is too big (about 268 MiB, 281 MB) for a release file. Direct link: `https://gitlab.com/jekooo/opencode-infinite/-/releases/permalink/latest/downloads/OpenCode-Infinite-Desktop.exe`. Check it against the SHA-256 below before you run it.
+**Get it.** Download `opencode-desktop-win-x64.exe` from the [latest GitHub release](https://github.com/Swuarez/opencode-dev/releases/latest). Check it against the SHA-256 below before you run it.
 
-SHA-256: `c7e2526fbedf0b31790525ccb15c140bfcec033266179eb241d0cc1f5080ec00`
+SHA-256: `58e248a3f0bb2deffccfc0fc1f5601a594c906871ec19bf61acda329979d1994`
 
 **Connections.** The bar starts with **Auto** and **None**. Turn on **Settings > Basic > Advanced mode** to see every connection and the Advanced tab.
 
@@ -518,7 +521,7 @@ SHA-256: `c7e2526fbedf0b31790525ccb15c140bfcec033266179eb241d0cc1f5080ec00`
 | **None** | Direct connection (no IP to change) | Nothing |
 | **Pool** | Every live route at once: your proxies and SOCKS5 servers, WARP and Tor when they are up. Each new connection leaves by the next route and a route that refuses is skipped, so a chat spreads across several IPs instead of one. An idle tunnel is closed after two minutes and the next request goes out on another route | Your proxy or SOCKS5 list, WARP, or Tor: whatever is available. Works with one of them and gets better with more |
 | **WARP** | Cloudflare WARP as the route for OpenCode | [Cloudflare WARP](https://one.one.one.one) (`warp-cli`). If it is missing the app offers to install it from Cloudflare (publisher checked; Windows asks for administrator) |
-| **Tor** | A new Tor circuit for each new IP | Nothing: a portable Tor is bundled |
+| **Tor** | A new Tor circuit for each new IP | A local Tor. This release does not include the portable bundle |
 | **Proxy** | Your own proxy or a whole list, or a free list | Nothing |
 | **SOCKS5** | The SOCKS5 servers you list in Settings > Advanced | The servers (`host:port`, `socks5://host:port` or with `user:password@`) |
 | **Route64** | A WireGuard tunnel from route64 | WireGuard (the app offers to install it) and the `.conf` you download from manager.route64.org, imported in Settings > Advanced > route64 tunnel |
@@ -555,7 +558,7 @@ The `opencode-infinite` start screen replaces the normal one.
 
 **Look (Settings > Personalization).** Pick **Rainbow**, a theme whose accent colors flow like the `.bat`'s rainbow while the background and the text drift slowly through the colors (a still palette if Windows is set to reduce motion). **Text color** sets one color for all the text on any theme; with it, Rainbow keeps moving only the background and the accents. **Background image > Choose image…** puts your own picture behind the window; it is shrunk to 1920 px and kept in the app only, **Remove** takes it away, and **Interface opacity** sets how much of the picture shows through.
 
-**Updates.** From desktop 2.2.6 the app's update button reads `latest.yml` from the latest release of this repository and installs `OpenCode-Infinite-Desktop.exe` from there, so an update keeps the Infinite bar. Older installs still update from opencode.ai, which would replace them with the plain OpenCode: install 2.2.6 by hand once.
+**Updates.** From 2.2.21 the app's update button reads `latest.yml` from this repository's GitHub Releases and installs the new build from there. It never reads opencode.ai and never installs an older version, so an update keeps OpenCode Dev. Builds before 2.2.21 update from opencode.ai, which would replace them with the plain app: install 2.2.21 by hand once.
 
 **Build.** The full source is in [`opencode-app/`](opencode-app/BUILD.md): clone the repository, `bun install`, build the CLI, add the portable Tor bundle and pack. The steps are in `BUILD.md`.
 
@@ -587,7 +590,7 @@ The `opencode-infinite` start screen replaces the normal one.
 ## Versions and status
 
 **Latest version:** launcher 2.60.19 (`.bat`), Linux script 0.4.7.
-**OpenCode Desktop (Infinite build):** 2.2.20, installer `OpenCode-Infinite-Desktop.exe` ([section 14](#14-opencode-desktop-infinite)).
+**OpenCode Desktop (Dev build):** 2.2.21, installer `opencode-desktop-win-x64.exe` ([section 14](#14-opencode-desktop-dev)).
 **Latest published release:** 2.60.19 (2026-11-19). **Previous:** 2.60.18 (2026-11-17).
 
 ### 2.60.19
@@ -692,7 +695,7 @@ The `opencode-infinite` start screen replaces the normal one.
 - **The probe follows the chat model:** `PROBE_MODEL` is empty by default and the IP probe then uses the model of the chat. The probe session is still deleted afterwards.
 - **English messages:** the last Spanish messages ("OpenCode not found", "Rate limit detected") are in English.
 - **Fixes:** a `TUNNEL_WAIT` value no longer gets lost after a probe, and several messages go through the shared message routine, so quiet mode treats them like the rest. The VPN Gate text no longer breaks the connection menu (`. was unexpected at this time`), the "Rate limit detected" question answers Y/N, and a VPN Gate session no longer leaves `NODE_OPTIONS` set for the next connection.
-- **OpenCode desktop app, with the launcher's tools built in:** the release also links `OpenCode-Infinite-Desktop.exe` (v2.2.5). Everything about it is in [section 14](#14-opencode-desktop-infinite); its SHA-256 is `3d12db24bbf71771c66c1693c7636abf8613f6ebc86c2007c4d338eb64ffceee`.
+- **OpenCode desktop app, with the launcher's tools built in:** the release also links `OpenCode-Infinite-Desktop.exe` (v2.2.5). Everything about it is in [section 14](#14-opencode-desktop-dev); its SHA-256 is `3d12db24bbf71771c66c1693c7636abf8613f6ebc86c2007c4d338eb64ffceee`.
 
 ### Linux script 0.4.7
 
