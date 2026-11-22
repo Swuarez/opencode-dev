@@ -80,8 +80,8 @@ export type ElectronAPI = {
   setSpellcheckEnabled(enabled: boolean): Promise<void>
   recordFatalRendererError(error: FatalRendererError): Promise<void>
   setNativeTranslations(bundle: DesktopNativeBundle): Promise<void>
-  infiniteGetMode(): Promise<"WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE">
-  infiniteSetMode(mode: "WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE"): Promise<{ ok: boolean; message: string; ip?: string }>
+  infiniteGetMode(): Promise<"POOL" | "WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE">
+  infiniteSetMode(mode: "POOL" | "WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE"): Promise<{ ok: boolean; message: string; ip?: string }>
   infiniteResetLimit(): Promise<{ ok: boolean; message: string; ip?: string }>
   infiniteGetOptions(): Promise<{ auto: boolean; country: string; custom: string; fast: boolean; attempts: number; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }>
   infiniteSetOptions(options: { auto: boolean; country: string; custom: string; fast: boolean; attempts: number; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }): Promise<{ auto: boolean; country: string; custom: string; fast: boolean; attempts: number; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }>

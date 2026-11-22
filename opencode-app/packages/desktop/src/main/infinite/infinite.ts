@@ -12,7 +12,7 @@ import { connectClient, disconnectClient, pickLocation, type Client } from "./vp
 // Port of the useful core of "OpenCode Infinite.bat": WARP / TOR / PROXY rotation and session renewal.
 // shortcut: VPNGATE from the .bat is not ported (it needs an admin OpenVPN helper). route64 (WireGuard) lives in route64.ts.
 
-export type Mode = "WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE"
+export type Mode = "POOL" | "WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE"
 export type Result = { ok: boolean; message: string; ip?: string }
 
 const WARP_PORT = 40000
@@ -74,7 +74,7 @@ const HUNT_DEFAULT = 10
 /** IPs one Auto-rotate may try: a whole number from 1 to 50, the default when missing or invalid. */
 const attemptsOf = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) ? Math.min(50, Math.max(1, Math.round(value))) : HUNT_DEFAULT
-const MODES: Mode[] = ["WARP", "TOR", "PROXY", "SOCKS", "ROUTE64", "MULLVAD", "WINDSCRIBE"]
+const MODES: Mode[] = ["POOL", "WARP", "TOR", "PROXY", "SOCKS", "ROUTE64", "MULLVAD", "WINDSCRIBE"]
 
 function load(): Saved {
   if (saved) return saved
@@ -164,6 +164,7 @@ const normalizeChain = (value: string) =>
 const failover = () => normalizeChain(load().chain).split(",").filter((entry): entry is Mode => entry !== "")
 
 const LABELS: Partial<Record<Mode, string>> = {
+  POOL: "Pool",
   WARP: "WARP",
   TOR: "Tor",
   PROXY: "Proxy",
@@ -328,6 +329,10 @@ function reachable(url: string) {
 
 const GATE_PORT = 18120
 const GATE_WAIT_MS = 75_000
+// In Pool mode an idle tunnel is closed after this long, so the next request leaves by another route instead of
+// holding one IP for the whole day. Streaming keeps the tunnel busy; only genuinely idle connections are cut.
+const POOL_TUNNEL_IDLE_MS = 120_000
+const POOL_TUNNEL_MIN_MS = 180_000
 const gates = new Set<number>()
 // Tunnels the door already handed to WARP. A WARP re-registration does not close them: they hang without an answer
 // (seen in a live test), so the next request on a kept-alive connection stalls and ends in ECONNRESET.
@@ -340,15 +345,18 @@ function dropGateTunnels() {
 }
 
 /**
- * A local door in front of the HTTP proxy of the mode (WARP, or the picked proxy in Proxy mode). OpenCode always talks
- * to the door, so a new IP or a new proxy needs no service restart: `target` is read per connection. While WARP
+ * A local door in front of the HTTP proxies of the mode (WARP, one picked proxy, or the whole pool). OpenCode always
+ * talks to the door, so a new IP or a new proxy needs no service restart: `target` is read per connection. While WARP
  * re-registers its port refuses connections, which OpenCode shows as "ECONNREFUSED: Unable to connect"; the door holds
- * each request until the target answers again, so a rotation costs a short wait instead of an error.
+ * each request until a target answers again, so a rotation costs a short wait instead of an error.
+ * With several targets the door takes the next one per connection: one chat then leaves by several IPs at once.
  */
 // shortcut: CONNECT (https) only, like the SOCKS bridge; waits at most GATE_WAIT_MS per request, then refuses.
-export function proxyGate(listen: number, target: () => string | undefined) {
+export function proxyGate(listen: number, target: () => string | string[] | undefined) {
   if (gates.has(listen)) return
   gates.add(listen)
+  // Rotates across the routes, one connection at a time; shared by every client of this door.
+  let cursor = 0
   createServer((client) => {
     client.on("error", () => client.destroy())
     client.once("data", (head) => {
@@ -357,35 +365,69 @@ export function proxyGate(listen: number, target: () => string | undefined) {
       const later = () => (Date.now() < until ? void setTimeout(attempt, 400) : client.destroy())
       const attempt = () => {
         if (client.destroyed) return
-        const url = URL.parse(target() ?? "")
-        // No proxy picked yet (Proxy mode while it searches): wait for one like for a refused port.
-        if (!url?.port) return later()
-        const up = tcp(Number(url.port), url.hostname)
-        let passed = false
-        const retry = () => {
-          if (passed) return
-          passed = true
-          up.destroy()
-          later()
-        }
-        up.once("error", retry)
-        up.once("close", retry)
-        up.once("connect", () => {
-          up.write(withProxyAuth(head, url))
-          up.once("data", (reply) => {
-            // A 5xx while WARP is still coming up is retried, not shown.
-            if (/^HTTP\/1\.\d 5/.test(reply.toString("latin1", 0, 12))) return retry()
-            passed = true
-            up.removeListener("error", retry)
-            up.removeListener("close", retry)
-            up.on("error", () => client.destroy())
-            open.add(client)
-            client.once("close", () => open.delete(client))
-            client.write(reply)
-            client.pipe(up)
-            up.pipe(client)
+        const picked = target()
+        const routes = (Array.isArray(picked) ? picked : [picked]).filter(
+          (entry): entry is string => typeof entry === "string" && entry.length > 0,
+        )
+        // No proxy picked yet (Proxy mode while it searches, or a pool still filling): wait for one like a refused port.
+        if (!routes.length) return later()
+        const start = cursor++ % routes.length
+        const tryRoute = (offset: number) => {
+          if (client.destroyed) return
+          if (offset >= routes.length) return later()
+          const url = URL.parse(routes[(start + offset) % routes.length]!)
+          if (!url?.port) return tryRoute(offset + 1)
+          const up = tcp(Number(url.port), url.hostname)
+          let settled = false
+          // A route that refuses or dies is skipped; the next one answers the same request.
+          const next = () => {
+            if (settled) return
+            settled = true
+            up.destroy()
+            tryRoute(offset + 1)
+          }
+          const hold = () => {
+            if (settled) return
+            settled = true
+            up.destroy()
+            later()
+          }
+          up.once("error", next)
+          up.once("close", next)
+          up.once("connect", () => {
+            up.write(withProxyAuth(head, url))
+            up.once("data", (reply) => {
+              // A 5xx while WARP is still coming up is retried; with several routes another one may simply answer.
+              if (/^HTTP\/1\.\d 5/.test(reply.toString("latin1", 0, 12))) return routes.length > 1 ? next() : hold()
+              settled = true
+              up.removeListener("error", next)
+              up.removeListener("close", next)
+              up.on("error", () => client.destroy())
+              open.add(client)
+              client.once("close", () => open.delete(client))
+              client.write(reply)
+              client.pipe(up)
+              up.pipe(client)
+              // Pool: an idle tunnel gives the next request a fresh route; a busy stream is never touched.
+              if (getMode() === "POOL") {
+                const born = Date.now()
+                let last = born
+                const touch = () => (last = Date.now())
+                client.on("data", touch)
+                up.on("data", touch)
+                const sweep = setInterval(() => {
+                  if (client.destroyed || up.destroyed) return clearInterval(sweep)
+                  if (Date.now() - last < POOL_TUNNEL_IDLE_MS || Date.now() - born < POOL_TUNNEL_MIN_MS) return
+                  clearInterval(sweep)
+                  client.destroy()
+                  up.destroy()
+                }, 5_000)
+                client.once("close", () => clearInterval(sweep))
+              }
+            })
           })
-        })
+        }
+        tryRoute(0)
       }
       attempt()
     })
@@ -409,9 +451,9 @@ function withProxyAuth(head: Buffer, url: URL) {
 
 /** Environment handed to the background service so only OpenCode goes through the proxy. */
 export function proxyEnv(): Record<string, string> {
-  // WARP and Proxy go through the door, which follows the current target: a new IP or proxy needs no restart.
-  const gated = getMode() === "WARP" || getMode() === "PROXY"
-  if (gated) proxyGate(GATE_PORT, upstream)
+  // WARP, Proxy and Pool go through the door, which follows the current target: a new IP or proxy needs no restart.
+  const gated = getMode() === "WARP" || getMode() === "PROXY" || getMode() === "POOL"
+  if (gated) proxyGate(GATE_PORT, gateTargets)
   const url = gated ? `http://127.0.0.1:${GATE_PORT}` : upstream()
   if (!url || proxyDead) return {}
   const skip = "127.0.0.1,localhost,::1"
@@ -785,6 +827,94 @@ const refillPoolIfProxy = () => {
   if (getMode() === "PROXY") void refillPool()
 }
 
+// --- pool ---------------------------------------------------------------------------------------------------------
+// One door, many exits. Every new connection takes the next live route (WARP, Tor, SOCKS, proxies), so one chat spreads
+// its requests over several IPs at once instead of waiting for a single one to hit the free limit.
+let warpUp = false
+let torReady = false
+let poolRoutesCache: string[] = []
+
+/** Every route that can carry a connection right now, in the order the door hands them out. */
+function refreshPool() {
+  const routes: string[] = []
+  // Your own exits first: they are distinct IPs, which is the point of the pool. Shared WARP and Tor come after.
+  const proxies = [...customList(), ...poolLive()].filter((proxy) => !isBurned(proxyKey(proxy)))
+  for (const proxy of proxies) if (!routes.includes(proxy)) routes.push(proxy)
+  if (warpUp) routes.push(WARP_PROXY)
+  if (torReady) routes.push(`http://127.0.0.1:${TOR_HTTP}`)
+  if (socksList().length && load().socksCurrent) routes.push(`http://127.0.0.1:${SOCKS_HTTP}`)
+  poolRoutesCache = routes.slice(0, 200)
+  return poolRoutesCache
+}
+
+/** What the door dials: the pool in Pool mode, the single upstream everywhere else. Read per connection. */
+function gateTargets(): string[] {
+  if (getMode() === "POOL") return refreshPool()
+  const one = upstream()
+  return one ? [one] : []
+}
+
+/** The exit the internet sees through the door right now; the next connection may already use another route. */
+const poolExit = () =>
+  run("curl", ["-s", "-m", "10", "-x", `http://127.0.0.1:${GATE_PORT}`, TRACE], 12_000).then((res) =>
+    res.ok ? /^ip=(.+)$/m.exec(res.out)?.[1] : undefined,
+  )
+
+/** Brings up every route the computer can give and returns once the door has something to hand out. */
+async function startPool(): Promise<Result> {
+  proxyGate(GATE_PORT, gateTargets)
+  const socks = socksList()
+  if (socks.length) {
+    if (!load().socksCurrent) load().socksCurrent = formatSocks(socks[0]!)
+    startBridge(SOCKS_HTTP, () => parseSocks(load().socksCurrent ?? ""))
+  }
+  void refillPool()
+  const warpInstalled = (await warp("status")).ok
+  if (!warpUp) {
+    void (async () => {
+      if (await reachable(WARP_PROXY)) {
+        warpUp = true
+        refreshPool()
+        return
+      }
+      // WARP is optional: without it the pool is Tor, SOCKS and the proxy lists.
+      if (!warpInstalled) return
+      const up = await connect().catch(() => undefined)
+      if (!up?.ok) return
+      warpUp = true
+      refreshPool()
+      autoStatus(`pool: WARP added, ${poolRoutesCache.length} routes`)
+    })()
+  }
+  if (!torReady) {
+    void startTor()
+      .then((up) => {
+        torReady = up.ok
+        if (!up.ok) return
+        refreshPool()
+        autoStatus(`pool: Tor added, ${poolRoutesCache.length} routes`)
+      })
+      .catch(() => undefined)
+  }
+  // A refill tests proxies in batches; give the first batch a moment instead of reporting an empty pool.
+  for (let i = 0; i < 32 && refreshPool().length === 0; i++) await sleep(250)
+  const routes = refreshPool()
+  if (routes.length) return { ok: true, ip: await poolExit(), message: `Pool: ${routes.length} routes, one per connection` }
+  // Tor and WARP may still be coming up: the door holds requests for them instead of leaking the real IP.
+  if (warpInstalled || torReady || existsSync(torExe()) || socks.length || customList().length || poolLive().length)
+    return { ok: true, message: "Pool: routes are still coming up" }
+  return { ok: false, message: "Pool: no route answers yet. Add a proxy list or install WARP." }
+}
+
+/** In Pool mode a rotation is already happening; this drops open tunnels and refills the proxy half. */
+async function rotatePool(): Promise<Result> {
+  dropGateTunnels()
+  await refillPool().catch(() => undefined)
+  refreshPool()
+  if (!poolRoutesCache.length) return { ok: false, message: "Pool: no live route right now." }
+  return { ok: true, ip: await poolExit(), message: `Pool: ${poolRoutesCache.length} routes live` }
+}
+
 /** Hands out a proxy that was not used yet, preferring the validated pool over a fresh scan. */
 async function pickProxy(): Promise<Result> {
   const own = customList()
@@ -836,6 +966,11 @@ async function pickProxy(): Promise<Result> {
 
 /** Kicks the current mode into shape before the background service starts behind it. */
 export async function prepareMode() {
+  if (getMode() === "POOL") {
+    proxyDead = false
+    await startPool()
+    return
+  }
   if (getMode() === "TOR") await startTor()
   // Warming the pool in the background makes the first rotation instant instead of a full scan.
   if (getMode() === "PROXY") void refillPool()
@@ -915,6 +1050,7 @@ async function rotateVpn(client: Client): Promise<Result> {
 }
 
 export const rotate = (m: Mode): Promise<Result> => {
+  if (m === "POOL") return rotatePool()
   if (m === "WARP") return rotateWarp()
   if (m === "TOR") return rotateTor()
   if (m === "PROXY") return rotateProxy()
@@ -928,6 +1064,7 @@ export const rotate = (m: Mode): Promise<Result> => {
 /** Apply a mode change before the service is restarted behind it. */
 export async function applyMode(next: Mode): Promise<Result> {
   await setMode(next)
+  if (next === "POOL") return remember(await startPool())
   if (next === "WARP") return remember(await connect())
   if (next === "TOR") return remember(await startTor())
   if (next === "SOCKS") {
@@ -985,7 +1122,12 @@ export async function checkIp(): Promise<Result> {
   if (mode === "TOR") await startTor()
   // The SOCKS bridge is what the service talks to, so it must exist even before a rotation picked an entry.
   if (mode === "SOCKS") startBridge(SOCKS_HTTP, () => parseSocks(load().socksCurrent ?? ""))
-  const url = upstream()
+  // The pool door serves whatever routes are live; the check goes through it like OpenCode does.
+  if (mode === "POOL") {
+    proxyGate(GATE_PORT, gateTargets)
+    refreshPool()
+  }
+  const url = mode === "POOL" ? `http://127.0.0.1:${GATE_PORT}` : upstream()
   // A proxy mode without a proxy would answer with the real IP; that is not what OpenCode uses.
   if (mode === "PROXY" && !url) return { ok: false, message: "connecting…" }
   const res = await run("curl", ["-s", "-m", "10", ...(url ? ["-x", url] : []), TRACE])
@@ -1003,7 +1145,7 @@ export async function checkIp(): Promise<Result> {
   // The IP is shown on its own by the bar, so the message only says what else is going on.
   if (res.ok && ip) {
     known[mode] = ip
-    return { ok: true, ip, message: autoNote ?? "" }
+    return { ok: true, ip, message: autoNote || (mode === "POOL" ? `${poolRoutesCache.length} routes` : "") }
   }
   // Not reachable right now (still connecting, or rotating): show the IP OpenCode was last using, not an error.
   const last = known[mode]
@@ -1077,7 +1219,7 @@ async function hunt(command: readonly string[]): Promise<Result> {
     return { ok: false, message: "pick WARP, Tor or Proxy first (None cannot change the IP)" }
   // A dead free proxy fails the probe without being a limit, so Proxy keeps trying; elsewhere two in a row mean the probe is broken.
   const max = load().attempts
-  const brokenMax = () => (getMode() === "PROXY" ? max : 2)
+  const brokenMax = () => (getMode() === "PROXY" || getMode() === "POOL" ? max : 2)
   let broken = 0
   let rotateFails = 0
   let stage = 0
@@ -1258,7 +1400,7 @@ export function startWatch(rotateNow: (sessionID: string) => void, swapNow: () =
 
   // A dead free proxy or a dropped tunnel looks like two failed checks in a row, about 30 s.
   // Without Auto-rotate a dead proxy of the user's own list is still replaced: that costs no free messages.
-  const ownList = () => (load().mode === "PROXY" && !!load().custom) || load().mode === "SOCKS"
+  const ownList = () => (load().mode === "PROXY" && !!load().custom) || load().mode === "SOCKS" || load().mode === "POOL"
   setInterval(async () => {
     if (load().mode === "NONE" || locked || (!load().auto && !ownList())) return
     fails = (await checkIp()).ok ? 0 : fails + 1

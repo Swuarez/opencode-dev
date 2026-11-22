@@ -11,7 +11,7 @@ the window controls everything.
 
 ![OpenCode Desktop with the Infinite bar](images/08-desktop.webp)
 
-- **Many routes, only for OpenCode:** Auto (WARP when it works, otherwise direct) and None by default; with Advanced mode also WARP, Tor (bundled), Proxy, SOCKS5, Route64 (WireGuard), Mullvad and Windscribe. Your browser and other apps stay direct, and the exit IP is shown in the bar.
+- **Many routes, only for OpenCode:** Auto (WARP when it works, otherwise direct) and None by default; with Advanced mode also Pool, WARP, Tor (bundled), Proxy, SOCKS5, Route64 (WireGuard), Mullvad and Windscribe. Pool hands every new connection to the next live exit, so one chat spreads across several IPs at once. Your browser and other apps stay direct, and the exit IP is shown in the bar.
 - **Reset limit:** one click gets a new IP after "You've used today's free messages".
 - **Auto-rotate:** when the free limit stops the chat, it changes the IP, tests it on a temporary session, and sends `continue` to your chat once an IP works (up to 10 tries).
 - **Providers:** DeepAI is in the provider list next to the others.
@@ -33,7 +33,7 @@ VPN Gate, which the desktop app does not.
 
 | File | Platform | What it is | Version |
 |---|---|---|---|
-| `OpenCode-Infinite-Desktop.exe` | Windows 10 / 11 (x64) | **The desktop app.** Installer of OpenCode (v2.2.20) with a bottom bar: Auto, None, WARP, Tor, Proxy, SOCKS5, Route64, Mullvad and Windscribe, Reset limit, Auto-rotate and three Settings tabs. Tor is bundled. See [section 14](#14-opencode-desktop-infinite) | 2.2.8 |
+| `OpenCode-Infinite-Desktop.exe` | Windows 10 / 11 (x64) | **The desktop app.** Installer of OpenCode (v2.2.20) with a bottom bar: Auto, None, Pool, WARP, Tor, Proxy, SOCKS5, Route64, Mullvad and Windscribe, Reset limit, Auto-rotate and three Settings tabs. Tor is bundled. See [section 14](#14-opencode-desktop-infinite) | 2.2.8 |
 | `OpenCode Infinite.bat` | Windows 10 / 11 (x64, ARM64, x86 limited) | Full launcher: WARP, Tor (portable), WireGuard (through wireproxy), VPN Gate (OpenVPN), proxies, IP hunt, deep reset, updates, 7 languages; single-instance lock that checks PID, start time, executable and .bat path | 2.60.19 |
 | `opencode-infinite.sh` | Linux (bash; Ubuntu 24.04 with apt; also dnf, pacman and zypper) | Full, including the desktop app, except the Windows-only items. See [Linux: what is different](#linux-what-is-different) | linux-0.4.7 |
 
@@ -44,7 +44,7 @@ The sections marked **Windows only** below are not on Linux.
 
 ### Windows: .bat or desktop?
 
-- **Desktop installer (start here):** the OpenCode desktop app itself with its connections in a bottom bar: Auto and None, and with Advanced mode WARP, Tor, Proxy, SOCKS5, Route64, Mullvad and Windscribe. VPN Gate is not in it (section 14).
+- **Desktop installer (start here):** the OpenCode desktop app itself with its connections in a bottom bar: Auto and None, and with Advanced mode Pool, WARP, Tor, Proxy, SOCKS5, Route64, Mullvad and Windscribe. VPN Gate is not in it (section 14).
 - **`.bat`:** the full launcher in a terminal, with every setting and the automatic resume of your chat.
 
 Versions, what was checked and the open items are at the end, in [Versions and status](#versions-and-status).
@@ -516,12 +516,15 @@ SHA-256: `c7e2526fbedf0b31790525ccb15c140bfcec033266179eb241d0cc1f5080ec00`
 |---|---|---|
 | **Auto** | WARP when it works, otherwise a direct connection | Nothing; it never installs anything |
 | **None** | Direct connection (no IP to change) | Nothing |
+| **Pool** | Every live route at once: your proxies and SOCKS5 servers, WARP and Tor when they are up. Each new connection leaves by the next route and a route that refuses is skipped, so a chat spreads across several IPs instead of one. An idle tunnel is closed after two minutes and the next request goes out on another route | Your proxy or SOCKS5 list, WARP, or Tor: whatever is available. Works with one of them and gets better with more |
 | **WARP** | Cloudflare WARP as the route for OpenCode | [Cloudflare WARP](https://one.one.one.one) (`warp-cli`). If it is missing the app offers to install it from Cloudflare (publisher checked; Windows asks for administrator) |
 | **Tor** | A new Tor circuit for each new IP | Nothing: a portable Tor is bundled |
 | **Proxy** | Your own proxy or a whole list, or a free list | Nothing |
 | **SOCKS5** | The SOCKS5 servers you list in Settings > Advanced | The servers (`host:port`, `socks5://host:port` or with `user:password@`) |
 | **Route64** | A WireGuard tunnel from route64 | WireGuard (the app offers to install it) and the `.conf` you download from manager.route64.org, imported in Settings > Advanced > route64 tunnel |
 | **Mullvad** / **Windscribe** | Switches the server of the VPN client you already use | The client installed and logged in. The app only changes the server and never stores your account |
+
+**Own the exits.** [`tools/egress-rotator`](tools/egress-rotator) is a small CONNECT proxy for a Linux VPS with a routed IPv6 prefix. It source-binds a different address inside the prefix on every connection, so a single entry in **Settings > Advanced > Proxies** gives Pool thousands of owned IPs instead of shared free proxies. Setup, systemd unit and the IPv4 variant are in its README.
 
 **Automatic connection.** The first time the app opens, a **Connection** window finds what works and sets it up on its own; it does not come back. While the app runs, a watcher checks the connection every 20 s and, if the proxy of the chosen mode stops answering, repairs it (at most every two minutes; a direct connection is left alone). If the proxy of the saved mode is down when the app starts, OpenCode connects directly instead of failing every request with `ECONNREFUSED`.
 
@@ -537,7 +540,7 @@ VPN Gate is only in the `.bat` and the `.sh`.
 | **Fix connection** | Tests what works on this computer and puts the best connection in place: WARP, your own SOCKS5 and proxy lists, Tor, then direct. It never uses Route64, Mullvad or Windscribe on its own |
 | **Status** | What each connection needs and whether this computer has it, with **Use**, **Install** (WARP, with your confirmation) and **Settings** buttons |
 | **Reset limit** | Gets a new IP after "You've used today's free messages" and lets you send again |
-| **Auto-rotate** | On by default. When the free usage limit stops the chat, the chat waits and resends by itself while the app changes the IP under it (the IP that hit the limit is remembered as used), so no `continue` is needed: about 4 s per IP with WARP. Works with WARP, Proxy, Tor, SOCKS5, Mullvad and Windscribe; Route64 has a fixed IP. After 10 resends it falls back to trying IPs on a temporary session and sending one `continue` (up to 10 IPs by default, set in **Settings > Basic > Auto-rotate attempts**). It also rotates when the connection stays down for about 30 s |
+| **Auto-rotate** | On by default. When the free usage limit stops the chat, the chat waits and resends by itself while the app changes the IP under it (the IP that hit the limit is remembered as used), so no `continue` is needed: about 4 s per IP with WARP. Works with Pool, WARP, Proxy, Tor, SOCKS5, Mullvad and Windscribe; Route64 has a fixed IP. After 10 resends it falls back to trying IPs on a temporary session and sending one `continue` (up to 10 IPs by default, set in **Settings > Basic > Auto-rotate attempts**). It also rotates when the connection stays down for about 30 s |
 | **Settings** | Three tabs, below |
 
 **Settings.**

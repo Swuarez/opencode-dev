@@ -116,8 +116,8 @@ type PlatformBase = {
 
   /** OpenCode Infinite: proxy mode and limit reset controls (desktop only) */
   infinite?: {
-    getMode(): Promise<"WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE">
-    setMode(mode: "WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE"): Promise<{ ok: boolean; message: string; ip?: string }>
+    getMode(): Promise<"POOL" | "WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE">
+    setMode(mode: "POOL" | "WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE"): Promise<{ ok: boolean; message: string; ip?: string }>
     resetLimit(): Promise<{ ok: boolean; message: string; ip?: string }>
     getOptions(): Promise<{ auto: boolean; country: string; custom: string; fast: boolean; attempts: number; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }>
     setOptions(options: { auto: boolean; country: string; custom: string; fast: boolean; attempts: number; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }): Promise<{ auto: boolean; country: string; custom: string; fast: boolean; attempts: number; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }>

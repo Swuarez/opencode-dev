@@ -8,13 +8,14 @@ import { addHistory } from "@/shell/infinite-history"
 import { ConnectionDialog } from "@/shell/connection-dialog"
 import { fixConnection } from "@/shell/infinite-doctor"
 
-type Mode = "WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE"
+type Mode = "POOL" | "WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE"
 // Auto is not a mode of its own: it picks WARP when it works, otherwise None, and the bar then shows that mode.
 type Choice = Mode | "AUTO"
 type Result = { ok: boolean; message: string; ip?: string }
 
 const modes: { id: Choice; label: string; title: string }[] = [
   { id: "AUTO", label: "Auto", title: "WARP when it works, otherwise a direct connection. Installs nothing." },
+  { id: "POOL", label: "Pool", title: "Every route at once: each connection leaves by the next IP (WARP, Tor, SOCKS, proxies)." },
   { id: "WARP", label: "WARP", title: "Cloudflare WARP proxy. Asks before installing WARP." },
   { id: "TOR", label: "Tor", title: "Tor network. Changes exit node on rotation." },
   { id: "PROXY", label: "Proxy", title: "Your proxy list, or the free list when it is empty." },
@@ -33,6 +34,7 @@ const button =
 
 const names: Record<string, string> = {
   AUTO: "Auto",
+  POOL: "Pool",
   WARP: "WARP",
   TOR: "Tor",
   PROXY: "Proxy",

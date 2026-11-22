@@ -27,6 +27,39 @@ test("a request sent while the upstream refuses connections is answered when it 
   server.close()
 })
 
+// Pool mode: one door, several exits. Each new connection takes the next route, then the list wraps.
+test("a pool hands each connection the next route", async () => {
+  const listen = 18925
+  const first = 18926
+  const second = 18927
+  const hits: string[] = []
+  const serve = (port: number, name: string) =>
+    createServer((socket) =>
+      socket.once("data", () => {
+        hits.push(name)
+        socket.write("HTTP/1.1 200 Connection established\r\n\r\n")
+      }),
+    ).listen(port, "127.0.0.1")
+  const a = serve(first, "a")
+  const b = serve(second, "b")
+  proxyGate(listen, () => [`http://127.0.0.1:${first}`, `http://127.0.0.1:${second}`])
+  const ask = () =>
+    new Promise<void>((resolve) => {
+      const client = connect(listen, "127.0.0.1")
+      client.once("data", () => {
+        client.destroy()
+        resolve()
+      })
+      client.write("CONNECT example.com:443 HTTP/1.1\r\n\r\n")
+    })
+  await ask()
+  await ask()
+  await ask()
+  expect(hits).toEqual(["a", "b", "a"])
+  a.close()
+  b.close()
+})
+
 // Proxy mode: the door follows the picked proxy per connection and passes its login, as OpenCode would have.
 test("a proxy with a login gets the request with its Proxy-Authorization header", async () => {
   const listen = 18923

@@ -222,9 +222,11 @@ export function getConfig() {
         ...base,
         appId,
         productName: "OpenCode Dev",
+        // OpenCode Dev: read latest.yml from this fork's newest GitHub release, never from opencode.ai,
+        // whose dev installer would replace this build with the plain app.
         publish: {
           provider: "generic",
-          url: "https://opencode.ai/update/api/dev/desktop/opencode/",
+          url: "https://github.com/Swuarez/opencode-dev/releases/latest/download/",
           channel: "latest",
         },
         deb: { fpm: [...previewCompressionFpm("deb"), metainfoFpm(appId)] },

@@ -82,11 +82,14 @@ brew install --cask opencode-desktop
 
 The install script installs OpenCode to `$HOME/.opencode/bin`.
 
-### OpenCode Infinite
+### OpenCode Dev
 
-OpenCode Infinite is this fork's desktop build: it keeps free-model sessions alive. Free model access on the OpenCode
-gateway is counted **per IP address**, so when a session meets the free usage limit, Infinite changes the exit IP and
+OpenCode Dev is this fork's desktop build: it keeps free-model sessions alive. Free model access on the OpenCode
+gateway is counted **per IP address**, so when a session meets the free usage limit, OpenCode Dev changes the exit IP and
 sends `continue` to that same chat. Nothing else about the session changes.
+
+OpenCode Dev updates from this fork's GitHub Releases, not from opencode.ai. The update button will never replace this
+build with the plain app.
 
 Everything lives in the bottom bar. The bar shows the current mode, the exit IP and the last result, and offers one
 button per action; **Advanced mode** in Settings shows every connection choice, until then only **Auto** and **None**

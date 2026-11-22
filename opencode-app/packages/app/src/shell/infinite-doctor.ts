@@ -5,13 +5,14 @@ import { addHistory } from "@/shell/infinite-history"
 // bottom bar uses. Everything here is a decision about order; the network work stays in the main process.
 
 type Infinite = NonNullable<Platform["infinite"]>
-export type Mode = "WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE"
+export type Mode = "POOL" | "WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE"
 /** ready: can be used now. install: a program is missing and can be installed. setup: needs something from the user. */
 export type RowState = "ready" | "install" | "setup"
 export type Row = { id: Mode; label: string; state: RowState; detail: string; advanced: boolean }
 export type Outcome = { ok: boolean; mode: Mode; ip?: string; message: string }
 
 const LABELS: Record<Mode, string> = {
+  POOL: "Pool",
   WARP: "WARP",
   TOR: "Tor",
   PROXY: "Proxy",
@@ -42,6 +43,7 @@ export async function diagnose(infinite: Infinite): Promise<Row[]> {
     options.socks
       ? { id: "SOCKS", label: LABELS.SOCKS, state: "ready", detail: "Uses your SOCKS5 servers.", advanced: true }
       : { id: "SOCKS", label: LABELS.SOCKS, state: "setup", detail: "Add SOCKS5 servers in Settings, Advanced.", advanced: true },
+    { id: "POOL", label: LABELS.POOL, state: "ready", detail: "Spreads each connection across every route at once.", advanced: true },
     route64.imported
       ? { id: "ROUTE64", label: LABELS.ROUTE64, state: "ready", detail: "Config imported. Needs administrator permission and WireGuard.", advanced: true }
       : { id: "ROUTE64", label: LABELS.ROUTE64, state: "setup", detail: "Import your route64 .conf in Settings, Advanced.", advanced: true },

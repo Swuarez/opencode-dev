@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 import { Rpc, RpcGroup } from "effect/rpc"
 
-const Mode = Schema.Literals(["WARP", "TOR", "PROXY", "SOCKS", "ROUTE64", "MULLVAD", "WINDSCRIBE", "NONE"])
+const Mode = Schema.Literals(["POOL", "WARP", "TOR", "PROXY", "SOCKS", "ROUTE64", "MULLVAD", "WINDSCRIBE", "NONE"])
 
 const Result = Schema.Struct({
   ok: Schema.Boolean,
