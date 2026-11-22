@@ -29,6 +29,9 @@ const GROUND = 36
 
 const HOME = W + 12
 
+// The lodger hops to the top of the "e" that ends "opencode" (the starter pin's home).
+const STARTER = LETTERS[7].cx + 11
+
 const SLIP = 60
 
 const HOLE_MAGNET = 24
@@ -95,7 +98,7 @@ type Parts = {
 
 /**
  * Reserves the wordmark's space. With `pins`, `NewSessionPinBoard` draws the logo into it. Otherwise it shows
- * the flat logo, and something lives in the top counter of the final "e".
+ * the flat logo, and something lives in the top counter of the "e" in "dev".
  */
 export function NewSessionWordmark(props: {
   ref: (element: HTMLDivElement) => void
@@ -599,7 +602,7 @@ function mountLodger(
 
     if (t < 1.35) {
       const u = seg(t, 1.05, 1.35)
-      c.x = lerp(HOME, 233, easeInOut(u))
+      c.x = lerp(HOME, STARTER, easeInOut(u))
       c.y = lerp(GROUND, 18, easeOut(u)) - Math.sin(Math.PI * u) * 7
       c.pinX = lerp(HOME, PIN_SLOT.x, easeInOut(u))
       c.pinY = lerp(GROUND - 12.5, PIN_SLOT.y, easeInOut(u))
@@ -610,7 +613,7 @@ function mountLodger(
     }
 
     const u = seg(t, 1.35, 1.72)
-    c.x = lerp(233, HOME, easeInOut(u))
+    c.x = lerp(STARTER, HOME, easeInOut(u))
     c.y = lerp(18, GROUND, u) - Math.sin(Math.PI * u) * 10
     c.squint = t > 1.72 ? 0.35 : 1
   }

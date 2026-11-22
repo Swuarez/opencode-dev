@@ -965,9 +965,12 @@ function mountPinBoard(
   }
 }
 
-// Radial chain-reaction from the starter pin in the "e" (column 75, row 3).
+// The "e" that ends "opencode": the starter pin and the centre of the reveal wave.
+const STARTER_COL = 90
+
+// Radial chain-reaction from the starter pin in the "e" (column 90, row 3).
 function chainOf(p: Pin, age: number) {
-  const dist = Math.hypot(p.c - 75, (p.r - 3) * 1.4)
+  const dist = Math.hypot(p.c - STARTER_COL, (p.r - 3) * 1.4)
   const u = (age - (dist / 76) * 0.62) / 0.36
 
   if (u <= 0) return 0
@@ -979,7 +982,7 @@ function chainOf(p: Pin, age: number) {
 
 // Reverse wave reeling pins from left ("o") back into the "e" hole when the lodger is tucked back in.
 function closeOf(p: Pin, closeAge: number) {
-  const dist = Math.hypot(p.c - 75, (p.r - 3) * 1.4)
+  const dist = Math.hypot(p.c - STARTER_COL, (p.r - 3) * 1.4)
   const u = (closeAge - (0.32 + ((76 - dist) / 76) * 0.48)) / 0.32
 
   if (u <= 0) return 1
