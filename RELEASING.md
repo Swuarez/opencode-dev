@@ -3,7 +3,7 @@
 The desktop app updates from this repository's GitHub Releases. electron-updater reads:
 
 ```
-https://github.com/Swuarez/opencode-dev/releases/latest/download/latest.yml
+https://github.com/Swuarez/secretpony/releases/latest/download/latest.yml
 ```
 
 Every release must attach these three files:
@@ -63,7 +63,7 @@ gh release create "v$env:OPENCODE_VERSION" `
 ## Verify
 
 ```powershell
-curl.exe -sSL https://github.com/Swuarez/opencode-dev/releases/latest/download/latest.yml
+curl.exe -sSL https://github.com/Swuarez/secretpony/releases/latest/download/latest.yml
 ```
 
 The installer is unsigned, so Windows SmartScreen warns on first run.

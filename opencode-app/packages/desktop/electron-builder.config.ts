@@ -226,7 +226,7 @@ export function getConfig() {
         // whose dev installer would replace this build with the plain app.
         publish: {
           provider: "generic",
-          url: "https://github.com/Swuarez/opencode-dev/releases/latest/download/",
+          url: "https://github.com/Swuarez/secretpony/releases/latest/download/",
           channel: "latest",
         },
         deb: { fpm: [...previewCompressionFpm("deb"), metainfoFpm(appId)] },

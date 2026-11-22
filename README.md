@@ -20,7 +20,7 @@ controls everything.
 
 Install it, open it, pick a route. Details, SHA-256 and the build steps are in [section 14](#14-opencode-desktop-dev).
 
-**Download:** [latest release](https://github.com/Swuarez/opencode-dev/releases/latest)
+**Download:** [latest release](https://github.com/Swuarez/secretpony/releases/latest)
 (the Windows installer `opencode-desktop-win-x64.exe`). The terminal launcher's
 `.bat`, `.sh` and `SHA256SUMS` are still on the
 [GitLab launcher releases](https://gitlab.com/jekooo/opencode-infinite/-/releases).
@@ -440,7 +440,7 @@ No network, or an unreadable version, changes nothing.
 1. Raise the version in the launcher header (`REM  OpenCode launcher  (vX.Y)` or `(vX.Y.Z)`) and, for Linux, `VERSION=` in the script.
 2. Write the checksums and commit them with the files: `sha256sum "OpenCode Infinite.bat" opencode-infinite.sh > SHA256SUMS`.
 3. Push a tag with the same version: `git tag vX.Y && git push origin main vX.Y` (or `vX.Y.Z`; the launcher accepts both, and the header must match the tag exactly)
-4. Create the release for that tag in GitLab (**Deploy > Releases > New release**) and attach `OpenCode-Infinite.bat`, `opencode-infinite.sh` and `SHA256SUMS` (the launcher downloads the `.bat` by that name). The desktop app is released separately on [GitHub](https://github.com/Swuarez/opencode-dev/releases); its installer does not go in the launcher release.
+4. Create the release for that tag in GitLab (**Deploy > Releases > New release**) and attach `OpenCode-Infinite.bat`, `opencode-infinite.sh` and `SHA256SUMS` (the launcher downloads the `.bat` by that name). The desktop app is released separately on [GitHub](https://github.com/Swuarez/secretpony/releases); its installer does not go in the launcher release.
 The launcher only reads the latest release's tag and checks the file against `SHA256SUMS` at that tag, so a commit on `main` without a release reaches nobody. `.gitattributes` keeps the `.bat` files with CRLF in the repository, so the downloaded bytes are the ones that were hashed.
 
 ---
@@ -509,7 +509,7 @@ OpenCode Dev is the OpenCode desktop app (v2.2.21) with the launcher's tools bui
 
 ![OpenCode Desktop with the OpenCode Dev bar](images/08-desktop.webp)
 
-**Get it.** Download `opencode-desktop-win-x64.exe` from the [latest GitHub release](https://github.com/Swuarez/opencode-dev/releases/latest). Check it against the SHA-256 below before you run it.
+**Get it.** Download `opencode-desktop-win-x64.exe` from the [latest GitHub release](https://github.com/Swuarez/secretpony/releases/latest). Check it against the SHA-256 below before you run it.
 
 SHA-256: `58e248a3f0bb2deffccfc0fc1f5601a594c906871ec19bf61acda329979d1994`
 
