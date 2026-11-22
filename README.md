@@ -560,7 +560,7 @@ The `opencode-infinite` start screen replaces the normal one.
 
 **Updates.** From 2.2.21 the app's update button reads `latest.yml` from this repository's GitHub Releases and installs the new build from there. It never reads opencode.ai and never installs an older version, so an update keeps OpenCode Dev. Builds before 2.2.21 update from opencode.ai, which would replace them with the plain app: install 2.2.21 by hand once.
 
-**Build.** The full source is in [`opencode-app/`](opencode-app/BUILD.md): clone the repository, `bun install`, build the CLI, add the portable Tor bundle and pack. The steps are in `BUILD.md`.
+**Build.** The full source is in [`opencode-app/`](opencode-app/BUILD.md): clone the repository, `bun install`, build the CLI, add the portable Tor bundle and pack. The steps are in `BUILD.md`. Release steps are in [`RELEASING.md`](RELEASING.md).
 
 **Not in the desktop app:** VPN Gate, the `.bat`'s own WireGuard setup (the desktop has Route64 instead) and the `.bat`'s automatic chat resume by settings (`RESUME_MODE`). Use the `.bat` for those.
 
