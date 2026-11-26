@@ -1,4 +1,4 @@
-import type { IntegrationInfo } from "@opencode/client/promise"
+import type { IntegrationInfo, UsageLimitsInfo } from "@opencode/client/promise"
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query"
 import type { ParentProps } from "solid-js"
 import { LocalProvider } from "@/providers/models/selection"
@@ -353,9 +353,11 @@ function findMatchingPaths(root: string, query: string, type: string | null) {
 
 type DialogStoryRuntimeOptions = {
   servers?: ServerConnection.Any[]
+  /** The account limits the mocked server reports; `null` is a signed-out member. */
+  usage?: UsageLimitsInfo | null
 }
 
-function createStoryFetch(): typeof fetch {
+function createStoryFetch(usage: UsageLimitsInfo | null = null): typeof fetch {
   const encoder = new TextEncoder()
 
   const handler = async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -498,7 +500,7 @@ function createStoryFetch(): typeof fetch {
     if (pathname.startsWith("/api/credential/")) return noContentResponse()
 
     if (pathname === "/api/experimental/usage/limits") {
-      return jsonResponse({ location, data: null })
+      return jsonResponse({ location, data: usage })
     }
 
     if (pathname === "/api/agent") {
@@ -582,7 +584,7 @@ export function DialogStoryRuntime(props: ParentProps<DialogStoryRuntimeOptions>
     restart: async () => {},
     notify: async () => {},
     storage,
-    fetch: createStoryFetch(),
+    fetch: createStoryFetch(props.usage),
   }
 
   const client = new QueryClient({

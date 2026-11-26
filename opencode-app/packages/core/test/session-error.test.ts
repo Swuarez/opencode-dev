@@ -85,6 +85,12 @@ describe("toSessionError", () => {
     expect(SessionRunnerRetry.isRetryable(free)).toBe(false)
     expect(SessionRunnerRetry.isFreeLimit(free)).toBe(true)
     expect(SessionRunnerRetry.isFreeLimit(llm(new QuotaExceededError({ message: "quota" })))).toBe(false)
+    // A gateway can drop the error body; the allowance still names itself in the message.
+    const bare = llm(
+      new QuotaExceededError({ message: "Free usage limit reached. Free models work in OpenCode (https://opencode.ai)" }),
+    )
+    expect(SessionRunnerRetry.isFreeLimit(bare)).toBe(true)
+    expect(toSessionError(bare)).toMatchObject({ type: "provider.free-limit" })
     // OpenCode Infinite: with Auto-rotate the desktop starts the service with this variable, read once at import, so
     // the free limit is retried (the app changes the IP under the retry). A fresh process sees it from the start.
     const withRetry = Bun.spawnSync({

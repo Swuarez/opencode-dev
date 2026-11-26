@@ -1099,6 +1099,10 @@ export async function leaveMode(previous: Mode, next: Mode) {
 
 // The last IP each mode was seen with, shown when a check cannot reach the internet right now.
 const known: Partial<Record<Mode, string>> = {}
+/** The IP this mode was on before a rotation replaces it, so a reset can tell whether the address really changed. */
+export function knownIp(mode = getMode()) {
+  return known[mode]
+}
 /** Keeps the IP a mode is on and remembers the one it replaced as used. */
 async function remember(result: Result) {
   const mode = getMode()
@@ -1210,6 +1214,20 @@ export async function huntIp(command: readonly string[]): Promise<Result> {
 /** What the bar shows about Auto-rotate: only what has really happened, with the time once it is over. */
 export function autoStatus(text: string, done = false) {
   autoNote = done ? `${text} (${new Date().toLocaleTimeString()})` : text
+}
+
+export type Stage = "idle" | "stopping" | "archiving" | "rotating" | "starting" | "resuming" | "done" | "failed"
+export type Status = { stage: Stage; message: string; at: number }
+
+let status: Status = { stage: "idle", message: "", at: 0 }
+
+/** What a long action is doing right now, for the bar to show while it runs. */
+export function setStatus(stage: Stage, message: string) {
+  status = { stage, message, at: Date.now() }
+}
+
+export function getStatus(): Status {
+  return status
 }
 
 async function hunt(command: readonly string[]): Promise<Result> {

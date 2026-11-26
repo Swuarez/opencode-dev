@@ -90,10 +90,12 @@ export const api: ElectronAPI = {
   setNativeTranslations: (bundle) => invoke("AppSetNativeTranslations", { value: bundle }),
   infiniteGetMode: () => invoke("InfiniteGetMode"),
   infiniteSetMode: (mode) => invoke("InfiniteSetMode", { mode }).then(mutable),
-  infiniteResetLimit: () => invoke("InfiniteResetLimit").then(mutable),
+  infiniteResetLimit: (sessionID?: string) =>
+    invoke("InfiniteResetLimit", sessionID ? { sessionID } : {}).then(mutable),
   infiniteGetOptions: () => invoke("InfiniteGetOptions").then(mutable),
   infiniteSetOptions: (options) => invoke("InfiniteSetOptions", options).then(mutable),
   infiniteCheckIp: () => invoke("InfiniteCheckIp").then(mutable),
+  infiniteGetStatus: () => invoke("InfiniteGetStatus").then(mutable),
   infiniteRestoreSession: () => invoke("InfiniteRestoreSession").then(mutable),
   infiniteAutoRotate: (sessionID: string) => invoke("InfiniteAutoRotate", { sessionID }),
   infiniteFetchList: (url: string) => invoke("InfiniteFetchList", { url }),

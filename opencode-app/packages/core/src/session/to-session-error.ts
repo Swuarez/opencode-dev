@@ -42,7 +42,7 @@ export function toSessionError(cause: unknown): SessionError.Error {
       case "Authentication":
         return providerError("provider.auth", cause.reason)
       case "QuotaExceeded":
-        if (cause.reason.body?.includes("FreeUsageLimitError"))
+        if (isFreeLimit(cause.reason))
           return { ...providerError("provider.free-limit", cause.reason), message: FREE_USAGE_LIMIT_MESSAGE }
         if (cause.reason.body?.includes("BudgetLimitError")) return budgetLimit(cause.reason)
         if (cause.reason.body?.includes("GoUsageLimitError")) return goLimit(cause.reason)
@@ -104,6 +104,11 @@ export function contentFilterError(summary: string, reason: FinishReasonDetails)
       .filter(Boolean)
       .join(": "),
   }
+}
+
+// The free allowance normally arrives as a FreeUsageLimitError body; a gateway that drops the body leaves only its message.
+function isFreeLimit(reason: AIError["reason"]) {
+  return reason.body?.includes("FreeUsageLimitError") === true || /free usage limit reached/i.test(reason.message)
 }
 
 // OpenCode Console names what a refusing budget covers, in its envelope's metadata or, for Google clients, ErrorInfo.

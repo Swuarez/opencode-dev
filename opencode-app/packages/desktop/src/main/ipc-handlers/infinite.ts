@@ -8,8 +8,10 @@ import {
   fetchList,
   getMode,
   getOptions,
+  getStatus,
   autoStatus,
   huntIp,
+  knownIp,
   leaveMode,
   lock,
   restoreSession,
@@ -18,6 +20,7 @@ import {
   rotateOnly,
   setMode,
   setOptions,
+  setStatus,
   startWatch,
   type Result,
 } from "../infinite/infinite"
@@ -42,6 +45,14 @@ export const infiniteHandlers = InfiniteRpcs.toLayer(
       })
     })
     const startService = Effect.asVoid(background.reconnect)
+
+    // A failed rotation is reported as a result, never as a defect: the service still has to come back.
+    const rotateNetwork = () =>
+      Effect.tryPromise(() => rotateOnly()).pipe(
+        Effect.catch((error) =>
+          Effect.succeed<Result>({ ok: false, message: error instanceof Error ? error.message : String(error) }),
+        ),
+      )
 
     // The service reads its proxy environment only when it starts. Where the proxy URL is already known (WARP, Tor,
     // None) it starts while the network work runs, instead of after it.
@@ -76,15 +87,40 @@ export const infiniteHandlers = InfiniteRpcs.toLayer(
         }),
       )
 
-    // "Reset limit": the session is archived while the service is stopped, then the IP is renewed.
-    const resetFlow = () =>
+    // "Reset limit": renew the IP while the chat keeps running, restart the service with a fresh session, then let
+    // the open chat continue on the new IP. Only the restart itself interrupts the chat.
+    const resetFlow = (sessionID?: string) =>
       guarded(
         Effect.gen(function* () {
+          const started = Date.now()
+          const before = knownIp()
+          setStatus("rotating", "Changing the IP…")
+          let net = yield* rotateNetwork()
+          // A rotation that reports success but leaves the same exit IP would meet the same limit again.
+          if (net.ok && net.ip && before && net.ip === before) {
+            setStatus("rotating", "The IP did not change, trying again…")
+            net = yield* rotateNetwork()
+          }
+          setStatus("stopping", "Restarting the service…")
           yield* stopService
-          const archived = yield* Effect.tryPromise(archiveAuth)
-          const net = yield* withService(rotateOnly)
-          const note = archived ? "Session saved and removed. " : "No session found. "
-          return { ...net, message: note + net.message }
+          // A backup problem must not leave the service down; the reset still starts a fresh session and reconnects.
+          setStatus("archiving", "Starting a fresh session…")
+          const archived = yield* Effect.tryPromise(archiveAuth).pipe(Effect.orElseSucceed(() => false))
+          setStatus("starting", "Reconnecting…")
+          yield* startService
+          if (sessionID) setStatus("resuming", 'Sending "continue"…')
+          const resumed = net.ok && sessionID ? yield* Effect.promise(() => resumeSession(sessionID)) : false
+          const seconds = ((Date.now() - started) / 1000).toFixed(1)
+          const note = archived ? "Session saved and removed. " : ""
+          // The retry above already gave the network a second chance; an unchanged address is reported, not hidden.
+          const unchanged = net.ok && net.ip && before && net.ip === before
+          const outcome = net.ok
+            ? `${net.ip ? (unchanged ? `IP ${net.ip} did not change` : `new IP ${net.ip}`) : "session reset"} in ${seconds}s`
+            : `IP change failed: ${net.message}`
+          const continued = !sessionID ? "" : resumed ? ' "continue" sent.' : ' "continue" was not sent.'
+          const message = note + outcome + continued
+          setStatus(net.ok ? "done" : "failed", message)
+          return { ...net, message }
         }),
       )
 
@@ -181,13 +217,14 @@ export const infiniteHandlers = InfiniteRpcs.toLayer(
     return InfiniteRpcs.of({
       InfiniteGetMode: () => Effect.sync(getMode),
       InfiniteSetMode: ({ mode }) => setModeFlow(mode),
-      InfiniteResetLimit: resetFlow,
+      InfiniteResetLimit: ({ sessionID }) => resetFlow(sessionID),
       InfiniteRestoreSession: restoreFlow,
       InfiniteAutoRotate: ({ sessionID }) => Effect.sync(() => trigger("limit reached", sessionID)),
       InfiniteFetchList: ({ url }) => Effect.promise(() => fetchList(url)),
       InfiniteDictate: () => Effect.promise(voiceTyping),
       InfiniteClearBurned: () => Effect.promise(clearBurned),
       InfiniteCheckIp: () => Effect.promise(checkIp),
+      InfiniteGetStatus: () => Effect.sync(getStatus),
       InfiniteGetOptions: () => Effect.sync(getOptions),
       InfiniteSetOptions: (options) => Effect.promise(() => setOptions(options).then(getOptions)),
       InfiniteToolPlan: ({ tool }) => Effect.promise(() => plan(tool)),

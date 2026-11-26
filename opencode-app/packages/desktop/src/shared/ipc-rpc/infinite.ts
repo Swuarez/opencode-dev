@@ -13,9 +13,18 @@ export const InfiniteGetMode = Rpc.make("InfiniteGetMode", { success: Mode })
 
 export const InfiniteSetMode = Rpc.make("InfiniteSetMode", { payload: { mode: Mode }, success: Result })
 
-export const InfiniteResetLimit = Rpc.make("InfiniteResetLimit", { success: Result })
+export const InfiniteResetLimit = Rpc.make("InfiniteResetLimit", {
+  payload: { sessionID: Schema.optionalKey(Schema.String) },
+  success: Result,
+})
 
 export const InfiniteCheckIp = Rpc.make("InfiniteCheckIp", { success: Result })
+
+const Stage = Schema.Literals(["idle", "stopping", "archiving", "rotating", "starting", "resuming", "done", "failed"])
+
+export const InfiniteGetStatus = Rpc.make("InfiniteGetStatus", {
+  success: Schema.Struct({ stage: Stage, message: Schema.String, at: Schema.Number }),
+})
 
 export const InfiniteRestoreSession = Rpc.make("InfiniteRestoreSession", { success: Result })
 
@@ -93,6 +102,7 @@ export const InfiniteRpcs = RpcGroup.make(
   InfiniteSetMode,
   InfiniteResetLimit,
   InfiniteCheckIp,
+  InfiniteGetStatus,
   InfiniteRestoreSession,
   InfiniteAutoRotate,
   InfiniteFetchList,

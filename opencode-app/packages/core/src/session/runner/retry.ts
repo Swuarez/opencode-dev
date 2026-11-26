@@ -20,7 +20,9 @@ const FREE_RETRY_DELAY_MS = 1_500
 
 /** The daily free allowance of OpenCode Zen ran out (see toSessionError). */
 export const isFreeLimit = (error: AIError) =>
-  error.reason._tag === "QuotaExceeded" && error.reason.body?.includes("FreeUsageLimitError") === true
+  error.reason._tag === "QuotaExceeded" &&
+  // Some gateways drop the error body; the allowance still names itself in the message.
+  (error.reason.body?.includes("FreeUsageLimitError") === true || /free usage limit reached/i.test(error.reason.message))
 
 export const isRetryable = (error: AIError) => providerRetryable(error) || (freeRetry && isFreeLimit(error))
 

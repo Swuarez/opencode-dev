@@ -82,10 +82,11 @@ export type ElectronAPI = {
   setNativeTranslations(bundle: DesktopNativeBundle): Promise<void>
   infiniteGetMode(): Promise<"POOL" | "WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE">
   infiniteSetMode(mode: "POOL" | "WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE"): Promise<{ ok: boolean; message: string; ip?: string }>
-  infiniteResetLimit(): Promise<{ ok: boolean; message: string; ip?: string }>
+  infiniteResetLimit(sessionID?: string): Promise<{ ok: boolean; message: string; ip?: string }>
   infiniteGetOptions(): Promise<{ auto: boolean; country: string; custom: string; fast: boolean; attempts: number; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }>
   infiniteSetOptions(options: { auto: boolean; country: string; custom: string; fast: boolean; attempts: number; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }): Promise<{ auto: boolean; country: string; custom: string; fast: boolean; attempts: number; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }>
   infiniteCheckIp(): Promise<{ ok: boolean; message: string; ip?: string }>
+  infiniteGetStatus(): Promise<{ stage: "idle" | "stopping" | "archiving" | "rotating" | "starting" | "resuming" | "done" | "failed"; message: string; at: number }>
   infiniteRestoreSession(): Promise<{ ok: boolean; message: string; ip?: string }>
   infiniteAutoRotate(sessionID: string): Promise<void>
   infiniteFetchList(url: string): Promise<{ ok: boolean; text: string }>

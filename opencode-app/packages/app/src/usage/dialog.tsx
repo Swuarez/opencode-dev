@@ -1,4 +1,5 @@
 import type { LocationRef, UsageLimitsInfo } from "@opencode/client/promise"
+import type { Data } from "@opencode/client/solid"
 import { Button } from "@opencode/ui/button"
 import { useDialog } from "@opencode/ui/context/dialog"
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitleGroup } from "@opencode/ui/dialog"
@@ -48,8 +49,10 @@ export function DialogUsage(props: {
   /** The last request was refused because the workspace is out of credits. */
   credits?: boolean
   onSwitchModel?: () => void
+  /** The server's data layer, for a caller outside the routed server providers. */
+  data?: Data
 }) {
-  const data = useData()
+  const data = props.data ?? useData()
   const language = useLanguage()
   const key = (location: LocationRef) => JSON.stringify([location.directory, location.workspaceID ?? null])
 

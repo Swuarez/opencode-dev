@@ -1295,6 +1295,11 @@ export const dict = {
   "lab.grid": "Grid",
 
   "usage.title": "Usage",
+  "usage.bar.title": "{{workspace}} usage",
+  "usage.bar.go": "Go {{percent}}%",
+  "usage.bar.credits": "Out of credits",
+  "usage.bar.free": "No budget",
+  "usage.bar.signedOut": "Not signed in",
   "usage.section.go": "OpenCode Go",
   "usage.section.console": "OpenCode Console",
   "usage.workspace.fallback": "your workspace",

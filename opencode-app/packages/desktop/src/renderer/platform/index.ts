@@ -48,10 +48,11 @@ export function createDesktopPlatform(api: ElectronAPI, windowState: DesktopWind
     infinite: {
       getMode: () => api.infiniteGetMode(),
       setMode: (mode) => api.infiniteSetMode(mode),
-      resetLimit: () => api.infiniteResetLimit(),
+      resetLimit: (sessionID?: string) => api.infiniteResetLimit(sessionID),
       getOptions: () => api.infiniteGetOptions(),
       setOptions: (options) => api.infiniteSetOptions(options),
       checkIp: () => api.infiniteCheckIp(),
+      getStatus: () => api.infiniteGetStatus(),
       restoreSession: () => api.infiniteRestoreSession(),
       autoRotate: (sessionID: string) => api.infiniteAutoRotate(sessionID),
       fetchList: (url: string) => api.infiniteFetchList(url),

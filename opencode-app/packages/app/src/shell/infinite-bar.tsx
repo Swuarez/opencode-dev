@@ -7,6 +7,8 @@ import { SettingsDialog } from "@/shell/settings-dialog"
 import { addHistory } from "@/shell/infinite-history"
 import { ConnectionDialog } from "@/shell/connection-dialog"
 import { fixConnection } from "@/shell/infinite-doctor"
+import { useCurrentRoute } from "@/shell/state/layout"
+import { InfiniteUsage } from "@/shell/infinite-usage"
 
 type Mode = "POOL" | "WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE"
 // Auto is not a mode of its own: it picks WARP when it works, otherwise None, and the bar then shows that mode.
@@ -67,11 +69,17 @@ const writeFlag = (key: string, value: string) => {
 export function InfiniteBar() {
   const platform = usePlatform()
   const dialog = useDialog()
+  const route = useCurrentRoute()
   const infinite = platform.infinite
   const [mode, setMode] = createSignal<Mode>("NONE")
   const [selected, setSelected] = createSignal<Choice>("NONE")
   const [busy, setBusy] = createSignal(false)
   const [result, setResult] = createSignal<Result | undefined>()
+  const [action, setAction] = createSignal<"" | "reset">("")
+  // The outcome of the last manual action stays visible for a moment after the bar goes back to its idle state.
+  const [flash, setFlash] = createSignal("")
+  let flashTimer: ReturnType<typeof setTimeout> | undefined
+  onCleanup(() => clearTimeout(flashTimer))
 
   onMount(() => {
     initLook()
@@ -80,14 +88,18 @@ export function InfiniteBar() {
       setSelected(current)
     })
     void infinite?.getOptions().then((options) => setAuto(options.auto))
-    void infinite?.checkIp().then(setResult)
+    void infinite?.checkIp().then((checked) => {
+      if (!busy()) setResult(checked)
+    })
     // The doctor (panel, first run or watchdog) changed the connection: show the new mode and IP.
     const refresh = () => {
       void infinite?.getMode().then((current) => {
         setMode(current)
         setSelected(current)
       })
-      void infinite?.checkIp().then(setResult)
+      void infinite?.checkIp().then((checked) => {
+        if (!busy()) setResult(checked)
+      })
     }
     window.addEventListener("infinite-connection", refresh)
     // First run: set the connection up on its own and show what was found. Never again after that.
@@ -124,17 +136,41 @@ export function InfiniteBar() {
     void infinite?.getOptions().then((options) => infinite.setOptions({ ...options, auto: next }))
   }
 
-  // Every action is single-flight, and the service restart behind it can take a while.
-  const run = async (label: string, work: () => Promise<Result>) => {
+  const flashResult = (message: string) => {
+    setFlash(message)
+    clearTimeout(flashTimer)
+    flashTimer = setTimeout(() => setFlash(""), 12_000)
+  }
+
+  // Every action is single-flight, and the service restart behind it can take a while. While it runs, the main
+  // process reports its phase, so the bar shows what is really happening instead of one frozen label.
+  const run = async (label: string, work: () => Promise<Result>, kind: "" | "reset" = "") => {
     if (busy()) return
     setBusy(true)
+    setAction(kind)
     setResult({ ok: true, message: label })
+    const started = Date.now()
+    const timer = setInterval(() => {
+      void infinite
+        ?.getStatus()
+        .then((status) => {
+          if (!busy() || status.at < started || !status.message) return
+          setResult({ ok: status.stage !== "failed", message: status.message })
+        })
+        .catch(() => undefined)
+    }, 750)
     try {
-      setResult(await work())
+      const outcome = await work()
+      setResult(outcome)
+      flashResult(outcome.message)
     } catch (error) {
-      setResult({ ok: false, message: error instanceof Error ? error.message : String(error) })
+      const outcome = { ok: false, message: error instanceof Error ? error.message : String(error) }
+      setResult(outcome)
+      flashResult(outcome.message)
     } finally {
+      clearInterval(timer)
       setBusy(false)
+      setAction("")
     }
   }
 
@@ -206,6 +242,16 @@ export function InfiniteBar() {
     }
   }
 
+  // What the bar says: the full detail with Verbose, otherwise the mode and the latest short state.
+  const statusText = () => {
+    if (verboseStatus())
+      return [modeLabel(mode()), result()?.ip && `IP ${result()?.ip}`, result()?.message].filter(Boolean).join(" · ")
+    const state = busy()
+      ? (result()?.message ?? "Working…")
+      : flash() || (result()?.ok === false ? "Not connected" : "Working")
+    return `${modeLabel(mode())} · ${state}`
+  }
+
   return (
     <Show when={infinite}>
       <div
@@ -253,8 +299,21 @@ export function InfiniteBar() {
         <button type="button" class={button} title="What works on this computer." onClick={() => void dialog.show(() => <ConnectionDialog />)}>
           Status
         </button>
-        <button type="button" class={button} disabled={busy()} onClick={() => void run("Resetting limit…", () => infinite!.resetLimit())}>
-          Reset limit
+        <button
+          type="button"
+          class={button}
+          disabled={busy()}
+          title='New IP and a fresh session, then sends "continue" to the open chat.'
+          onClick={() => {
+            const current = route()
+            void run(
+              "Resetting limit…",
+              () => infinite!.resetLimit(current.type === "session" ? current.sessionId : undefined),
+              "reset",
+            )
+          }}
+        >
+          {action() === "reset" ? "Resetting…" : "Reset limit"}
         </button>
         <label class="flex items-center gap-1.5" title="Rotates the IP when a limit error shows up or the connection drops. Keeps your session.">
           <input type="checkbox" checked={auto()} onChange={(event) => saveOptions(event.currentTarget.checked)} />
@@ -273,12 +332,11 @@ export function InfiniteBar() {
               "bg-green-500": !busy() && result()?.ok !== false,
             }}
           />
-          <span class="truncate text-v2-text-text-faint">
-            {verboseStatus()
-              ? [modeLabel(mode()), result()?.ip && `IP ${result()?.ip}`, result()?.message].filter(Boolean).join(" · ")
-              : `${modeLabel(mode())} · ${busy() ? "Changing IP…" : result()?.ok === false ? "Not connected" : "Working"}`}
+          <span class="truncate text-v2-text-text-faint" title={statusText()}>
+            {statusText()}
           </span>
         </span>
+        <InfiniteUsage />
       </div>
     </Show>
   )
