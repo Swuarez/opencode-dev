@@ -5,8 +5,18 @@ import { expect, mock, test } from "bun:test"
 const electron = { app: { getPath: () => ".", once: () => undefined } }
 mock.module("electron", () => ({ ...electron, default: electron }))
 
-const { decide, limitRetry, limitSession, resumeSession, rotationBudget, sessionRunning, waitForRunning } =
-  await import("./infinite")
+const {
+  decide,
+  limitRetry,
+  limitSession,
+  recordRotation,
+  resetRotationBudget,
+  resumeSession,
+  rotationBudget,
+  rotationState,
+  sessionRunning,
+  waitForRunning,
+} = await import("./infinite")
 const { SidecarCredentials } = await import("../service/sidecar-credentials")
 
 const idle = { now: 100_000, last: 0, streak: 0, locked: false, pending: false }
@@ -42,6 +52,16 @@ test("auto-rotate pauses after five IP changes in ten minutes", () => {
   expect(budget([now - 600_001])).toMatchObject({ run: true })
   // The pause ends when its time is up.
   expect(budget([], now - 1)).toMatchObject({ run: true })
+})
+
+test("the status reports how much of the Auto-rotate budget is left", () => {
+  const now = 1_000_000
+  resetRotationBudget()
+  recordRotation(now - 1)
+  recordRotation(now - 2)
+  expect(rotationState(now)).toEqual({ used: 2, limit: 5, pausedUntil: 0 })
+  resetRotationBudget()
+  expect(rotationState(now)).toEqual({ used: 0, limit: 5, pausedUntil: 0 })
 })
 
 const block = (event: unknown) => `event: message\ndata: ${JSON.stringify(event)}`

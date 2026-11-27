@@ -33,11 +33,17 @@ const Stage = Schema.Literals([
   "failed",
 ])
 
+const Rotation = Schema.Struct({ used: Schema.Number, limit: Schema.Number, pausedUntil: Schema.Number })
+
 export const InfiniteGetStatus = Rpc.make("InfiniteGetStatus", {
-  success: Schema.Struct({ stage: Stage, message: Schema.String, at: Schema.Number }),
+  success: Schema.Struct({ stage: Stage, message: Schema.String, at: Schema.Number, rotation: Rotation }),
 })
 
 export const InfiniteRestoreSession = Rpc.make("InfiniteRestoreSession", { success: Result })
+
+export const InfiniteSessionBackup = Rpc.make("InfiniteSessionBackup", {
+  success: Schema.Struct({ at: Schema.optionalKey(Schema.Number) }),
+})
 
 export const InfiniteAutoRotate = Rpc.make("InfiniteAutoRotate", { payload: { sessionID: Schema.String } })
 
@@ -115,6 +121,7 @@ export const InfiniteRpcs = RpcGroup.make(
   InfiniteCheckIp,
   InfiniteGetStatus,
   InfiniteRestoreSession,
+  InfiniteSessionBackup,
   InfiniteAutoRotate,
   InfiniteFetchList,
 )

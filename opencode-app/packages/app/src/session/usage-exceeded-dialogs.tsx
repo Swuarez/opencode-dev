@@ -9,7 +9,7 @@ import { useDialog, useI18n } from "@opencode/ui/context"
 import { DialogUsageExceeded } from "@/providers/connect/usage-exceeded"
 import { GoUpsellHero } from "@/providers/connect/go-upsell-hero"
 import { usePlatform } from "@/runtime/platform/platform"
-import { autoRotate } from "@/shell/infinite-state"
+import { autoRotate, rememberFreeLimit } from "@/shell/infinite-state"
 import { useLocal, type ModelSelection } from "@/providers/models/selection"
 
 const GO_UPSELL_FREE_TIER_LAST_SEEN_AT = "go_upsell_last_seen_at"
@@ -132,7 +132,11 @@ export function useUsageExceededDialogs(input?: {
   onCleanup(
     sdk().event.on("session.step.failed", (evt) => {
       // The renderer is the one place that surely sees the limit; the desktop side rotates the IP and resumes.
-      if (autoRotate() && evt.data.error.type === "provider.free-limit") void platform.infinite?.autoRotate(evt.data.sessionID)
+      if (evt.data.error.type === "provider.free-limit") {
+        // The reset time is the only free-tier number the API gives; remember it for the usage bar.
+        rememberFreeLimit(evt.created, evt.data.error.retryAfterMs)
+        if (autoRotate()) void platform.infinite?.autoRotate(evt.data.sessionID)
+      }
       if (evt.data.sessionID !== params.id || dialog.active) return
       const error = evt.data.error
 

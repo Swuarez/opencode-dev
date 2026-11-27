@@ -54,6 +54,7 @@ export function createDesktopPlatform(api: ElectronAPI, windowState: DesktopWind
       checkIp: () => api.infiniteCheckIp(),
       getStatus: () => api.infiniteGetStatus(),
       restoreSession: () => api.infiniteRestoreSession(),
+      sessionBackup: () => api.infiniteSessionBackup(),
       autoRotate: (sessionID: string) => api.infiniteAutoRotate(sessionID),
       fetchList: (url: string) => api.infiniteFetchList(url),
       dictate: () => api.infiniteDictate(),

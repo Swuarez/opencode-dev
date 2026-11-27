@@ -5,7 +5,16 @@ import { usePlatform } from "@/runtime/platform/platform"
 import { clearBackground, getBackground, getDialogOpacity, getRainbow, getTextColor, setBackgroundFile, setBackgroundOpacity, setDialogOpacity, setRainbow, setTextColor, type RainbowTarget } from "@/shell/infinite-look"
 import { createAppearanceSettingsController } from "@/settings/general/controllers"
 import { readHistory } from "@/shell/infinite-history"
-import { advancedMode, dictation, setAdvancedMode, setDictation, setVerboseStatus, verboseStatus } from "@/shell/infinite-state"
+import {
+  advancedMode,
+  confirmReset,
+  dictation,
+  setAdvancedMode,
+  setConfirmReset,
+  setDictation,
+  setVerboseStatus,
+  verboseStatus,
+} from "@/shell/infinite-state"
 
 type Tab = "basic" | "advanced" | "personalization"
 
@@ -768,6 +777,32 @@ function BasicSection() {
   const infinite = usePlatform().infinite
   const [note, setNote] = createSignal<{ ok: boolean; text: string }>()
   const [busy, setBusy] = createSignal(false)
+  const [backup, setBackup] = createSignal<{ at?: number }>()
+  const [restoring, setRestoring] = createSignal(false)
+  const [sessionNote, setSessionNote] = createSignal<{ ok: boolean; text: string }>()
+
+  onMount(() => void infinite?.sessionBackup().then(setBackup).catch(() => undefined))
+
+  // Restoring stops the service, puts the newest auth.json back and starts it again; a live session is never replaced.
+  const restoreSession = async () => {
+    if (!infinite || restoring()) return
+    if (
+      !window.confirm(
+        "Restore the newest saved session?\n\nThis only works when no session is signed in. The service restarts to pick it up.",
+      )
+    )
+      return
+    setRestoring(true)
+    try {
+      const result = await infinite.restoreSession()
+      setSessionNote({ ok: result.ok, text: result.message })
+      setBackup(await infinite.sessionBackup())
+    } catch (error) {
+      setSessionNote({ ok: false, text: error instanceof Error ? error.message : String(error) })
+    } finally {
+      setRestoring(false)
+    }
+  }
 
   const restore = async () => {
     if (!infinite || busy()) return
@@ -815,6 +850,45 @@ function BasicSection() {
               </span>
             )}
           </For>
+        </div>
+      </Card>
+
+      <Card
+        title="Reset limit"
+        hint='The bottom-bar button changes the IP, restarts the service, saves the signed-in session and removes it so a fresh session starts, then sends "continue" to the open chat.'
+      >
+        <label class="flex items-center gap-2 text-12-regular text-v2-text-text-muted">
+          <input type="checkbox" checked={confirmReset()} onChange={(event) => setConfirmReset(event.currentTarget.checked)} />
+          Ask before Reset limit
+        </label>
+      </Card>
+
+      <Card
+        title="Saved session"
+        hint="Reset limit keeps the newest five signed-in sessions here before removing them. Restore puts the newest one back."
+      >
+        <div class="flex flex-col gap-3">
+          <div class="flex items-center gap-3 flex-wrap">
+            <button
+              type="button"
+              class={chip(false)}
+              disabled={restoring() || !backup()?.at}
+              onClick={() => void restoreSession()}
+            >
+              {restoring() ? "Restoring…" : "Restore session"}
+            </button>
+            <span class="text-12-regular text-v2-text-text-faint">
+              {backup()?.at ? `Newest backup: ${new Date(backup()!.at!).toLocaleString()}` : "No saved session yet."}
+            </span>
+          </div>
+          <Show when={sessionNote()}>
+            {(item) => (
+              <span class="flex items-center gap-2 min-w-0 text-12-regular text-v2-text-text-muted" role="status">
+                <span class="size-2 shrink-0 rounded-full" classList={{ "bg-green-500": item().ok, "bg-v2-state-fg-danger": !item().ok }} />
+                <span>{item().text}</span>
+              </span>
+            )}
+          </Show>
         </div>
       </Card>
 

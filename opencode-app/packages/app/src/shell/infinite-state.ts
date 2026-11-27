@@ -67,3 +67,50 @@ export function setDictation(next: { on: boolean }) {
     // Storage can be blocked; the choice then lasts until the app restarts.
   }
 }
+
+// Reset limit asks first: it changes the IP, restarts the service and replaces the signed-in session.
+const confirmResetKey = "opencode.infinite.confirm-reset"
+const readConfirmReset = () => {
+  try {
+    return localStorage.getItem(confirmResetKey) !== "0"
+  } catch {
+    return true
+  }
+}
+const [confirmReset, setConfirmResetSignal] = createSignal(readConfirmReset())
+export { confirmReset }
+export function setConfirmReset(next: boolean) {
+  setConfirmResetSignal(next)
+  try {
+    localStorage.setItem(confirmResetKey, next ? "1" : "0")
+  } catch {
+    // Storage can be blocked; the choice then lasts until the app restarts.
+  }
+}
+
+// When the free allowance comes back, from the last free-limit error. Only the time the provider gave is shown;
+// the API does not expose how many messages are left.
+const freeLimitKey = "opencode.infinite.free-limit"
+const MAX_FREE_LIMIT_WAIT = 45 * 86_400_000
+const readFreeLimit = () => {
+  try {
+    const at = Number(localStorage.getItem(freeLimitKey))
+    return Number.isFinite(at) && at > Date.now() ? at : undefined
+  } catch {
+    return undefined
+  }
+}
+const [freeLimitReset, setFreeLimitResetSignal] = createSignal<number | undefined>(readFreeLimit())
+export { freeLimitReset }
+export function rememberFreeLimit(created: number, retryAfterMs: number | undefined) {
+  if (retryAfterMs === undefined || !Number.isFinite(retryAfterMs) || retryAfterMs < 0 || retryAfterMs > MAX_FREE_LIMIT_WAIT)
+    return
+  const at = created + retryAfterMs
+  if (!Number.isFinite(at) || at <= Date.now()) return
+  setFreeLimitResetSignal(at)
+  try {
+    localStorage.setItem(freeLimitKey, String(at))
+  } catch {
+    // Storage can be blocked; the time then lasts until the app restarts.
+  }
+}

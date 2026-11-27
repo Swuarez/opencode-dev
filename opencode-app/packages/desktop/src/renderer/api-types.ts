@@ -86,8 +86,14 @@ export type ElectronAPI = {
   infiniteGetOptions(): Promise<{ auto: boolean; country: string; custom: string; fast: boolean; attempts: number; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }>
   infiniteSetOptions(options: { auto: boolean; country: string; custom: string; fast: boolean; attempts: number; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }): Promise<{ auto: boolean; country: string; custom: string; fast: boolean; attempts: number; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }>
   infiniteCheckIp(): Promise<{ ok: boolean; message: string; ip?: string; busy?: boolean }>
-  infiniteGetStatus(): Promise<{ stage: "idle" | "stopping" | "archiving" | "rotating" | "starting" | "resuming" | "continuing" | "done" | "failed"; message: string; at: number }>
+  infiniteGetStatus(): Promise<{
+    stage: "idle" | "stopping" | "archiving" | "rotating" | "starting" | "resuming" | "continuing" | "done" | "failed"
+    message: string
+    at: number
+    rotation: { used: number; limit: number; pausedUntil: number }
+  }>
   infiniteRestoreSession(): Promise<{ ok: boolean; message: string; ip?: string; busy?: boolean }>
+  infiniteSessionBackup(): Promise<{ at?: number }>
   infiniteAutoRotate(sessionID: string): Promise<void>
   infiniteFetchList(url: string): Promise<{ ok: boolean; text: string }>
   infiniteDictate(): Promise<{ ok: boolean; message: string; ip?: string }>

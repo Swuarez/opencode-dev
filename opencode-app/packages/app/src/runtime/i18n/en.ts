@@ -1299,6 +1299,7 @@ export const dict = {
   "usage.bar.go": "Go {{percent}}%",
   "usage.bar.credits": "Out of credits",
   "usage.bar.free": "No budget",
+  "usage.bar.freeResets": "Resets {{time}}",
   "usage.bar.signedOut": "Not signed in",
   "usage.section.go": "OpenCode Go",
   "usage.section.console": "OpenCode Console",

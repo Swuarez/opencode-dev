@@ -1,7 +1,13 @@
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { useDialog } from "@opencode/ui/context/dialog"
 import { usePlatform } from "@/runtime/platform/platform"
-import { advancedMode, autoRotate as auto, setAutoRotate as setAuto, verboseStatus } from "@/shell/infinite-state"
+import {
+  advancedMode,
+  autoRotate as auto,
+  confirmReset,
+  setAutoRotate as setAuto,
+  verboseStatus,
+} from "@/shell/infinite-state"
 import { initLook } from "@/shell/infinite-look"
 import { SettingsDialog } from "@/shell/settings-dialog"
 import { addHistory } from "@/shell/infinite-history"
@@ -14,6 +20,7 @@ type Mode = "POOL" | "WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" 
 // Auto is not a mode of its own: it picks WARP when it works, otherwise None, and the bar then shows that mode.
 type Choice = Mode | "AUTO"
 type Result = { ok: boolean; message: string; ip?: string; busy?: boolean }
+type Rotation = { used: number; limit: number; pausedUntil: number }
 
 const modes: { id: Choice; label: string; title: string }[] = [
   { id: "AUTO", label: "Auto", title: "WARP when it works, otherwise a direct connection. Installs nothing." },
@@ -75,6 +82,7 @@ export function InfiniteBar() {
   const [selected, setSelected] = createSignal<Choice>("NONE")
   const [busy, setBusy] = createSignal(false)
   const [result, setResult] = createSignal<Result | undefined>()
+  const [rotation, setRotation] = createSignal<Rotation>()
   const [action, setAction] = createSignal<"" | "reset">("")
   // The outcome of the last manual action stays visible for a moment after the bar goes back to its idle state.
   const [flash, setFlash] = createSignal("")
@@ -91,6 +99,7 @@ export function InfiniteBar() {
     void infinite?.checkIp().then((checked) => {
       if (!busy()) setResult(checked)
     })
+    void infinite?.getStatus().then((status) => setRotation(status.rotation))
     // The doctor (panel, first run or watchdog) changed the connection: show the new mode and IP.
     const refresh = () => {
       void infinite?.getMode().then((current) => {
@@ -112,6 +121,7 @@ export function InfiniteBar() {
     let lastHeal = 0
     const timer = setInterval(() => {
       if (busy()) return
+      void infinite?.getStatus().then((status) => setRotation(status.rotation))
       void infinite?.checkIp().then((checked) => {
         if (busy()) return
         setResult(checked)
@@ -156,6 +166,7 @@ export function InfiniteBar() {
       void infinite
         ?.getStatus()
         .then((status) => {
+          setRotation(status.rotation)
           if (!busy() || status.at < started || !status.message) return
           setResult({ ok: status.stage !== "failed", message: status.message })
         })
@@ -173,6 +184,8 @@ export function InfiniteBar() {
       clearInterval(timer)
       setBusy(false)
       setAction("")
+      // A manual reset clears the Auto-rotate budget; show the new budget as soon as the action ends.
+      void infinite?.getStatus().then((status) => setRotation(status.rotation))
     }
   }
 
@@ -250,8 +263,25 @@ export function InfiniteBar() {
       return [modeLabel(mode()), result()?.ip && `IP ${result()?.ip}`, result()?.message].filter(Boolean).join(" · ")
     const state = busy()
       ? (result()?.message ?? "Working…")
-      : flash() || (result()?.ok === false ? "Not connected" : "Working")
+      : flash() || (result()?.ok === false ? "Not connected" : result() ? "Ready" : "Checking…")
     return `${modeLabel(mode())} · ${state}`
+  }
+
+  // Auto-rotate's own budget, shown only once it has been used. Manual Reset limit is never blocked by it.
+  const rotationLabel = () => {
+    const value = rotation()
+    if (!auto() || !value) return ""
+    if (value.pausedUntil > Date.now()) return `paused ${Math.ceil((value.pausedUntil - Date.now()) / 60_000)}m`
+    if (!value.used) return ""
+    return `${Math.max(0, value.limit - value.used)}/${value.limit}`
+  }
+
+  const rotationTitle = () => {
+    const value = rotation()
+    if (!value) return ""
+    if (value.pausedUntil > Date.now())
+      return `Auto-rotate paused after ${value.limit} IP changes; it starts again in ${Math.ceil((value.pausedUntil - Date.now()) / 60_000)} min. Manual Reset limit still works.`
+    return `${Math.max(0, value.limit - value.used)} of ${value.limit} automatic IP changes left in this 10-minute window. Manual Reset limit is never blocked.`
   }
 
   return (
@@ -307,6 +337,13 @@ export function InfiniteBar() {
           disabled={busy()}
           title='New IP and a fresh session, then sends "continue" to the open chat.'
           onClick={() => {
+            if (
+              confirmReset() &&
+              !window.confirm(
+                'Reset limit?\n\nThis changes the IP, restarts the service, saves the signed-in session and removes it so a fresh session starts, then sends "continue" to the open chat. The chat is interrupted while the service restarts.\n\nContinue?',
+              )
+            )
+              return
             const current = route()
             void run(
               "Resetting limit…",
@@ -321,6 +358,11 @@ export function InfiniteBar() {
           <input type="checkbox" checked={auto()} onChange={(event) => saveOptions(event.currentTarget.checked)} />
           Auto-rotate
         </label>
+        <Show when={rotationLabel()}>
+          <span class="tabular-nums text-v2-text-text-faint" title={rotationTitle()}>
+            {rotationLabel()}
+          </span>
+        </Show>
         <button type="button" class={button} onClick={() => void dialog.show(() => <SettingsDialog />)}>
           Settings
         </button>

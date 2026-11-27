@@ -7,6 +7,7 @@ import { useLanguage } from "@/runtime/i18n/language"
 import { ServerConnection } from "@/runtime/server/registry"
 import { useGlobal, type ServerCtx } from "@/runtime/server/runtime"
 import { useCommand } from "@/shell/commands/command"
+import { freeLimitReset } from "@/shell/infinite-state"
 import { useCurrentRoute, useLayout } from "@/shell/state/layout"
 import { useTabs } from "@/shell/tabs/tabs"
 import { useUsageFormat } from "@/usage/format"
@@ -188,7 +189,13 @@ export function InfiniteUsage() {
 
     const budget = current.budgets[0]
 
-    if (!budget) return language.t("usage.bar.free")
+    if (!budget) {
+      // The free tier exposes no remaining count, but the last limit error carries the time it comes back.
+      const at = model()?.free ? freeLimitReset() : undefined
+      return at && at > Date.now()
+        ? language.t("usage.bar.freeResets", { time: format.shortTime(at) })
+        : language.t("usage.bar.free")
+    }
 
     return budget.reached
       ? language.t("usage.budget.reached")

@@ -97,6 +97,7 @@ export const api: ElectronAPI = {
   infiniteCheckIp: () => invoke("InfiniteCheckIp").then(mutable),
   infiniteGetStatus: () => invoke("InfiniteGetStatus").then(mutable),
   infiniteRestoreSession: () => invoke("InfiniteRestoreSession").then(mutable),
+  infiniteSessionBackup: () => invoke("InfiniteSessionBackup").then(mutable),
   infiniteAutoRotate: (sessionID: string) => invoke("InfiniteAutoRotate", { sessionID }),
   infiniteFetchList: (url: string) => invoke("InfiniteFetchList", { url }),
   infiniteDictate: () => invoke("InfiniteDictate").then(mutable),

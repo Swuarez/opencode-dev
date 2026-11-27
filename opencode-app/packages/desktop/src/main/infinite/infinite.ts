@@ -607,6 +607,14 @@ export async function restoreSession(): Promise<Result> {
   return { ok: true, message: `Session restored from ${newest}.` }
 }
 
+/** The newest auth.json backup, so Settings can say what "Restore session" would put back. */
+export async function sessionBackup(): Promise<{ at?: number }> {
+  const newest = (await readdir(backupDir()).catch(() => [] as string[])).sort().at(-1)
+  if (!newest) return {}
+  const info = await stat(path.join(backupDir(), newest, "auth.json")).catch(() => undefined)
+  return info ? { at: info.mtimeMs } : {}
+}
+
 // --- Tor ----------------------------------------------------------------------------------------------------------
 
 const tor = { child: undefined as ChildProcess | undefined }
@@ -1224,6 +1232,17 @@ export function resetRotationBudget() {
   rotationPausedUntil = 0
 }
 
+export type RotationState = { used: number; limit: number; pausedUntil: number }
+
+/** What is left of the Auto-rotate budget. Reading it never spends any of it. */
+export function rotationState(now = Date.now()): RotationState {
+  return {
+    used: rotations.filter((at) => now - at < ROTATION_WINDOW_MS).length,
+    limit: ROTATION_LIMIT,
+    pausedUntil: now < rotationPausedUntil ? rotationPausedUntil : 0,
+  }
+}
+
 /** Rotate the network only; unlike "Reset limit" the session (auth.json) stays untouched. */
 export const rotateOnly = () => {
   recordRotation()
@@ -1283,9 +1302,9 @@ export type Stage =
   | "continuing"
   | "done"
   | "failed"
-export type Status = { stage: Stage; message: string; at: number }
+export type Status = { stage: Stage; message: string; at: number; rotation: RotationState }
 
-let status: Status = { stage: "idle", message: "", at: 0 }
+let status: Omit<Status, "rotation"> = { stage: "idle", message: "", at: 0 }
 
 /** What a long action is doing right now, for the bar to show while it runs. */
 export function setStatus(stage: Stage, message: string) {
@@ -1293,7 +1312,7 @@ export function setStatus(stage: Stage, message: string) {
 }
 
 export function getStatus(): Status {
-  return status
+  return { ...status, rotation: rotationState() }
 }
 
 async function hunt(command: readonly string[]): Promise<Result> {
