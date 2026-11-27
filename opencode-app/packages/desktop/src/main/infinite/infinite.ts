@@ -13,7 +13,7 @@ import { connectClient, disconnectClient, pickLocation, type Client } from "./vp
 // shortcut: VPNGATE from the .bat is not ported (it needs an admin OpenVPN helper). route64 (WireGuard) lives in route64.ts.
 
 export type Mode = "POOL" | "WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE"
-export type Result = { ok: boolean; message: string; ip?: string }
+export type Result = { ok: boolean; message: string; ip?: string; busy?: boolean }
 
 const WARP_PORT = 40000
 const WARP_PROXY = `http://127.0.0.1:${WARP_PORT}`
@@ -1154,7 +1154,7 @@ export async function checkIp(): Promise<Result> {
   // Not reachable right now (still connecting, or rotating): show the IP OpenCode was last using, not an error.
   const last = known[mode]
   // While a rotation holds the lock the network is down on purpose; saying "not answering" there looks like a failure.
-  if (locked) return { ok: false, ip: last, message: autoNote || "changing the IP…" }
+  if (locked) return { ok: false, ip: last, message: autoNote || "changing the IP…", busy: true }
   return last ? { ok: false, ip: last, message: "not answering right now" } : { ok: false, message: "connecting…" }
 }
 
@@ -1170,8 +1170,65 @@ export function lock() {
   return () => void (locked = false)
 }
 
+// Auto-rotate may change the IP only so often. A limit that survives several addresses is not lifted by trying more,
+// and every change drops the connections going through the proxy. Five changes in ten minutes, then a five-minute
+// pause; the manual "Reset limit" is never blocked.
+const ROTATION_WINDOW_MS = 10 * 60_000
+const ROTATION_LIMIT = 5
+const ROTATION_PAUSE_MS = 5 * 60_000
+
+let rotations: number[] = []
+let rotationPausedUntil = 0
+
+/** The auto-rotate budget as a pure decision, so the rule is tested without timers or Electron. */
+export function rotationBudget(input: { now: number; rotations: readonly number[]; pausedUntil: number }) {
+  const recent = input.rotations.filter((at) => input.now - at < ROTATION_WINDOW_MS)
+  if (input.now < input.pausedUntil) {
+    const retryMs = input.pausedUntil - input.now
+    return {
+      run: false as const,
+      retryMs,
+      rotations: recent,
+      pausedUntil: input.pausedUntil,
+      message: `Auto-rotate paused; trying again in ${Math.ceil(retryMs / 60_000)} min.`,
+    }
+  }
+  if (recent.length < ROTATION_LIMIT) return { run: true as const, rotations: recent, pausedUntil: 0 }
+  return {
+    run: false as const,
+    retryMs: ROTATION_PAUSE_MS,
+    pausedUntil: input.now + ROTATION_PAUSE_MS,
+    // The pause is the reset: after it, Auto-rotate gets a fresh budget instead of pausing again on the same burst.
+    rotations: [],
+    message: `Auto-rotate paused after ${ROTATION_LIMIT} IP changes; trying again in ${ROTATION_PAUSE_MS / 60_000} min.`,
+  }
+}
+
+/** Whether an automatic rotation may start now. Manual "Reset limit" does not ask. */
+export function canRotate(now = Date.now()) {
+  const decision = rotationBudget({ now, rotations, pausedUntil: rotationPausedUntil })
+  rotations = decision.rotations
+  rotationPausedUntil = decision.pausedUntil
+  if (decision.run) return { ok: true as const }
+  return { ok: false as const, retryMs: decision.retryMs, message: decision.message }
+}
+
+/** Every IP change counts, including a manual reset, so an automatic burst cannot follow one immediately. */
+export function recordRotation(now = Date.now()) {
+  rotations.push(now)
+}
+
+/** A manual reset is an explicit fresh start: give Auto-rotate its budget back. */
+export function resetRotationBudget() {
+  rotations = []
+  rotationPausedUntil = 0
+}
+
 /** Rotate the network only; unlike "Reset limit" the session (auth.json) stays untouched. */
-export const rotateOnly = () => rotate(getMode()).then(remember)
+export const rotateOnly = () => {
+  recordRotation()
+  return rotate(getMode()).then(remember)
+}
 
 const PROBE_MODEL = "opencode/deepseek-v4.1-flash-free"
 // Only what a new IP can lift. A budget or credit message is not one: it ends the hunt as a failed probe instead.
@@ -1242,6 +1299,11 @@ async function hunt(command: readonly string[]): Promise<Result> {
   let rotateFails = 0
   let stage = 0
   for (let attempt = 1; attempt <= max; attempt++) {
+    const budget = canRotate()
+    if (!budget.ok) {
+      autoStatus(budget.message, true)
+      return { ok: false, message: budget.message }
+    }
     const mode = chain[stage]!
     // The fallback chain only moves on when the current mode gives nothing; a switch is one attempt less.
     if (mode !== getMode()) {
@@ -1388,11 +1450,25 @@ export function startWatch(rotateNow: (sessionID: string) => void, swapNow: () =
   let streak = 0
   let fails = 0
   let swapped = 0
-  // The chat is retrying a spent free allowance by itself: change the IP under it. Each failed retry asks again; one
-  // already running (or just finished, within 3 s) answers them all.
+  // The chat is retrying a spent free allowance by itself: change the IP under it. The retries last about 15 s, so
+  // one swap per minute covers a burst; if the new IP is still limited, the step fails and the probe-based hunt takes
+  // over instead of changing the IP on every retry.
+  const SWAP_INTERVAL_MS = 60_000
+  let pauseNoteAt = 0
   const swap = () => {
-    if (!load().auto || locked || Date.now() - swapped < 3_000) return
-    swapped = Date.now()
+    if (!load().auto || locked) return
+    const now = Date.now()
+    if (now - swapped < SWAP_INTERVAL_MS) return
+    const budget = canRotate(now)
+    if (!budget.ok) {
+      // The chat retries every 1.5 s; say why once, not on every retry.
+      if (now - pauseNoteAt > SWAP_INTERVAL_MS) {
+        pauseNoteAt = now
+        autoStatus(budget.message, true)
+      }
+      return
+    }
+    swapped = now
     autoStatus("free limit reached, changing the IP while the chat waits…")
     swapNow()
   }

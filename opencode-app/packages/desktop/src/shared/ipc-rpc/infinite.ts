@@ -7,6 +7,7 @@ const Result = Schema.Struct({
   ok: Schema.Boolean,
   message: Schema.String,
   ip: Schema.optionalKey(Schema.String),
+  busy: Schema.optionalKey(Schema.Boolean),
 })
 
 export const InfiniteGetMode = Rpc.make("InfiniteGetMode", { success: Mode })

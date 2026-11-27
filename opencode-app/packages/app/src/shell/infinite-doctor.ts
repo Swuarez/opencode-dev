@@ -9,7 +9,7 @@ export type Mode = "POOL" | "WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MU
 /** ready: can be used now. install: a program is missing and can be installed. setup: needs something from the user. */
 export type RowState = "ready" | "install" | "setup"
 export type Row = { id: Mode; label: string; state: RowState; detail: string; advanced: boolean }
-export type Outcome = { ok: boolean; mode: Mode; ip?: string; message: string }
+export type Outcome = { ok: boolean; mode: Mode; ip?: string; message: string; busy?: boolean }
 
 const LABELS: Record<Mode, string> = {
   POOL: "Pool",
@@ -72,6 +72,10 @@ async function attempt(infinite: Infinite, report: (text: string) => void, fresh
   if (!fresh) {
     report("Checking the connection…")
     const checked = await infinite.checkIp()
+    if (checked.busy) {
+      report("A reset is already running; letting it finish…")
+      return { ok: false, mode: current, message: "Another action is still running; try again in a moment.", busy: true }
+    }
     if (checked.ok && checked.ip) return { ok: true, mode: current, ip: checked.ip, message: `${modeName(current)} works` }
   }
   const rows = await diagnose(infinite)
@@ -90,6 +94,10 @@ async function attempt(infinite: Infinite, report: (text: string) => void, fresh
   for (const mode of order) {
     report(`Trying ${modeName(mode)}…`)
     const applied = await infinite.setMode(mode)
+    if (applied.busy) {
+      report("A reset is already running; letting it finish…")
+      return { ok: false, mode: current, message: "Another action is still running; try again in a moment.", busy: true }
+    }
     addHistory({ mode, ok: applied.ok, ip: applied.ip })
     if (applied.ok) return { ok: true, mode, ip: applied.ip, message: `${modeName(mode)} works` }
     notes.push(`${modeName(mode)}: ${applied.message}`)

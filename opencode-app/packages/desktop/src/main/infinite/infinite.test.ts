@@ -5,7 +5,7 @@ import { expect, mock, test } from "bun:test"
 const electron = { app: { getPath: () => ".", once: () => undefined } }
 mock.module("electron", () => ({ ...electron, default: electron }))
 
-const { decide, limitRetry, limitSession } = await import("./infinite")
+const { decide, limitRetry, limitSession, rotationBudget } = await import("./infinite")
 
 const idle = { now: 100_000, last: 0, streak: 0, locked: false, pending: false }
 
@@ -23,6 +23,23 @@ test("a chat that arrives during a rotation or inside the 3 s window is retried,
 test("ten rotations in a row pause, and waiting chats come back after 3 minutes", () => {
   expect(decide({ ...idle, streak: 10, pending: true })).toEqual({ run: false, pause: true, retryMs: 180_000 })
   expect(decide({ ...idle, streak: 9 })).toEqual({ run: true })
+})
+
+test("auto-rotate pauses after five IP changes in ten minutes", () => {
+  const now = 1_000_000
+  const budget = (rotations: number[], pausedUntil = 0) => rotationBudget({ now, rotations, pausedUntil })
+  expect(budget([])).toMatchObject({ run: true })
+  expect(budget([now - 1, now - 2, now - 3, now - 4])).toMatchObject({ run: true })
+  expect(budget([now - 1, now - 2, now - 3, now - 4, now - 5])).toMatchObject({
+    run: false,
+    retryMs: 300_000,
+    pausedUntil: now + 300_000,
+    rotations: [],
+  })
+  // A change older than the window does not count.
+  expect(budget([now - 600_001])).toMatchObject({ run: true })
+  // The pause ends when its time is up.
+  expect(budget([], now - 1)).toMatchObject({ run: true })
 })
 
 const block = (event: unknown) => `event: message\ndata: ${JSON.stringify(event)}`

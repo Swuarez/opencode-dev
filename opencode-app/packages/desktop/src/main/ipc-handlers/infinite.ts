@@ -17,6 +17,7 @@ import {
   restoreSession,
   pending,
   resumeSession,
+  resetRotationBudget,
   rotateOnly,
   setMode,
   setOptions,
@@ -66,7 +67,7 @@ export const infiniteHandlers = InfiniteRpcs.toLayer(
     // One action at a time: the lock is taken before anything is stopped.
     const guarded = (body: Effect.Effect<Result, unknown>): Effect.Effect<Result> => {
       const release = lock()
-      if (!release) return Effect.succeed({ ok: false, message: "Another action is still running." })
+      if (!release) return Effect.succeed({ ok: false, message: "Another action is still running.", busy: true })
       return body.pipe(
         Effect.catch((error) =>
           Effect.succeed<Result>({ ok: false, message: error instanceof Error ? error.message : String(error) }),
@@ -101,6 +102,8 @@ export const infiniteHandlers = InfiniteRpcs.toLayer(
             setStatus("rotating", "The IP did not change, trying again…")
             net = yield* rotateNetwork()
           }
+          // A manual reset is an explicit fresh start: give Auto-rotate its budget back.
+          if (net.ok) resetRotationBudget()
           setStatus("stopping", "Restarting the service…")
           yield* stopService
           // A backup problem must not leave the service down; the reset still starts a fresh session and reconnects.

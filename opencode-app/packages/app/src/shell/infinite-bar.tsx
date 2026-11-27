@@ -13,7 +13,7 @@ import { InfiniteUsage } from "@/shell/infinite-usage"
 type Mode = "POOL" | "WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE"
 // Auto is not a mode of its own: it picks WARP when it works, otherwise None, and the bar then shows that mode.
 type Choice = Mode | "AUTO"
-type Result = { ok: boolean; message: string; ip?: string }
+type Result = { ok: boolean; message: string; ip?: string; busy?: boolean }
 
 const modes: { id: Choice; label: string; title: string }[] = [
   { id: "AUTO", label: "Auto", title: "WARP when it works, otherwise a direct connection. Installs nothing." },
@@ -115,6 +115,8 @@ export function InfiniteBar() {
       void infinite?.checkIp().then((checked) => {
         if (busy()) return
         setResult(checked)
+        // A rotation holds the network down on purpose; that is not a dead connection to heal.
+        if (checked.busy) return
         if (checked.ok || mode() === "NONE" || Date.now() - lastHeal < 120_000) return
         lastHeal = Date.now()
         void run("Connection lost, fixing it…", async () => {

@@ -5,21 +5,50 @@ import type { Platform } from "@/runtime/platform/platform"
 type Infinite = NonNullable<Platform["infinite"]>
 
 // A computer described by what it has; setMode answers ok only for the modes in `works`, and every call is recorded.
-function computer(input: { mode?: string; warp?: boolean; socks?: string; custom?: string; works: string[]; direct?: boolean }) {
+function computer(input: {
+  mode?: string
+  warp?: boolean
+  socks?: string
+  custom?: string
+  works: string[]
+  direct?: boolean
+  busy?: boolean
+  busyMode?: string
+}) {
   const tried: string[] = []
   const infinite = {
     getMode: async () => input.mode ?? "NONE",
-    checkIp: async () => (input.direct ? { ok: true, ip: "1.1.1.1", message: "" } : { ok: false, message: "down" }),
+    checkIp: async () =>
+      input.busy
+        ? { ok: false, message: "changing the IP…", busy: true }
+        : input.direct
+          ? { ok: true, ip: "1.1.1.1", message: "" }
+          : { ok: false, message: "down" },
     getOptions: async () => ({ socks: input.socks ?? "", custom: input.custom ?? "" }),
     route64Status: async () => ({ imported: false, up: false }),
     toolPlan: async () => ({ installed: input.warp === true }),
     setMode: async (mode: string) => {
       tried.push(mode)
+      if (mode === input.busyMode) return { ok: false, message: "Another action is still running.", busy: true }
       return input.works.includes(mode) ? { ok: true, message: "ok", ip: "9.9.9.9" } : { ok: false, message: "no" }
     },
   } as unknown as Infinite
   return { infinite, tried }
 }
+
+test("a reset in progress is not a dead connection", async () => {
+  const pc = computer({ mode: "WARP", warp: true, works: [], busy: true })
+  const outcome = await fixConnection(pc.infinite, () => undefined)
+  expect(outcome).toMatchObject({ ok: false, busy: true })
+  expect(pc.tried).toEqual([])
+})
+
+test("a busy mode stops the doctor instead of trying the rest", async () => {
+  const pc = computer({ warp: true, works: ["TOR"], busyMode: "WARP" })
+  const outcome = await fixConnection(pc.infinite, () => undefined, true)
+  expect(outcome).toMatchObject({ ok: false, busy: true })
+  expect(pc.tried).toEqual(["WARP"])
+})
 
 test("an already working connection is left alone", async () => {
   const pc = computer({ mode: "WARP", direct: true, works: [] })

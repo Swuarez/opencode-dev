@@ -800,7 +800,7 @@ function BasicSection() {
 
       <Card
         title="Auto-rotate attempts"
-        hint="How many new IPs Auto-rotate tries, each checked on a temporary session, before it stops and tells you. More attempts find a free IP more often but can take longer. 1 to 50, default 10."
+        hint="How many new IPs Auto-rotate tries, each checked on a temporary session, before it stops and tells you. More attempts find a free IP more often but can take longer. 1 to 50, default 10. Auto-rotate also pauses for 5 minutes after 5 IP changes in 10 minutes."
       >
         <AttemptsField />
       </Card>

@@ -81,13 +81,13 @@ export type ElectronAPI = {
   recordFatalRendererError(error: FatalRendererError): Promise<void>
   setNativeTranslations(bundle: DesktopNativeBundle): Promise<void>
   infiniteGetMode(): Promise<"POOL" | "WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE">
-  infiniteSetMode(mode: "POOL" | "WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE"): Promise<{ ok: boolean; message: string; ip?: string }>
-  infiniteResetLimit(sessionID?: string): Promise<{ ok: boolean; message: string; ip?: string }>
+  infiniteSetMode(mode: "POOL" | "WARP" | "TOR" | "PROXY" | "SOCKS" | "ROUTE64" | "MULLVAD" | "WINDSCRIBE" | "NONE"): Promise<{ ok: boolean; message: string; ip?: string; busy?: boolean }>
+  infiniteResetLimit(sessionID?: string): Promise<{ ok: boolean; message: string; ip?: string; busy?: boolean }>
   infiniteGetOptions(): Promise<{ auto: boolean; country: string; custom: string; fast: boolean; attempts: number; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }>
   infiniteSetOptions(options: { auto: boolean; country: string; custom: string; fast: boolean; attempts: number; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }): Promise<{ auto: boolean; country: string; custom: string; fast: boolean; attempts: number; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }>
-  infiniteCheckIp(): Promise<{ ok: boolean; message: string; ip?: string }>
+  infiniteCheckIp(): Promise<{ ok: boolean; message: string; ip?: string; busy?: boolean }>
   infiniteGetStatus(): Promise<{ stage: "idle" | "stopping" | "archiving" | "rotating" | "starting" | "resuming" | "done" | "failed"; message: string; at: number }>
-  infiniteRestoreSession(): Promise<{ ok: boolean; message: string; ip?: string }>
+  infiniteRestoreSession(): Promise<{ ok: boolean; message: string; ip?: string; busy?: boolean }>
   infiniteAutoRotate(sessionID: string): Promise<void>
   infiniteFetchList(url: string): Promise<{ ok: boolean; text: string }>
   infiniteDictate(): Promise<{ ok: boolean; message: string; ip?: string }>
