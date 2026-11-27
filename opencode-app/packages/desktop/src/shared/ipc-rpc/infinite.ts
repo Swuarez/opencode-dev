@@ -21,7 +21,17 @@ export const InfiniteResetLimit = Rpc.make("InfiniteResetLimit", {
 
 export const InfiniteCheckIp = Rpc.make("InfiniteCheckIp", { success: Result })
 
-const Stage = Schema.Literals(["idle", "stopping", "archiving", "rotating", "starting", "resuming", "done", "failed"])
+const Stage = Schema.Literals([
+  "idle",
+  "stopping",
+  "archiving",
+  "rotating",
+  "starting",
+  "resuming",
+  "continuing",
+  "done",
+  "failed",
+])
 
 export const InfiniteGetStatus = Rpc.make("InfiniteGetStatus", {
   success: Schema.Struct({ stage: Stage, message: Schema.String, at: Schema.Number }),

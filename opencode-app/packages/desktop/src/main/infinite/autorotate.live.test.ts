@@ -19,7 +19,7 @@ test.skipIf(!url || !password || !session || !cli)(
     expect(await probeIp([cli!])).toBe("ok")
     console.log(`probe took ${((Date.now() - started) / 1000).toFixed(1)} s`)
 
-    expect(await resumeSession(session!)).toBe(true)
+    expect(await resumeSession(session!)).toBe("sent")
     const auth = { Authorization: SidecarCredentials.authorization(SidecarCredentials.get(), `${url}/api`)! }
     // The server took the message; the chat must also show it and get an answer after it.
     for (let i = 0; i < 60; i++) {

@@ -122,7 +122,7 @@ type PlatformBase = {
     getOptions(): Promise<{ auto: boolean; country: string; custom: string; fast: boolean; attempts: number; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }>
     setOptions(options: { auto: boolean; country: string; custom: string; fast: boolean; attempts: number; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }): Promise<{ auto: boolean; country: string; custom: string; fast: boolean; attempts: number; rotateUrl: string; vpnLocations: string; socks: string; chain: string; burned: number }>
     checkIp(): Promise<{ ok: boolean; message: string; ip?: string; busy?: boolean }>
-    getStatus(): Promise<{ stage: "idle" | "stopping" | "archiving" | "rotating" | "starting" | "resuming" | "done" | "failed"; message: string; at: number }>
+    getStatus(): Promise<{ stage: "idle" | "stopping" | "archiving" | "rotating" | "starting" | "resuming" | "continuing" | "done" | "failed"; message: string; at: number }>
     restoreSession(): Promise<{ ok: boolean; message: string; ip?: string; busy?: boolean }>
     autoRotate(sessionID: string): Promise<void>
     fetchList(url: string): Promise<{ ok: boolean; text: string }>

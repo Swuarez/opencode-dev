@@ -1273,7 +1273,16 @@ export function autoStatus(text: string, done = false) {
   autoNote = done ? `${text} (${new Date().toLocaleTimeString()})` : text
 }
 
-export type Stage = "idle" | "stopping" | "archiving" | "rotating" | "starting" | "resuming" | "done" | "failed"
+export type Stage =
+  | "idle"
+  | "stopping"
+  | "archiving"
+  | "rotating"
+  | "starting"
+  | "resuming"
+  | "continuing"
+  | "done"
+  | "failed"
 export type Status = { stage: Stage; message: string; at: number }
 
 let status: Status = { stage: "idle", message: "", at: 0 }
@@ -1401,13 +1410,52 @@ export function limitSession(block: string) {
 /** Chats that reached the limit and are waiting for the next working IP. */
 export const pending = new Set<string>()
 
-/** Sends "continue" to a session so the conversation goes on after the IP changed. True when the server took it. */
-export async function resumeSession(sessionID: string) {
+/** What a resume did: a message went out, the chat was already running, or neither worked. */
+export type ResumeOutcome = "sent" | "running" | "failed"
+
+/** Whether the server is already running this chat: a retry, a restart recovery, or a turn in progress. */
+export async function sessionRunning(sessionID: string) {
   if (!sessionID) return false
+  const sidecar = SidecarCredentials.get()
+  const url = sidecar && `${sidecar.url}/api/session/active`
+  const auth = url && SidecarCredentials.authorization(sidecar, url)
+  const res = url
+    ? await fetch(url, {
+        headers: auth ? { Authorization: auth } : {},
+        signal: AbortSignal.timeout(2_000),
+      }).catch(() => undefined)
+    : undefined
+  if (!res?.ok) return false
+  const body = (await res.json().catch(() => undefined)) as
+    | { data?: Record<string, { type?: string } | undefined> }
+    | undefined
+  return body?.data?.[sessionID]?.type === "running"
+}
+
+/** A restarted server resumes an interrupted turn by itself; wait for that before prompting it again. */
+export async function waitForRunning(sessionID: string) {
+  for (let attempt = 0; attempt < 8; attempt++) {
+    if (attempt > 0) await sleep(250)
+    if (await sessionRunning(sessionID)) return true
+  }
+  return false
+}
+
+/**
+ * Sends "continue" to a session so the conversation goes on after the IP changed. A chat the server already runs
+ * gets no second message: the "continue" would be delivered as a duplicate turn on top of the running one.
+ */
+export async function resumeSession(sessionID: string): Promise<ResumeOutcome> {
+  if (!sessionID) return "failed"
   const text = "continue"
-  resumedAt.set(sessionID, Date.now())
   // After a service restart the new one needs a moment before it accepts requests.
   for (let attempt = 0; attempt < 20; attempt++) {
+    if (await sessionRunning(sessionID)) {
+      // Quiet the renderer's report of the same limit, as if this resume had answered it.
+      resumedAt.set(sessionID, Date.now())
+      return "running"
+    }
+    resumedAt.set(sessionID, Date.now())
     const sidecar = SidecarCredentials.get()
     const url = sidecar && `${sidecar.url}/api/session/${encodeURIComponent(sessionID)}/prompt`
     const auth = url && SidecarCredentials.authorization(sidecar, url)
@@ -1416,13 +1464,14 @@ export async function resumeSession(sessionID: string) {
           method: "POST",
           headers: { "content-type": "application/json", ...(auth ? { Authorization: auth } : {}) },
           body: JSON.stringify({ text }),
+          signal: AbortSignal.timeout(10_000),
         }).catch(() => undefined)
       : undefined
-    if (res?.ok) return true
+    if (res?.ok) return "sent"
     if (res && res.status < 500) break
     await sleep(500)
   }
-  return false
+  return "failed"
 }
 
 /**

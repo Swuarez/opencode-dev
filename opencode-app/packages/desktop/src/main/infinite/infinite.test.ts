@@ -5,7 +5,9 @@ import { expect, mock, test } from "bun:test"
 const electron = { app: { getPath: () => ".", once: () => undefined } }
 mock.module("electron", () => ({ ...electron, default: electron }))
 
-const { decide, limitRetry, limitSession, rotationBudget } = await import("./infinite")
+const { decide, limitRetry, limitSession, resumeSession, rotationBudget, sessionRunning, waitForRunning } =
+  await import("./infinite")
+const { SidecarCredentials } = await import("../service/sidecar-credentials")
 
 const idle = { now: 100_000, last: 0, streak: 0, locked: false, pending: false }
 
@@ -69,4 +71,103 @@ test("a retry scheduled for the free limit asks for an IP change, nothing else d
   expect(limitRetry(block(failed("provider.free-limit")))).toBe(false)
   expect(limitSession(block(retry("provider.free-limit")))).toBeUndefined()
   expect(limitRetry("data: not json")).toBe(false)
+})
+
+/** A local stand-in for the server's active and prompt routes; `prompts` counts the "continue" messages it took. */
+function server(handler: (request: Request, url: URL, state: { prompts: number }) => Response | Promise<Response>) {
+  const state = { prompts: 0 }
+  const instance = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: (request) => handler(request, new URL(request.url), state),
+  })
+  const previous = SidecarCredentials.get()
+  SidecarCredentials.set({ url: `http://127.0.0.1:${instance.port}`, password: "test" })
+  return {
+    prompts: () => state.prompts,
+    async close() {
+      await instance.stop(true)
+      SidecarCredentials.set(previous ?? { url: "http://127.0.0.1:1", password: null })
+    },
+  }
+}
+
+const active = (sessionID: string) => Response.json({ data: { [sessionID]: { type: "running" } } })
+
+test("a chat the server already runs gets no second continue", async () => {
+  const fixture = server((_request, url, state) => {
+    if (url.pathname === "/api/session/active") return active("ses_running")
+    if (url.pathname === "/api/session/ses_running/prompt") {
+      state.prompts++
+      return Response.json({ data: { id: "in_1" } })
+    }
+    return new Response("not found", { status: 404 })
+  })
+  try {
+    expect(await sessionRunning("ses_running")).toBe(true)
+    expect(await resumeSession("ses_running")).toBe("running")
+    expect(fixture.prompts()).toBe(0)
+  } finally {
+    await fixture.close()
+  }
+})
+
+test("an idle chat gets exactly one continue", async () => {
+  let sent: { text?: string; auth?: string | null } | undefined
+  const fixture = server(async (request, url, state) => {
+    if (url.pathname === "/api/session/active") return Response.json({ data: {} })
+    if (url.pathname === "/api/session/ses_idle/prompt") {
+      state.prompts++
+      sent = { text: (await request.json()).text, auth: request.headers.get("authorization") }
+      return Response.json({ data: { id: "in_1" } })
+    }
+    return new Response("not found", { status: 404 })
+  })
+  try {
+    expect(await resumeSession("ses_idle")).toBe("sent")
+    expect(fixture.prompts()).toBe(1)
+    expect(sent?.text).toBe("continue")
+    expect(sent?.auth?.startsWith("Basic ")).toBe(true)
+  } finally {
+    await fixture.close()
+  }
+})
+
+test("a failed continue is not sent again once the chat resumes", async () => {
+  const fixture = server((_request, url, state) => {
+    if (url.pathname === "/api/session/active")
+      return Response.json({ data: state.prompts > 0 ? { ses_retry: { type: "running" } } : {} })
+    if (url.pathname === "/api/session/ses_retry/prompt") {
+      state.prompts++
+      return new Response("busy", { status: 500 })
+    }
+    return new Response("not found", { status: 404 })
+  })
+  try {
+    expect(await resumeSession("ses_retry")).toBe("running")
+    expect(fixture.prompts()).toBe(1)
+  } finally {
+    await fixture.close()
+  }
+})
+
+test("after a restart the reset waits for a resumed chat instead of prompting it", async () => {
+  let polls = 0
+  const fixture = server((_request, url, state) => {
+    if (url.pathname === "/api/session/active") {
+      polls++
+      return polls > 2 ? active("ses_restart") : Response.json({ data: {} })
+    }
+    if (url.pathname === "/api/session/ses_restart/prompt") {
+      state.prompts++
+      return Response.json({ data: { id: "in_1" } })
+    }
+    return new Response("not found", { status: 404 })
+  })
+  try {
+    expect(await waitForRunning("ses_restart")).toBe(true)
+    expect(fixture.prompts()).toBe(0)
+  } finally {
+    await fixture.close()
+  }
 })

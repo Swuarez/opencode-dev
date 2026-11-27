@@ -23,6 +23,8 @@ import {
   setOptions,
   setStatus,
   startWatch,
+  waitForRunning,
+  type ResumeOutcome,
   type Result,
 } from "../infinite/infinite"
 import { voiceTyping } from "../infinite/dictate"
@@ -111,8 +113,17 @@ export const infiniteHandlers = InfiniteRpcs.toLayer(
           const archived = yield* Effect.tryPromise(archiveAuth).pipe(Effect.orElseSucceed(() => false))
           setStatus("starting", "Reconnecting…")
           yield* startService
-          if (sessionID) setStatus("resuming", 'Sending "continue"…')
-          const resumed = net.ok && sessionID ? yield* Effect.promise(() => resumeSession(sessionID)) : false
+          let resumed: ResumeOutcome = "failed"
+          if (net.ok && sessionID) {
+            setStatus("resuming", "Waiting for the chat…")
+            // A restart resumes a chat that was mid-turn by itself; prompting it then would queue a second "continue".
+            const running = yield* Effect.promise(() => waitForRunning(sessionID))
+            if (running) resumed = "running"
+            else {
+              setStatus("resuming", 'Sending "continue"…')
+              resumed = yield* Effect.promise(() => resumeSession(sessionID))
+            }
+          }
           const seconds = ((Date.now() - started) / 1000).toFixed(1)
           const note = archived ? "Session saved and removed. " : ""
           // The retry above already gave the network a second chance; an unchanged address is reported, not hidden.
@@ -120,9 +131,15 @@ export const infiniteHandlers = InfiniteRpcs.toLayer(
           const outcome = net.ok
             ? `${net.ip ? (unchanged ? `IP ${net.ip} did not change` : `new IP ${net.ip}`) : "session reset"} in ${seconds}s`
             : `IP change failed: ${net.message}`
-          const continued = !sessionID ? "" : resumed ? ' "continue" sent.' : ' "continue" was not sent.'
+          const continued = !sessionID
+            ? ""
+            : resumed === "sent"
+              ? ' "continue" sent.'
+              : resumed === "running"
+                ? ' The chat was already continuing; no "continue" was sent.'
+                : ' "continue" was not sent.'
           const message = note + outcome + continued
-          setStatus(net.ok ? "done" : "failed", message)
+          setStatus(net.ok ? (resumed === "running" ? "continuing" : "done") : "failed", message)
           return { ...net, message }
         }),
       )
@@ -157,15 +174,23 @@ export const infiniteHandlers = InfiniteRpcs.toLayer(
           }
           autoStatus(`new IP ${net.ip ?? ""} works, sending "continue" to ${chats.length} chat(s)…`)
           const results = yield* Effect.promise(() =>
-            Promise.all(chats.map((id) => resumeSession(id).catch(() => false))),
+            Promise.all(chats.map((id) => resumeSession(id).catch(() => "failed" as const))),
           )
-          const sent = results.filter(Boolean).length
+          const sent = results.filter((result) => result === "sent").length
+          const running = results.filter((result) => result === "running").length
+          const failed = chats.length - sent - running
           // Timing of the whole rotation, for checking the 3-5 s target in logs.
-          console.info(`[auto-rotate] ${chats.length} chat(s) continued in ${seconds}s (${sent} sent)`)
+          console.info(
+            `[auto-rotate] ${chats.length} chat(s) continued in ${seconds}s (${sent} sent, ${running} running)`,
+          )
+          const outcome =
+            running === chats.length
+              ? "the chat was already continuing"
+              : sent === chats.length
+                ? `"continue" sent to ${sent} chat(s)`
+                : `"continue" sent to ${sent} of ${chats.length} chat(s)${running ? `, ${running} already continuing` : ""}`
           autoStatus(
-            sent === chats.length
-              ? `new IP ${net.ip ?? ""} in ${seconds}s, "continue" sent to ${sent} chat(s)`
-              : `new IP ${net.ip ?? ""} in ${seconds}s, "continue" sent to ${sent} of ${chats.length} chat(s): send the rest yourself`,
+            `new IP ${net.ip ?? ""} in ${seconds}s, ${outcome}${failed ? `: send "continue" yourself in ${failed} chat(s)` : ""}`,
             true,
           )
           return net
